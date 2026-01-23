@@ -1,294 +1,450 @@
 """
-Yoshimura-Ori Dynamic Simulation
-=================================
-Demonstrates Yoshimura origami structure under gravity with fixed base
-and optional force actuation on top nodes.
+Yoshimura-Ori Geometry Test
+===========================
+Generates Yoshimura origami geometry in folded configuration.
 """
 import numpy as np
 from pathlib import Path
-import sys
-import shutil
-
-# Ensure import
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-import demlat
-from demlat.models.barhinge import BarHingeModel
+import h5py
 from demlat.io.experiment_setup import ExperimentSetup
+from demlat.utils.viz_player import visualize_experiment
 
-DEMO_DIR = Path("experiments/yoshimura_dynamic_test")
+DEMO_DIR = Path("experiments/yoshimura_test")
 
 
-def create_yoshimura_geometry(setup: ExperimentSetup, n=3, beta=np.deg2rad(30),
-                              n_layers=3, k_axial=1000.0, k_fold=10.0,
-                              k_facet=50.0, mass=0.01):
+def general_transform_matrix(psi, gamma, d):
+    """Generate transformation matrix for Yoshimura unit."""
+    return np.array([
+        [np.cos(psi) ** 2 + np.cos(gamma) * np.sin(psi) ** 2,
+         (1 - np.cos(gamma)) * np.sin(psi) * np.cos(psi),
+         np.sin(gamma) * np.sin(psi),
+         d * np.sin(psi) * np.sin(gamma / 2)],
+        [(1 - np.cos(gamma)) * np.sin(psi) * np.cos(psi),
+         np.sin(psi) ** 2 + np.cos(gamma) * np.cos(psi) ** 2,
+         -np.sin(gamma) * np.cos(psi),
+         -d * np.cos(psi) * np.sin(gamma / 2)],
+        [-np.sin(gamma) * np.sin(psi),
+         np.sin(gamma) * np.cos(psi),
+         np.cos(gamma),
+         d * np.cos(gamma / 2)],
+        [0, 0, 0, 1]
+    ])
+
+
+def find_circumcenter(A, B, C, D):
+    """Find circumcenter of quadrilateral ABCD."""
+    AC = (A + C) / 2
+    BD = (B + D) / 2
+
+    a = np.linalg.norm(A - B)
+    b = np.linalg.norm(B - D)
+    c = np.linalg.norm(D - C)
+    d = np.linalg.norm(C - A)
+
+    s = (a + b + c + d) / 2
+    R = 0.25 * ((a * b + c * d) * (a * c + b * d) * (a * d + b * c) /
+                ((s - a) * (s - b) * (s - c) * (s - d))) ** 0.5
+
+    m = (BD - AC) / np.linalg.norm(BD - AC)
+    circ_cent = AC + m * (R ** 2 - (d / 2) ** 2) ** 0.5
+
+    return circ_cent
+
+
+def generate_yoshimura_geometry(n, beta, d=None, gamma=0.0, psi=0.0):
     """
-    Generates Yoshimura-Ori geometry based on the kinematics model.
+    Generate Yoshimura origami unit geometry in folded configuration.
+
+    Parameters
+    ----------
+    n : int
+        Number of sides in the polygon base
+    beta : float
+        Sector angle parameter
+    psi : float
+        Rotation angle (default: 0.0)
+    T0 : np.ndarray, optional
+        Initial transformation matrix (4x4)
+
+    Returns
+    -------
+    nodes : np.ndarray
+        Array of node positions, shape (N, 3)
+    bars : list of tuples
+        List of (node_i, node_j, length) for each bar
+    faces : list of tuples
+        List of (node_i, node_j, node_k) for each triangular face
     """
 
-    # Geometric parameters
+    # Calculate derived parameters for folded configuration
     r = 1 / (2 * np.sin(np.pi / n))
     w = 0.5 * np.tan(beta)
 
-    # Initial configuration parameters
-    psi = 0.0
-    gamma = 0.0  # Start flat
-    d = 0.0
+    # Folded configuration: gamma=0, d calculated from beta
+    if d is None:
+        d = (np.tan(beta) ** 2 - np.tan(np.pi / (2 * n)) ** 2) ** 0.5
 
-    # Transformation matrix
-    def get_transform(psi, gamma, d):
-        return np.array([
-            [np.cos(psi) ** 2 + np.cos(gamma) * np.sin(psi) ** 2,
-             (1 - np.cos(gamma)) * np.sin(psi) * np.cos(psi),
-             np.sin(gamma) * np.sin(psi),
-             d * np.sin(psi) * np.sin(gamma / 2)],
-            [(1 - np.cos(gamma)) * np.sin(psi) * np.cos(psi),
-             np.sin(psi) ** 2 + np.cos(gamma) * np.cos(psi) ** 2,
-             -np.sin(gamma) * np.cos(psi),
-             -d * np.cos(psi) * np.sin(gamma / 2)],
-            [-np.sin(gamma) * np.sin(psi),
-             np.sin(gamma) * np.cos(psi),
-             np.cos(gamma),
-             d * np.cos(gamma / 2)],
-            [0, 0, 0, 1]
-        ])
+    # Generate base polygon vertices
+    base = np.array([
+        [r * np.sin(2 * np.pi / n * i),
+         -r * np.cos(2 * np.pi / n * i),
+         0, 1]
+        for i in range(n)
+    ]).T
 
-    node_indices = []
-    c_axial = 5.0
+    # Transform to get top polygon
+    T = general_transform_matrix(psi, gamma, d)
+    top = T @ base
 
-    # Expected edge lengths
-    polygon_edge = 2 * r * np.sin(np.pi / n)
-    diagonal_edge = np.sqrt(w ** 2 + 0.25)  # Edge from corner to facet center
+    params = [n, beta, d, gamma, psi]
 
-    T = np.eye(4)
+    # Calculate midpoint positions
+    mid = np.zeros((4, 2 * n))
+    centers = np.zeros((2 * n, 3))
 
-    for layer in range(n_layers):
-        layer_nodes = {'base': [], 'mid': [], 'top': []}
+    for i in range(n):
+        A = base[:3, i]
+        B = base[:3, (i + 1) % n]
+        C = top[:3, i]
+        D = top[:3, (i + 1) % n]
 
-        # === CREATE NODES ===
+        p = np.cross(C - B, D - A)
+        s = np.linalg.norm((A + B) / 2 - (C + D) / 2)
+        a = 1 / (2 * np.cos(beta))
 
-        # Base nodes
-        if layer == 0:
-            for i in range(n):
-                angle = 2 * np.pi * i / n
-                pos = [r * np.sin(angle), -r * np.cos(angle), 0, 1]
-                pos_transformed = T @ np.array(pos)
-                node_idx = setup.add_node(
-                    pos_transformed[:3],
-                    mass=mass,
-                    fixed=True  # Fix all base nodes
-                )
-                layer_nodes['base'].append(node_idx)
+        x_ = w ** 2 - (s / 2) ** 2 + 1e-20
+        x = np.abs(x_) ** 0.5 if x_ >= -1e-2 else 0.0
+
+        if np.linalg.norm(p) < 1e-10:
+            # Degenerate case - planar quadrilateral
+            A_ = base[:3, (i + n // 2) % n]
+            B_ = base[:3, (i + 1 + n // 2) % n]
+            C_ = top[:3, (i + n // 2) % n]
+            D_ = top[:3, (i + 1 + n // 2) % n]
+
+            ct = (A + B + C + D) / 4
+
+            if n % 2 == 0:
+                q_hat = ct - (A_ + B_ + C_ + D_) / 4
+            else:
+                q_hat = ct - (B_ + D_) / 2
+
+            centers[i] = ct + x * q_hat / np.linalg.norm(q_hat)
         else:
-            layer_nodes['base'] = node_indices[layer - 1]['top']
+            # Non-planar quadrilateral
+            ct = find_circumcenter(A, B, C, D)
+            centers[i] = ct - p / np.linalg.norm(p) * np.abs(a ** 2 - np.linalg.norm(A - ct) ** 2) ** 0.5
 
-        # Top nodes
-        T_unit = get_transform(psi, gamma, d)
-        for i in range(n):
-            angle = 2 * np.pi * i / n
-            pos = [r * np.sin(angle), -r * np.cos(angle), 0, 1]
-            pos_top = T_unit @ np.array(pos)
-            pos_transformed = T @ pos_top
-            node_idx = setup.add_node(
-                pos_transformed[:3],
-                mass=mass,
-                fixed=False
-            )
-            layer_nodes['top'].append(node_idx)
+    # Assign mid-edge vertices
+    for i in range(n):
+        B = base[:3, (i + 1) % n]
+        D = top[:3, (i + 1) % n]
 
-        # Mid nodes - following your kinematics structure
-        # Each quadrilateral facet has: facet_center (even) and edge_mid (odd)
-        for i in range(n):
-            base_i = layer_nodes['base'][i]
-            base_next = layer_nodes['base'][(i + 1) % n]
-            top_i = layer_nodes['top'][i]
-            top_next = layer_nodes['top'][(i + 1) % n]
+        mid[:3, 2 * i] = centers[i]
 
-            # Get actual positions
-            pos_base_i = setup.nodes['positions'][base_i]
-            pos_base_next = setup.nodes['positions'][base_next]
-            pos_top_i = setup.nodes['positions'][top_i]
-            pos_top_next = setup.nodes['positions'][top_next]
+        if np.linalg.norm(B - D) < 1.95 * w:
+            mid[:3, 2 * i + 1] = (centers[i] + centers[(i + 1) % n]) / 2
+        else:
+            mid[:3, 2 * i + 1] = (B + D) / 2
 
-            # Mid node 2*i: Facet center (center of quadrilateral)
-            facet_center = (pos_base_i + pos_base_next + pos_top_i + pos_top_next) / 4
-            facet_idx = setup.add_node(facet_center, mass=mass, fixed=False)
-            layer_nodes['mid'].append(facet_idx)
+        mid[3, :] = 1.0
 
-            # Mid node 2*i+1: Edge midpoint (midpoint of edge base_next--top_next)
-            edge_mid = (pos_base_next + pos_top_next) / 2
-            edge_idx = setup.add_node(edge_mid, mass=mass, fixed=False)
-            layer_nodes['mid'].append(edge_idx)
+    # Create three sets of 2n nodes each: base_nodes, mid_nodes, top_nodes
+    # Each set contains: [vertex, edge_midpoint, vertex, edge_midpoint, ...]
+    base_nodes = np.zeros((2 * n, 3))
+    mid_nodes = np.zeros((2 * n, 3))
+    top_nodes = np.zeros((2 * n, 3))
 
-        node_indices.append(layer_nodes)
+    for i in range(n):
+        # Base layer: vertex at 2*i, edge midpoint at 2*i+1
+        base_nodes[2 * i] = base[:3, i]
+        base_nodes[2 * i + 1] = (base[:3, i] + base[:3, (i + 1) % n]) / 2
 
-        # === ADD BARS ===
+        # Mid layer: interior vertices (from centers and edge mids)
+        mid_nodes[2 * i] = mid[:3, 2 * i - 1]
+        mid_nodes[2 * i + 1] = mid[:3, 2 * i]
 
-        # 1. Top and base polygon edges
-        for i in range(n):
-            # Top polygon
-            setup.add_bar(
-                layer_nodes['top'][i],
-                layer_nodes['top'][(i + 1) % n],
-                stiffness=k_axial,
-                rest_length=polygon_edge,
-                damping=c_axial
-            )
+        # Top layer: vertex at 2*i, edge midpoint at 2*i+1
+        top_nodes[2 * i] = top[:3, i]
+        top_nodes[2 * i + 1] = (top[:3, i] + top[:3, (i + 1) % n]) / 2
 
-            # Base polygon (only for first layer)
-            if layer == 0:
-                setup.add_bar(
-                    layer_nodes['base'][i],
-                    layer_nodes['base'][(i + 1) % n],
-                    stiffness=k_axial,
-                    rest_length=polygon_edge,
-                    damping=c_axial
-                )
+    # Assemble node list: [base_nodes, mid_nodes, top_nodes]
+    nodes = []
+    nodes.extend(base_nodes)  # indices 0 to 2n-1
+    nodes.extend(mid_nodes)  # indices 2n to 4n-1
+    nodes.extend(top_nodes)  # indices 4n to 6n-1
+    nodes = np.array(nodes)
 
-        # 2. Bars within each facet
-        for i in range(n):
-            base_i = layer_nodes['base'][i]
-            base_next = layer_nodes['base'][(i + 1) % n]
-            top_i = layer_nodes['top'][i]
-            top_next = layer_nodes['top'][(i + 1) % n]
-            facet_center = layer_nodes['mid'][2 * i]
-            edge_mid = layer_nodes['mid'][2 * i + 1]
+    # Index helper functions for the new structure
+    def base_idx(i):
+        """Get index in base layer (0 to 2n-1)"""
+        return i % (2 * n)
 
-            # Bars from corners to facet center
-            setup.add_bar(base_i, facet_center, stiffness=k_axial,
-                          rest_length=diagonal_edge, damping=c_axial)
-            setup.add_bar(base_next, facet_center, stiffness=k_axial,
-                          rest_length=diagonal_edge, damping=c_axial)
-            setup.add_bar(top_i, facet_center, stiffness=k_axial,
-                          rest_length=diagonal_edge, damping=c_axial)
-            setup.add_bar(top_next, facet_center, stiffness=k_axial,
-                          rest_length=diagonal_edge, damping=c_axial)
+    def mid_idx(i):
+        """Get index in mid layer (2n to 4n-1)"""
+        return 2 * n + i % (2 * n)
 
-            # Bars from edge_mid to adjacent corners
-            setup.add_bar(base_next, edge_mid, stiffness=k_axial,
-                          rest_length=w, damping=c_axial)
-            setup.add_bar(top_next, edge_mid, stiffness=k_axial,
-                          rest_length=w, damping=c_axial)
+    def top_idx(i):
+        """Get index in top layer (4n to 6n-1)"""
+        return 4 * n + i % (2 * n)
 
-            # Bars connecting facet centers to edge mids
-            setup.add_bar(facet_center, edge_mid, stiffness=k_axial,
-                          rest_length=diagonal_edge, damping=c_axial)
+    # Generate bars and faces
+    bars = []
+    faces = []
 
-            # Connect to previous facet's edge_mid (creates the boundary)
-            prev_edge_mid = layer_nodes['mid'][2 * i - 1]
-            setup.add_bar(facet_center, prev_edge_mid, stiffness=k_axial,
-                          rest_length=diagonal_edge, damping=c_axial)
+    for i in range(2 * n):
+        j = i + 1
+        k = i - 1
 
-            # Bars from top/base to previous edge_mid
-            setup.add_bar(top_i, prev_edge_mid, stiffness=k_axial,
-                          rest_length=w, damping=c_axial)
-            setup.add_bar(base_i, prev_edge_mid, stiffness=k_axial,
-                          rest_length=w, damping=c_axial)
+        # edges
+        i1, i2 = base_idx(i), base_idx(j)
+        length = np.linalg.norm(nodes[i1] - nodes[i2])
+        bars.append((i1, i2, length))
 
-        # === ADD HINGES ===
+        i1, i2 = mid_idx(i), mid_idx(j)
+        length = np.linalg.norm(nodes[i1] - nodes[i2])
+        bars.append((i1, i2, length))
 
-        # Facet planarity hinges
-        for i in range(n):
-            base_i = layer_nodes['base'][i]
-            base_next = layer_nodes['base'][(i + 1) % n]
-            top_i = layer_nodes['top'][i]
-            top_next = layer_nodes['top'][(i + 1) % n]
-            facet_center = layer_nodes['mid'][2 * i]
+        i1, i2 = top_idx(i), top_idx(j)
+        length = np.linalg.norm(nodes[i1] - nodes[i2])
+        bars.append((i1, i2, length))
 
-            # Two triangular faces per quadrilateral, keep them coplanar
-            setup.add_hinge(
-                [base_i, facet_center, top_i, base_next],
-                stiffness=k_facet,
-                rest_angle=np.pi
-            )
-            setup.add_hinge(
-                [top_next, facet_center, base_next, top_i],
-                stiffness=k_facet,
-                rest_angle=np.pi
-            )
+        # base to mid
+        i1, i2 = base_idx(i), mid_idx(i)
+        length = np.linalg.norm(nodes[i1] - nodes[i2])
+        bars.append((i1, i2, length))
 
-        T = T @ T_unit
+        if i % 2 == 0:
+            i1, i2 = base_idx(i), mid_idx(j)
+            length = np.linalg.norm(nodes[i1] - nodes[i2])
+            bars.append((i1, i2, length))
 
-    return node_indices[-1]['top'], node_indices
+            i1, i2 = base_idx(i), mid_idx(k)
+            length = np.linalg.norm(nodes[i1] - nodes[i2])
+            bars.append((i1, i2, length))
+
+            # faces
+            faces.append((base_idx(i), mid_idx(i), mid_idx(j)))
+            faces.append((base_idx(i), mid_idx(i), mid_idx(k)))
+            faces.append((base_idx(i), base_idx(j), mid_idx(j)))
+            faces.append((base_idx(i), base_idx(k), mid_idx(k)))
+
+        # mid to top
+        i1, i2 = mid_idx(i), top_idx(i)
+        length = np.linalg.norm(nodes[i1] - nodes[i2])
+        bars.append((i1, i2, length))
+
+        if i % 2 == 0:
+            i1, i2 = top_idx(i), mid_idx(j)
+            length = np.linalg.norm(nodes[i1] - nodes[i2])
+            bars.append((i1, i2, length))
+
+            i1, i2 = top_idx(i), mid_idx(k)
+            length = np.linalg.norm(nodes[i1] - nodes[i2])
+            bars.append((i1, i2, length))
+
+            # faces
+            faces.append((top_idx(i), mid_idx(i), mid_idx(j)))
+            faces.append((top_idx(i), mid_idx(i), mid_idx(k)))
+            faces.append((top_idx(i), top_idx(j), mid_idx(j)))
+            faces.append((top_idx(i), top_idx(k), mid_idx(k)))
+
+    return nodes, bars, faces, params
 
 
-def step_1_setup_experiment():
-    print("\n[Step 1] Setting up Yoshimura Experiment...")
+def create_yoshimura_geometry(setup: ExperimentSetup, n=4, beta=np.pi / 6, d=None, gamma=0.0, psi=0.0,
+                              k_axial=1000.0, k_fold=10.0, k_facet=200.0,
+                              mass=0.01, damping=5.0):
+    """
+    Generates Yoshimura-Ori geometry and adds it to the ExperimentSetup.
 
+    Parameters
+    ----------
+    setup : ExperimentSetup
+        The experiment setup object
+    n : int
+        Number of polygon sides
+    beta : float
+        Sector angle in radians
+    k_axial : float
+        Axial stiffness for bars
+    k_fold : float
+        Fold stiffness for hinges (not yet implemented)
+    k_facet : float
+        Facet stiffness for hinges (not yet implemented)
+    mass : float
+        Mass per node
+    damping : float
+        Damping coefficient for bars
+
+    Returns
+    -------
+    faces : list
+        List of triangular faces for visualization
+    node_info : dict
+        Dictionary containing node indices for actuation setup
+    """
+
+    print(f"\nYoshimura Parameters:")
+    print(f"  n={n}, beta={np.rad2deg(beta):.2f}°")
+
+    # Generate geometry
+    nodes, bars, faces, params = generate_yoshimura_geometry(n, beta, d=d, gamma=gamma, psi=psi)
+
+    print(f"\nGenerated Geometry:")
+    print(f"  Nodes: {len(nodes)}")
+    print(f"  Bars: {len(bars)}")
+    print(f"  Faces: {len(faces)}")
+
+    node_info = {
+        'base_corners': [2 * i for i in range(n)],
+        'top_corners': [4 * n + 2 * i for i in range(n)],
+        'n': n,
+        'total_nodes': len(nodes)
+    }
+
+    # Add nodes to setup
+    for i, node_pos in enumerate(nodes):
+        # if node is in base or top corner fix it
+        if i in node_info['base_corners'] or i in node_info['top_corners']:
+            setup.add_node(node_pos, mass=mass, fixed=True)
+        else:
+            setup.add_node(node_pos, mass=mass, fixed=False)
+
+    # Add bars to setup
+    for i, j, length in bars:
+        setup.add_bar(i, j, stiffness=k_axial, rest_length=length, damping=damping)
+
+    # TODO: Add hinges here
+    # This is where we'll add hinge identification and creation logic
+
+    # Store node indices for actuation
+    # Base corners (vertices only, even indices): 0, 2, 4, ..., 2*(n-1)
+    # Top corners (vertices only, even indices): 4*n, 4*n+2, 4*n+4, ..., 4*n+2*(n-1)
+
+    return faces, node_info, params
+
+
+def setup_actuation(setup: ExperimentSetup, node_info: dict,
+                    amplitude=0.5, min_pos=0.0, max_pos=1.0, frequency=0.5, duration=10.0):
+    """
+    Setup sinusoidal actuation for top corner nodes.
+
+    Parameters
+    ----------
+    setup : ExperimentSetup
+        The experiment setup object
+    node_info : dict
+        Dictionary containing node indices
+    amplitude : float
+        Amplitude of vertical oscillation
+    frequency : float
+        Frequency of oscillation in Hz
+    duration : float
+        Duration of simulation
+    """
+
+    # Get initial positions
+    positions = setup.nodes['positions']
+
+    # Signal parameters
+    dt_sig = 0.001
+    t = np.arange(0, duration, dt_sig)
+    omega = 2 * np.pi * frequency
+
+    # Create signals for each top corner
+    base_corners = node_info['base_corners']
+    top_corners = node_info['top_corners']
+
+    print(f"\nSetting up actuation:")
+    print(f"  Fixed base corners: {base_corners}")
+    print(f"  Actuated top corners: {top_corners}")
+
+    # Create sinusoidal signals for top corners
+    for i, idx in enumerate(top_corners):
+        p0 = positions[idx]
+
+        #
+        # sig = np.zeros((len(t), 3), dtype=np.float32)
+        # sig[:, 0] = p0[0]  # X stays constant
+        # sig[:, 1] = p0[1]  # Y stays constant
+        # sig[:, 2] = p0[2] - ramp * amplitude * np.sin(omega * t)  # Z oscillates
+
+        # generate a signal to go from min_pos to max_pos from p0[2] with given frequency
+        sig = np.zeros((len(t), 3), dtype=np.float32)
+        sig[:, 0] = p0[0]
+        sig[:, 1] = p0[1]
+        sig[:, 2] = p0[2] - (max_pos - min_pos) * (1 + np.sin(omega * t)) / 2
+
+        sig_name = f"sig_top_corner_{i}"
+        setup.add_signal(sig_name, sig, dt=dt_sig)
+        setup.add_actuator(idx, sig_name, type='position')
+
+
+def main():
+    """Setup the Yoshimura experiment"""
+    print("\n[Setup] Creating Yoshimura Experiment...")
+
+    # Initialize Setup
     setup = ExperimentSetup(DEMO_DIR, overwrite=True)
 
-    # 1. Configure Simulation
-    setup.set_simulation_params(duration=5.0, dt=0.0005, save_interval=0.01)
-    setup.set_physics(gravity=-9.8, damping=0.1)
+    # Simulation parameters
+    duration = 10.0
+    dt = 0.0005
+    save_interval = 0.01
 
-    # 2. Build Geometry
-    n = 3  # Triangle base
-    beta = np.deg2rad(30)
-    n_layers = 4
+    # Configure Simulation
+    setup.set_simulation_params(duration=duration, dt=dt, save_interval=save_interval)
+    setup.set_physics(gravity=0.0, damping=0.2)
 
-    top_nodes, all_nodes = create_yoshimura_geometry(
+    # Build Geometry
+    faces, node_info, params = create_yoshimura_geometry(
         setup,
-        n=n,
-        beta=beta,
-        n_layers=n_layers,
+        n=4,
+        beta=np.deg2rad(40),
+        # d=np.tan(np.deg2rad(35)),
         k_axial=1000.0,
-        k_fold=20.0,
-        k_facet=100.0,
-        mass=0.01
+        mass=0.01,
+        damping=5.0
     )
 
-    # 3. Add actuators (optional: apply forces to top nodes)
-    # Example: Apply sinusoidal vertical force
-    dt_sig = 0.001
-    t = np.arange(0, 5.0, dt_sig)
+    n, beta, d, gamma, psi = params
 
-    # Ramp force smoothly
-    force_magnitude = 2.0  # Newtons
-    ramp = np.clip(t / 1.0, 0, 1.0)  # 1 second ramp
-    force_signal = force_magnitude * ramp * np.sin(2 * np.pi * 0.5 * t) * 0.0
+    # Setup Actuation
+    setup_actuation(
+        setup,
+        node_info,
+        amplitude=0.0,
+        min_pos=0.0,
+        max_pos=d,
+        frequency=0.1,
+        duration=duration
+    )
 
-    for i, node_idx in enumerate(top_nodes):
-        sig = np.zeros((len(t), 3), dtype=np.float32)
-        sig[:, 2] = force_signal  # Vertical force
-
-        sig_name = f"force_top_{i}"
-        setup.add_signal(sig_name, sig, dt=dt_sig)
-        setup.add_actuator(node_idx, sig_name, type='force')
-
-    # 4. Save
+    # Save Everything
     setup.save()
 
-    print(f"Created Yoshimura structure with {n} sides, {n_layers} layers")
-    print(f"Bottom nodes fixed, top nodes have applied forces")
+    # Save Visualization Faces
+    with h5py.File(DEMO_DIR / "input" / "visualization.h5", 'w') as f:
+        f.create_dataset("faces", data=np.array(faces, dtype=np.int32))
+
+    print(f"\nSaved to: {DEMO_DIR}")
 
 
-def step_2_run_simulation():
+def run_simulation():
+    """Run the simulation"""
     print("\n[Step 2] Running Simulation...")
+    import demlat
+    from demlat.models.barhinge import BarHingeModel
+
     exp = demlat.Experiment(DEMO_DIR)
     eng = demlat.Engine(BarHingeModel, backend='cuda')
     eng.run(exp)
 
-
-def check_results():
-    sim_path = DEMO_DIR / "output" / "simulation.h5"
-    if not sim_path.exists():
-        print("Error: simulation.h5 was not created.")
-        return
-
-    import h5py
-    with h5py.File(sim_path, 'r') as f:
-        print("\n[Check] simulation.h5 Attributes:")
-        for k, v in f.attrs.items():
-            print(f"  - {k}: {v}")
-
-        if 'time_series/nodes/positions' in f:
-            frames = f['time_series/nodes/positions'].shape[0]
-            nodes = f['time_series/nodes/positions'].shape[1]
-            print(f"  - Frames: {frames}")
-            print(f"  - Nodes: {nodes}")
+    print("\nSimulation complete!")
 
 
 if __name__ == "__main__":
-    step_1_setup_experiment()
-    step_2_run_simulation()
-    check_results()
+    main()
+    run_simulation()
+    visualize_experiment(DEMO_DIR)
