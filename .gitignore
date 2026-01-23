@@ -21,6 +21,7 @@ sdist/
 var/
 wheels/
 share/python-wheels/
+src/experiments/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -205,3 +206,4 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+/src/imgui.ini

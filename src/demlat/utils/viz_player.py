@@ -1,379 +1,978 @@
-import h5py
+# demlat/utils/viz_player.py
+"""
+DEMLAT Visualization Player
+============================
+
+A robust, high-performance visualization tool for DEMLAT simulation results.
+Automatically adapts to available data and provides comprehensive visual feedback.
+
+Features:
+---------
+- Automatic mode detection (geometry-only vs. full simulation)
+- Robust handling of missing/optional data
+- Auto-scaling for optimal visualization
+- Strain/stress visualization with colormaps
+- Interactive UI with real-time controls
+- Support for both bar-hinge and origami models
+- Efficient batch rendering for large systems
+
+Usage:
+------
+    from demlat.utils.viz_player import visualize_experiment
+    
+    # Auto-detect and visualize
+    visualize_experiment("path/to/experiment")
+    
+    # Custom configuration
+    visualize_experiment("path/to/experiment", config={
+        'show_strain': True,
+        'show_stress': False,
+        'colormap': 'jet',
+        'auto_scale': True
+    })
+
+Author: Yogesh Phalak
+"""
+
 import numpy as np
+import h5py
 from pathlib import Path
+from typing import Optional, Dict, Tuple, List
+import json
 import sys
-from piviz import PiVizStudio, PiVizFX, pgfx
+
+from piviz import PiVizStudio, PiVizFX, pgfx, Palette
 from piviz.ui import Slider, Label, Button, Checkbox
 
 
-class SimulationPlayer(PiVizFX):
+# =============================================================================
+# DATA LOADER WITH ROBUST ERROR HANDLING
+# =============================================================================
+
+class ExperimentData:
     """
-    Universal Player for the Demlat architecture.
+    Loads and validates experiment data with comprehensive error handling.
     """
 
-    def __init__(self, experiment_path, config=None):
+    def __init__(self, experiment_path: str):
         self.exp_path = Path(experiment_path)
-        self.input_dir = self.exp_path / "input"
-        self.output_dir = self.exp_path / "output"
+        self.mode = None  # 'geometry' or 'simulation'
 
-        # --- 1. Load Data ---
+        # File paths
+        self.geometry_path = self.exp_path / "input" / "geometry.h5"
+        self.simulation_path = self.exp_path / "output" / "simulation.h5"
+        self.visualization_path = self.exp_path / "input" / "visualization.h5"
+        self.config_path = self.exp_path / "input" / "config.json"
+
+        # Data containers
+        self.nodes = {}
+        self.elements = {}
+        self.visualization = {}
+        self.time_series = {}
+        self.config = {}
+        self.metadata = {}
+
+        # Computed properties
+        self.n_nodes = 0
+        self.n_bars = 0
+        self.n_hinges = 0
+        self.n_frames = 1
+        self.has_faces = False
+
+        # Load data
+        self._load_data()
+        self._validate_data()
+        self._compute_properties()
+
+    def _load_data(self):
+        """Load all available data files."""
+        print("\n" + "=" * 60)
+        print("DEMLAT Visualization Player - Loading Data")
+        print("=" * 60)
+
+        # Load geometry (required)
+        if not self.geometry_path.exists():
+            raise FileNotFoundError(f"Geometry file not found: {self.geometry_path}")
+
         self._load_geometry()
-        self._load_visualization()
-        self._load_simulation()
 
-        # --- 2. Configuration ---
+        # Load simulation (optional)
+        if self.simulation_path.exists():
+            self.mode = 'simulation'
+            self._load_simulation()
+            print(f"[Mode] Full Simulation Playback")
+        else:
+            self.mode = 'geometry'
+            print(f"[Mode] Geometry Viewer (no simulation data)")
+
+        # Load visualization (optional)
+        if self.visualization_path.exists():
+            self._load_visualization()
+
+        # Load config (optional)
+        if self.config_path.exists():
+            self._load_config()
+
+    def _load_geometry(self):
+        """Load geometry.h5 with robust handling of optional datasets."""
+        print(f"\n[Loading] {self.geometry_path.name}")
+
+        with h5py.File(self.geometry_path, 'r') as f:
+            # Nodes (required)
+            if 'nodes' not in f:
+                raise ValueError("geometry.h5 missing 'nodes' group")
+
+            nodes_grp = f['nodes']
+
+            # Positions (required)
+            if 'positions' not in nodes_grp:
+                raise ValueError("geometry.h5 missing 'nodes/positions'")
+            self.nodes['positions'] = nodes_grp['positions'][:]
+            self.n_nodes = self.nodes['positions'].shape[0]
+
+            # Masses (optional, default to 1.0)
+            if 'masses' in nodes_grp:
+                self.nodes['masses'] = nodes_grp['masses'][:]
+            else:
+                self.nodes['masses'] = np.ones(self.n_nodes, dtype='f4')
+
+            # Attributes (optional, default to 0 = free floating)
+            if 'attributes' in nodes_grp:
+                self.nodes['attributes'] = nodes_grp['attributes'][:]
+            else:
+                self.nodes['attributes'] = np.zeros(self.n_nodes, dtype='u1')
+
+            # Radius (optional, for visualization)
+            if 'radius' in nodes_grp:
+                self.nodes['radius'] = nodes_grp['radius'][:]
+            else:
+                self.nodes['radius'] = None
+
+            # Elements
+            if 'elements' not in f:
+                print("  [Warning] No elements found in geometry")
+                return
+
+            elem_grp = f['elements']
+
+            # Bars (optional)
+            if 'bars' in elem_grp:
+                bars_grp = elem_grp['bars']
+                self.elements['bars'] = {
+                    'indices': bars_grp['indices'][:] if 'indices' in bars_grp else None,
+                    'stiffness': bars_grp['stiffness'][:] if 'stiffness' in bars_grp else None,
+                    'rest_length': bars_grp['rest_length'][:] if 'rest_length' in bars_grp else None,
+                    'damping': bars_grp['damping'][:] if 'damping' in bars_grp else None,
+                    'prestress': bars_grp['prestress'][:] if 'prestress' in bars_grp else None,
+                }
+
+                if self.elements['bars']['indices'] is not None:
+                    self.n_bars = self.elements['bars']['indices'].shape[0]
+                    print(f"  [Loaded] {self.n_bars} bars")
+
+            # Hinges (optional)
+            if 'hinges' in elem_grp:
+                hinges_grp = elem_grp['hinges']
+                self.elements['hinges'] = {
+                    'indices': hinges_grp['indices'][:] if 'indices' in hinges_grp else None,
+                    'stiffness': hinges_grp['stiffness'][:] if 'stiffness' in hinges_grp else None,
+                    'rest_angle': hinges_grp['rest_angle'][:] if 'rest_angle' in hinges_grp else None,
+                }
+
+                if self.elements['hinges']['indices'] is not None:
+                    self.n_hinges = self.elements['hinges']['indices'].shape[0]
+                    print(f"  [Loaded] {self.n_hinges} hinges")
+
+        print(f"  [Loaded] {self.n_nodes} nodes")
+
+    def _load_simulation(self):
+        """Load simulation.h5 with robust handling."""
+        print(f"\n[Loading] {self.simulation_path.name}")
+
+        with h5py.File(self.simulation_path, 'r') as f:
+            # Metadata
+            self.metadata = dict(f.attrs)
+
+            if 'time_series' not in f:
+                print("  [Warning] No time_series group found")
+                self.mode = 'geometry'
+                return
+
+            ts_grp = f['time_series']
+
+            # Time array (required for simulation)
+            if 'time' in ts_grp:
+                self.time_series['time'] = ts_grp['time'][:]
+                self.n_frames = len(self.time_series['time'])
+                print(f"  [Loaded] {self.n_frames} frames")
+            else:
+                print("  [Warning] No time array found")
+                self.mode = 'geometry'
+                return
+
+            # Node data
+            if 'nodes' in ts_grp:
+                nodes_grp = ts_grp['nodes']
+
+                # Positions (required for animation)
+                if 'positions' in nodes_grp:
+                    self.time_series['positions'] = nodes_grp['positions'][:]
+                    print(f"  [Loaded] Node positions [{self.time_series['positions'].shape}]")
+                else:
+                    print("  [Warning] No node positions in simulation")
+                    self.mode = 'geometry'
+                    return
+
+                # Velocities (optional)
+                if 'velocities' in nodes_grp:
+                    self.time_series['velocities'] = nodes_grp['velocities'][:]
+                    print(f"  [Loaded] Node velocities")
+
+                # Energies (optional)
+                if 'kinetic_energy' in nodes_grp:
+                    self.time_series['node_kinetic'] = nodes_grp['kinetic_energy'][:]
+                if 'potential_energy' in nodes_grp:
+                    self.time_series['node_potential'] = nodes_grp['potential_energy'][:]
+
+            # Element data (bars)
+            if 'elements' in ts_grp and 'bars' in ts_grp['elements']:
+                bars_grp = ts_grp['elements']['bars']
+
+                if 'strain' in bars_grp:
+                    self.time_series['bar_strain'] = bars_grp['strain'][:]
+                    print(f"  [Loaded] Bar strains")
+
+                if 'stress' in bars_grp:
+                    self.time_series['bar_stress'] = bars_grp['stress'][:]
+                    print(f"  [Loaded] Bar stresses")
+
+                if 'potential_energy' in bars_grp:
+                    self.time_series['bar_energy'] = bars_grp['potential_energy'][:]
+
+            # Element data (hinges)
+            if 'elements' in ts_grp and 'hinges' in ts_grp['elements']:
+                hinges_grp = ts_grp['elements']['hinges']
+
+                if 'angle' in hinges_grp:
+                    self.time_series['hinge_angle'] = hinges_grp['angle'][:]
+                    print(f"  [Loaded] Hinge angles")
+
+                if 'torsional_strain' in hinges_grp:
+                    self.time_series['hinge_strain'] = hinges_grp['torsional_strain'][:]
+                    print(f"  [Loaded] Hinge strains")
+
+    def _load_visualization(self):
+        """Load visualization.h5 with backward compatibility."""
+        print(f"\n[Loading] {self.visualization_path.name}")
+
+        with h5py.File(self.visualization_path, 'r') as f:
+            # Check if 'faces' exists
+            if 'faces' in f:
+                # Check if it's a group (new schema) or dataset (legacy)
+                if isinstance(f['faces'], h5py.Group) and 'triangles' in f['faces']:
+                    self.visualization['faces'] = f['faces']['triangles'][:]
+                    self.has_faces = True
+                    print(f"  [Loaded] {len(self.visualization['faces'])} triangular faces")
+
+                elif isinstance(f['faces'], h5py.Dataset):
+                    self.visualization['faces'] = f['faces'][:]
+                    self.has_faces = True
+                    print(f"  [Loaded] {len(self.visualization['faces'])} faces (legacy format)")
+
+            # Appearance data (optional)
+            if 'appearance' in f:
+                app_grp = f['appearance']
+                if 'face_colors' in app_grp:
+                    self.visualization['face_colors'] = app_grp['face_colors'][:]
+                if 'face_opacity' in app_grp:
+                    self.visualization['face_opacity'] = app_grp['face_opacity'][:]
+
+    def _load_config(self):
+        """Load config.json (optional)."""
+        print(f"\n[Loading] {self.config_path.name}")
+
+        try:
+            with open(self.config_path, 'r') as f:
+                self.config = json.load(f)
+            print(f"  [Loaded] Configuration")
+        except Exception as e:
+            print(f"  [Warning] Could not load config: {e}")
+
+    def _validate_data(self):
+        """Validate loaded data for consistency."""
+        # Check position dimensions
+        if self.mode == 'simulation':
+            expected_shape = (self.n_frames, self.n_nodes, 3)
+            actual_shape = self.time_series['positions'].shape
+            if actual_shape != expected_shape:
+                raise ValueError(
+                    f"Position data shape mismatch: expected {expected_shape}, got {actual_shape}"
+                )
+
+    def _compute_properties(self):
+        """Compute derived properties for visualization."""
+        # Compute rest lengths if not provided
+        if self.n_bars > 0 and self.elements['bars']['rest_length'] is None:
+            indices = self.elements['bars']['indices']
+            pos = self.nodes['positions']
+            rest_lengths = np.linalg.norm(
+                pos[indices[:, 0]] - pos[indices[:, 1]], axis=1
+            )
+            self.elements['bars']['rest_length'] = rest_lengths.astype('f4')
+            print("[Computed] Bar rest lengths from initial geometry")
+
+
+# =============================================================================
+# VISUALIZATION SCALE CALCULATOR
+# =============================================================================
+
+class VisualizationScales:
+    """
+    Automatically computes optimal visualization scales.
+    """
+
+    def __init__(self, data: ExperimentData):
+        self.data = data
+
+        # Geometric scales
+        self.L_char = 1.0  # Characteristic length
+        self.extent = np.array([1.0, 1.0, 1.0])
+        self.center = np.array([0.0, 0.0, 0.0])
+
+        # Element scales
+        self.node_radius = 0.1
+        self.bar_radius = 0.05
+        self.velocity_scale = 1.0
+
+        # Colormap limits
+        self.strain_limit = 0.3
+        self.stress_limit = None
+
+        self._compute_scales()
+
+    def _compute_scales(self):
+        """Compute all visualization scales."""
+        print("\n" + "=" * 60)
+        print("Computing Visualization Scales")
+        print("=" * 60)
+
+        # Geometric extent
+        positions = self.data.nodes['positions']
+        self.extent = np.max(positions, axis=0) - np.min(positions, axis=0)
+        self.center = np.mean(positions, axis=0)
+        self.L_char = np.median(self.extent) if np.any(self.extent > 0) else 1.0
+
+        # Use bar rest lengths if available
+        if self.data.n_bars > 0:
+            rest_lengths = self.data.elements['bars']['rest_length']
+            if rest_lengths is not None:
+                median_length = np.median(rest_lengths)
+                if median_length > 0:
+                    self.L_char = median_length
+
+        print(f"Characteristic Length: {self.L_char:.4f}")
+        print(f"Extent: [{self.extent[0]:.2f}, {self.extent[1]:.2f}, {self.extent[2]:.2f}]")
+        print(f"Center: [{self.center[0]:.2f}, {self.center[1]:.2f}, {self.center[2]:.2f}]")
+
+        # Node radius
+        if self.data.nodes['radius'] is not None:
+            self.node_radius = np.median(self.data.nodes['radius'])
+        else:
+            self.node_radius = self.L_char * 0.15
+
+        print(f"Node Radius: {self.node_radius:.4f}")
+
+        # Bar radius
+        self.bar_radius = self.L_char * 0.05
+        print(f"Bar Radius: {self.bar_radius:.4f}")
+
+        # Velocity scale (if simulation data available)
+        if self.data.mode == 'simulation' and 'velocities' in self.data.time_series:
+            self._compute_velocity_scale()
+
+        # Strain/stress limits
+        if 'bar_strain' in self.data.time_series:
+            strains = self.data.time_series['bar_strain']
+            self.strain_limit = np.percentile(np.abs(strains), 95)
+            print(f"Strain Limit (95th percentile): ±{self.strain_limit:.4f}")
+
+        if 'bar_stress' in self.data.time_series:
+            stresses = self.data.time_series['bar_stress']
+            self.stress_limit = np.percentile(np.abs(stresses), 95)
+            print(f"Stress Limit (95th percentile): ±{self.stress_limit:.2e}")
+
+    def _compute_velocity_scale(self):
+        """Auto-tune velocity arrow scaling."""
+        vels = self.data.time_series['velocities']
+
+        # Sample velocities across time
+        sample_indices = np.linspace(0, len(vels) - 1, min(10, len(vels)), dtype=int)
+        max_vel = 0.0
+
+        for idx in sample_indices:
+            v_mag = np.linalg.norm(vels[idx], axis=1)
+            max_vel = max(max_vel, np.max(v_mag))
+
+        if max_vel > 1e-9:
+            self.velocity_scale = (1.5 * self.L_char) / max_vel
+        else:
+            self.velocity_scale = 1.0
+
+        print(f"Velocity Scale: {self.velocity_scale:.4f}")
+
+
+# =============================================================================
+# MAIN VISUALIZATION CLASS
+# =============================================================================
+
+class DEMLATVisualizer(PiVizFX):
+    """
+    High-performance visualizer for DEMLAT simulations.
+    Optimized following the ReservoirAnimator pattern.
+    """
+
+    def __init__(self, data: ExperimentData, config: Optional[Dict] = None):
+        super().__init__()
+
+        self.data = data
+        self.scales = VisualizationScales(data)
+
+        # Playback state
+        self.timestep_idx = 0
+        self.float_timestep = 0.0
+        self.paused = False
+        self.speed = 1.0
+
+        # Configuration
         self.config = {
-            'show_faces': True,
-            'show_edges': True,
             'show_nodes': True,
-            'show_strain': True,
+            'show_bars': True,
+            'show_hinges': False,
+            'show_faces': True,
             'show_velocity': False,
             'show_trails': False,
-            'trail_length': 40,
-            'strain_limit': 0.15,
-            'node_radius': self.L_char * 0.02,
-            'edge_width': 2.0,
-            'face_color': (0.2, 0.6, 1.0, 0.8),
-            'rigid_color': (0.4, 0.4, 0.4),
-            'velocity_scale': 1.0
+            'trail_length': 50,
+            'show_strain': True,
+            'show_stress': False,
+            'use_particles_for_nodes': False,
+            'particle_threshold': 300,
+            'use_lines_for_bars': False,
+            'sphere_detail': 12,
+            'cylinder_detail': 8,
+            'strain_limit': None,
+            'base_node_radius': None,
+            'velocity_scale': None,
         }
+
         if config:
             self.config.update(config)
 
-        # --- 3. State Management ---
-        self.paused = True
-        self.speed = 1.0
-        self.frame_idx = 0
-        self.float_frame = 0.0
-        self.trails = {i: [] for i in range(self.n_nodes)}
+        # Auto-adjust based on system size
+        if self.data.n_nodes > 500:
+            self.config['sphere_detail'] = 8
+            self.config['cylinder_detail'] = 6
+            self.config['use_particles_for_nodes'] = True
 
-        self._preallocate_buffers()
+        if self.data.n_bars > 500:
+            self.config['use_lines_for_bars'] = True
 
-    def _load_geometry(self):
-        geo_path = self.input_dir / "geometry.h5"
-        if not geo_path.exists():
-            raise FileNotFoundError(f"Geometry file not found: {geo_path}")
+        # Set scales from computed values
+        if self.config['strain_limit'] is None:
+            self.config['strain_limit'] = self.scales.strain_limit
 
-        with h5py.File(geo_path, 'r') as f:
-            self.ref_positions = f['nodes/positions'][:]
-            self.n_nodes = self.ref_positions.shape[0]
+        if self.config['base_node_radius'] is None:
+            self.config['base_node_radius'] = self.scales.node_radius
 
-            if 'elements/bars' in f:
-                self.bar_indices = f['elements/bars/indices'][:]
-                self.bar_rest_lengths = f['elements/bars/rest_length'][:]
-                self.n_bars = self.bar_indices.shape[0]
-            else:
-                self.bar_indices = np.empty((0, 2), dtype=int)
-                self.bar_rest_lengths = np.empty((0,), dtype=float)
-                self.n_bars = 0
+        if self.config['velocity_scale'] is None:
+            self.config['velocity_scale'] = self.scales.velocity_scale
 
-        # Calculate bounding box
-        bbox_min = np.min(self.ref_positions, axis=0)
-        bbox_max = np.max(self.ref_positions, axis=0)
-        self.L_char = np.linalg.norm(bbox_max - bbox_min)
-        if self.L_char == 0: self.L_char = 1.0
+        # Categorize nodes
+        self._categorize_nodes()
 
-    def _load_visualization(self):
-        viz_path = self.input_dir / "visualization.h5"
-        self.has_viz = viz_path.exists()
+        # Trails
+        self.trails = {i: [] for i in range(self.data.n_nodes)}
 
-        if self.has_viz:
-            with h5py.File(viz_path, 'r') as f:
-                self.faces = f['faces'][:]
-            
-            # Calculate rest areas for strain computation
-            p0 = self.ref_positions[self.faces[:, 0]]
-            p1 = self.ref_positions[self.faces[:, 1]]
-            p2 = self.ref_positions[self.faces[:, 2]]
-            self.face_rest_areas = 0.5 * np.linalg.norm(np.cross(p1 - p0, p2 - p0), axis=1)
-        else:
-            self.faces = None
-            print("[Player] No visualization.h5 found. Face rendering disabled.")
+        # Pre-allocate batch arrays
+        self._preallocate_batch_arrays()
 
-    def _load_simulation(self):
-        sim_path = self.output_dir / "simulation.h5"
-        self.has_sim = sim_path.exists()
+    def _categorize_nodes(self):
+        """Categorize nodes by type."""
+        attrs = self.data.nodes['attributes']
 
-        if self.has_sim:
-            self.sim_file = h5py.File(sim_path, 'r')
-            self.ts_pos = self.sim_file['time_series/nodes/positions']
-            self.ts_time = self.sim_file['time_series/time']
-            self.n_frames = self.ts_pos.shape[0]
+        self.fixed_nodes_idx = np.where((attrs & 1) != 0)[0]
+        self.position_actuators_idx = np.where((attrs & 2) != 0)[0]
+        self.force_actuators_idx = np.where((attrs & 4) != 0)[0]
+        self.floating_nodes_idx = np.where(attrs == 0)[0]
 
-            if 'time_series/nodes/velocities' in self.sim_file:
-                self.ts_vel = self.sim_file['time_series/nodes/velocities']
-            else:
-                self.ts_vel = None
+        print(f"\n[Node Categories]")
+        print(f"  Fixed: {len(self.fixed_nodes_idx)}")
+        print(f"  Position Actuators: {len(self.position_actuators_idx)}")
+        print(f"  Force Actuators: {len(self.force_actuators_idx)}")
+        print(f"  Floating: {len(self.floating_nodes_idx)}")
 
-            print(f"[Player] Simulation loaded: {self.n_frames} frames.")
-        else:
-            self.n_frames = 1
-            self.ts_pos = None
-            self.ts_time = None
-            print("[Player] No simulation.h5 found. Running in Geometry Mode.")
+    def _preallocate_batch_arrays(self):
+        """Pre-allocate all arrays for rendering - no per-frame allocation!"""
+        n = self.data.n_nodes
+        n_bars = self.data.n_bars
+        n_floating = len(self.floating_nodes_idx)
 
-    def _preallocate_buffers(self):
-        self.curr_pos = np.zeros((self.n_nodes, 3), dtype='f4')
-        self.bar_colors = np.zeros((self.n_bars, 3), dtype='f4')
-        self.bar_colors[:] = self.config['rigid_color']
+        # Current frame data
+        self.all_positions = np.zeros((n, 3), dtype='f4')
 
-        if self.faces is not None:
-            self.face_colors = np.zeros((len(self.faces), 4), dtype='f4')
-            self.face_colors[:] = self.config['face_color']
+        # Bars
+        if n_bars > 0:
+            self.bar_indices = self.data.elements['bars']['indices']
+            self.bar_rest_lengths = self.data.elements['bars']['rest_length']
+            self.bar_colors = np.zeros((n_bars, 3), dtype='f4')
+            self.bar_start_pos = np.zeros((n_bars, 3), dtype='f4')
+            self.bar_end_pos = np.zeros((n_bars, 3), dtype='f4')
 
-        self.node_colors = np.zeros((self.n_nodes, 3), dtype='f4')
-        self.node_colors[:] = (0.2, 0.2, 0.2)
-        self.node_sizes = np.ones(self.n_nodes, dtype='f4') * 5.0
+        # Particles (for nodes)
+        if n_floating > 0:
+            self.particle_positions = np.zeros((n_floating, 3), dtype='f4')
+            self.particle_colors = np.full((n_floating, 3), (0.3, 0.3, 0.3), dtype='f4')
+            self.particle_sizes = np.full(n_floating, self.scales.node_radius * 80, dtype='f4')
+
+        # Faces
+        if self.data.has_faces:
+            n_faces = len(self.data.visualization['faces'])
+            self.face_indices = self.data.visualization['faces']
+            self.face_default_opacity = 0.7
+
+            # Pre-compute vertex strain buffers
+            self.vertex_strains = np.zeros(n, dtype='f4')
+            self.vertex_counts = np.zeros(n, dtype='f4')
+
+        # Velocity arrows
+        if 'velocities' in self.data.time_series:
+            self.current_velocities = np.zeros((n, 3), dtype='f4')
+
+        print("[Preallocated] All rendering arrays")
 
     def setup(self):
+        """Initialize visualization."""
         if self.camera:
             self.camera.set_view('iso')
-            self.camera.distance = self.L_char * 2.0
+            max_extent = np.max(self.scales.extent)
+            self.camera.distance = max_extent * 3.0
+            self.camera.target = tuple(self.scales.center)
 
         if self.ui_manager:
-            title = "Simulation Player" if self.has_sim else "Geometry Inspector"
-            self.ui_manager.set_panel_title(title)
+            self._setup_ui()
 
-            self.lbl_status = Label((0, 0, 200, 20), f"Nodes: {self.n_nodes} | Bars: {self.n_bars}")
-            self.ui_manager.add_widget("lbl_stat", self.lbl_status)
+        print("\n" + "=" * 60)
+        print("Visualization Ready")
+        print("=" * 60)
+        print(f"Mode: {self.data.mode.upper()}")
+        print(f"Nodes: {self.data.n_nodes} | Bars: {self.data.n_bars}")
+        if self.data.mode == 'simulation':
+            print(f"Frames: {self.data.n_frames}")
+            print(f"Duration: {self.data.time_series['time'][-1]:.2f}s")
+        print("=" * 60 + "\n")
 
-            if self.has_sim:
-                self.lbl_time = Label((0, 0, 200, 20), "Time: 0.00s")
-                self.ui_manager.add_widget("lbl_time", self.lbl_time)
+    def _setup_ui(self):
+        """Setup UI controls."""
+        self.ui_manager.set_panel_title("DEMLAT Player")
 
-                self.ui_manager.add_widget("btn_play",
-                                           Button((0, 0, 80, 25), "Play/Pause", lambda: self._toggle_pause()))
+        # Time display
+        if self.data.mode == 'simulation':
+            self.lbl_time = Label("Time: 0.00s | Frame: 0")
+            self.ui_manager.add_widget("lbl_time", self.lbl_time)
+        else:
+            self.lbl_mode = Label("Geometry Viewer", color=(0.7, 0.9, 1.0))
+            self.ui_manager.add_widget("lbl_mode", self.lbl_mode)
 
-                self.ui_manager.add_widget("sld_time",
-                                           Slider((0, 0, 200, 20), "Frame", 0, self.n_frames - 1, 0, self._seek_frame))
+        # Performance info
+        self.lbl_perf = Label(
+            f"Nodes: {self.data.n_nodes} | Bars: {self.data.n_bars}",
+            color=(0.7, 0.7, 0.7)
+        )
+        self.ui_manager.add_widget("lbl_perf", self.lbl_perf)
 
-                self.ui_manager.add_widget("sld_speed",
-                                           Slider((0, 0, 150, 20), "Speed", 10, 300, 100,
-                                                  lambda v: setattr(self, 'speed', v / 100.0)))
+        # Playback controls
+        if self.data.mode == 'simulation':
+            self.ui_manager.add_widget("btn_reset", Button("Reset", self._reset_sim))
+            self.ui_manager.add_widget("btn_pause", Button("Pause/Play", self._toggle_pause))
 
-            if self.has_viz:
-                self.ui_manager.add_widget("chk_faces",
-                                           Checkbox((0, 0, 150, 20), "Show Faces", True,
-                                                    lambda v: self.config.update({'show_faces': v})))
+            self.ui_manager.add_widget("sld_speed",
+                                       Slider("Speed", 10, 500, int(self.speed * 100),
+                                              lambda v: setattr(self, 'speed', v / 100.0)))
 
+        # Visualization toggles
+        self.ui_manager.add_widget("chk_nodes",
+                                   Checkbox("Show Nodes", self.config['show_nodes'],
+                                            lambda v: self.config.update({'show_nodes': v})))
+
+        self.ui_manager.add_widget("chk_bars",
+                                   Checkbox("Show Bars", self.config['show_bars'],
+                                            lambda v: self.config.update({'show_bars': v})))
+
+        if self.data.has_faces:
+            self.ui_manager.add_widget("chk_faces",
+                                       Checkbox("Show Faces", self.config['show_faces'],
+                                                lambda v: self.config.update({'show_faces': v})))
+
+        if 'bar_strain' in self.data.time_series:
             self.ui_manager.add_widget("chk_strain",
-                                       Checkbox((0, 0, 150, 20), "Strain Color", True,
+                                       Checkbox("Strain Color", self.config['show_strain'],
                                                 lambda v: self.config.update({'show_strain': v})))
 
-            self.ui_manager.add_widget("chk_nodes",
-                                       Checkbox((0, 0, 150, 20), "Show Nodes", True,
-                                                lambda v: self.config.update({'show_nodes': v})))
+        if 'velocities' in self.data.time_series:
+            self.ui_manager.add_widget("chk_vel",
+                                       Checkbox("Show Velocity", self.config['show_velocity'],
+                                                self._toggle_velocity))
 
-            if self.has_sim:
-                self.ui_manager.add_widget("chk_vel",
-                                           Checkbox((0, 0, 150, 20), "Velocity", False,
-                                                    lambda v: self.config.update({'show_velocity': v})))
+        self.ui_manager.add_widget("chk_trails",
+                                   Checkbox("Show Trails", self.config['show_trails'],
+                                            lambda v: self.config.update({'show_trails': v})))
 
-                self.ui_manager.add_widget("chk_trail",
-                                           Checkbox((0, 0, 150, 20), "Trails", False,
-                                                    lambda v: self.config.update({'show_trails': v})))
+        self.ui_manager.add_widget("chk_lines",
+                                   Checkbox("Fast Lines", self.config['use_lines_for_bars'],
+                                            lambda v: self.config.update({'use_lines_for_bars': v})))
+
+        self.ui_manager.add_widget("chk_particles",
+                                   Checkbox("Particle Nodes",
+                                            self.config['use_particles_for_nodes'],
+                                            lambda v: self.config.update({'use_particles_for_nodes': v})))
+
+    def _reset_sim(self):
+        self.timestep_idx = 0
+        self.float_timestep = 0.0
+        for k in self.trails:
+            self.trails[k].clear()
 
     def _toggle_pause(self):
         self.paused = not self.paused
 
-    def _seek_frame(self, frame_idx):
-        self.float_frame = float(frame_idx)
-        self.frame_idx = int(frame_idx)
-        for k in self.trails: self.trails[k].clear()
-
-    def _update_physics_state(self, dt):
-        if self.has_sim:
-            if not self.paused:
-                self.float_frame += dt * 60 * self.speed
-                if self.float_frame >= self.n_frames:
-                    self.float_frame = 0
-                    for k in self.trails: self.trails[k].clear()
-                self.frame_idx = int(self.float_frame)
-
-            self.curr_pos[:] = self.ts_pos[self.frame_idx]
-        else:
-            self.curr_pos[:] = self.ref_positions
-
-    def _compute_strain_colors(self):
-        limit = self.config['strain_limit']
-
-        # 1. Bars
-        if self.n_bars > 0:
-            p1 = self.curr_pos[self.bar_indices[:, 0]]
-            p2 = self.curr_pos[self.bar_indices[:, 1]]
-
-            curr_lengths = np.linalg.norm(p1 - p2, axis=1)
-            strains = (curr_lengths - self.bar_rest_lengths) / (self.bar_rest_lengths + 1e-9)
-
-            t = np.clip((strains + limit) / (2 * limit), 0.0, 1.0)
-
-            self.bar_colors[:, 0] = np.clip(1.5 - np.abs(t - 0.75) * 4, 0, 1)  # R
-            self.bar_colors[:, 1] = np.clip(1.5 - np.abs(t - 0.5) * 4, 0, 1)  # G
-            self.bar_colors[:, 2] = np.clip(1.5 - np.abs(t - 0.25) * 4, 0, 1)  # B
-
-        # 2. Faces (Averaged Nodal Strain)
-        if self.faces is not None:
-            # Calculate per-face strain first
-            p0 = self.curr_pos[self.faces[:, 0]]
-            p1 = self.curr_pos[self.faces[:, 1]]
-            p2 = self.curr_pos[self.faces[:, 2]]
-            
-            curr_areas = 0.5 * np.linalg.norm(np.cross(p1 - p0, p2 - p0), axis=1)
-            face_strains = (curr_areas - self.face_rest_areas) / (self.face_rest_areas + 1e-9)
-            
-            # Accumulate strain at nodes
-            node_strain_sum = np.zeros(self.n_nodes, dtype=float)
-            node_strain_count = np.zeros(self.n_nodes, dtype=int)
-            
-            for i in range(len(self.faces)):
-                strain = face_strains[i]
-                for node_idx in self.faces[i]:
-                    node_strain_sum[node_idx] += strain
-                    node_strain_count[node_idx] += 1
-            
-            # Average strain at nodes
-            # Avoid division by zero for isolated nodes
-            mask = node_strain_count > 0
-            node_avg_strain = np.zeros(self.n_nodes, dtype=float)
-            node_avg_strain[mask] = node_strain_sum[mask] / node_strain_count[mask]
-            
-            # Re-assign smoothed strain to faces (average of its 3 nodes)
-            smoothed_face_strains = (
-                node_avg_strain[self.faces[:, 0]] +
-                node_avg_strain[self.faces[:, 1]] +
-                node_avg_strain[self.faces[:, 2]]
-            ) / 3.0
-            
-            # Map smoothed strain to color
-            t = np.clip((smoothed_face_strains + limit) / (2 * limit), 0.0, 1.0)
-            
-            self.face_colors[:, 0] = np.clip(1.5 - np.abs(t - 0.75) * 4, 0, 1)  # R
-            self.face_colors[:, 1] = np.clip(1.5 - np.abs(t - 0.5) * 4, 0, 1)  # G
-            self.face_colors[:, 2] = np.clip(1.5 - np.abs(t - 0.25) * 4, 0, 1)  # B
-            self.face_colors[:, 3] = self.config['face_color'][3]
+    def _toggle_velocity(self, v):
+        self.config['show_velocity'] = v
 
     def render(self, time_val, dt):
-        self._update_physics_state(dt)
+        """Main render loop - optimized like ReservoirAnimator."""
 
-        if self.has_sim:
-            t_curr = self.ts_time[self.frame_idx]
-            self.lbl_time.text = f"Time: {t_curr:.3f}s | Frame: {self.frame_idx}"
-            if not self.paused and self.ui_manager:
-                self.ui_manager.widgets['sld_time'].value = self.frame_idx
+        # Update playback
+        if self.data.mode == 'simulation' and not self.paused:
+            self.float_timestep += dt * 60 * self.speed
+            if self.float_timestep >= self.data.n_frames:
+                self.float_timestep = 0.0
+                for k in self.trails:
+                    self.trails[k].clear()
 
-        if self.config['show_strain']:
-            self._compute_strain_colors()
+            self.timestep_idx = int(self.float_timestep)
 
-        # 1. Faces
-        if self.has_viz and self.config['show_faces'] and self.faces is not None:
-            default_color = self.config['face_color']
-            for i in range(len(self.faces)):
-                idx0, idx1, idx2 = self.faces[i]
-                v1 = tuple(self.curr_pos[idx0])
-                v2 = tuple(self.curr_pos[idx1])
-                v3 = tuple(self.curr_pos[idx2])
-                
-                if self.config['show_strain']:
-                    color = tuple(self.face_colors[i])
-                else:
-                    color = default_color
-                
-                pgfx.draw_triangle(v1, v2, v3, color)
+        idx = self.timestep_idx
 
-        # 2. Bars
-        if self.config['show_edges'] and self.n_bars > 0:
-            width = self.config['edge_width']
-            rigid_c = self.config['rigid_color']
+        # Get current frame data
+        if self.data.mode == 'simulation':
+            x_curr = self.data.time_series['positions'][idx]
+        else:
+            x_curr = self.data.nodes['positions']
 
-            for i in range(self.n_bars):
-                idx0, idx1 = self.bar_indices[i]
-                start = tuple(self.curr_pos[idx0])
-                end = tuple(self.curr_pos[idx1])
+        self.all_positions[:] = x_curr
 
-                color = tuple(self.bar_colors[i]) if self.config['show_strain'] else rigid_c
-                pgfx.draw_line(start, end, color=color, width=width)
+        # Calculate velocities (if needed)
+        vels = None
+        if self.config['show_velocity'] and idx > 0 and 'velocities' in self.data.time_series:
+            self.current_velocities[:] = self.data.time_series['velocities'][idx]
+            vels = self.current_velocities
 
-        # 3. Nodes
+        # --- DRAWING LAYERS ---
+
+        # 1. Trails
+        if self.config['show_trails']:
+            self._render_trails(x_curr)
+
+        # 2. Faces
+        if self.config['show_faces']:
+            self._render_faces()
+
+        # 3. Bars
+        if self.config['show_bars']:
+            self._render_bars()
+
+        # 4. Nodes
         if self.config['show_nodes']:
-            pgfx.draw_particles(
-                positions=self.curr_pos,
-                colors=self.node_colors,
-                sizes=self.node_sizes
-            )
+            self._render_nodes()
 
-        # 4. Extras
-        if self.has_sim:
-            if self.config['show_trails']:
-                self._render_trails()
-            if self.config['show_velocity'] and self.ts_vel is not None:
-                self._render_velocity()
+        # 5. Velocity arrows
+        if vels is not None:
+            self._render_velocity_arrows(vels)
 
-    def _render_trails(self):
+        # 6. UI Updates
+        if self.data.mode == 'simulation' and hasattr(self, 'lbl_time'):
+            t_display = self.data.time_series['time'][idx]
+            self.lbl_time.text = f"Time: {t_display:.2f}s | Frame: {idx}/{self.data.n_frames - 1}"
+
+    def _render_trails(self, x_curr):
+        """Render motion trails for floating nodes."""
         limit = self.config['trail_length']
-        step = 1 if self.n_nodes < 1000 else 5
-        for i in range(0, self.n_nodes, step):
-            pos = tuple(self.curr_pos[i])
+        for i in self.floating_nodes_idx:
+            pos = tuple(x_curr[i])
             self.trails[i].append(pos)
             if len(self.trails[i]) > limit:
                 self.trails[i].pop(0)
+
             if len(self.trails[i]) > 1:
-                pgfx.draw_path(self.trails[i], color=(1, 0.5, 0), width=1.0)
+                pgfx.draw_path(
+                    points=self.trails[i],
+                    color=(1.0, 0.5, 0.0, 0.6),
+                    width=2.0
+                )
 
-    def _render_velocity(self):
-        vels = self.ts_vel[self.frame_idx]
-        scale = self.config['velocity_scale']
-        norms = np.linalg.norm(vels, axis=1)
-        mask_indices = np.where(norms > 1e-4)[0]
-        arrow_color = (0, 1, 1)
+    def _render_bars(self):
+        """Render bars with strain coloring - vectorized."""
+        if self.data.n_bars == 0:
+            return
 
-        for idx in mask_indices:
-            start = self.curr_pos[idx]
-            vec = vels[idx] * scale
-            end = start + vec
-            pgfx.draw_arrow(
-                start=tuple(start),
-                end=tuple(end),
-                color=arrow_color,
-                head_size=self.L_char * 0.05,
-                width_radius=self.L_char * 0.005
+        # Update positions (vectorized)
+        self.bar_start_pos[:] = self.all_positions[self.bar_indices[:, 0]]
+        self.bar_end_pos[:] = self.all_positions[self.bar_indices[:, 1]]
+
+        # Compute strain colors (vectorized)
+        if self.config['show_strain'] and 'bar_strain' in self.data.time_series:
+            strains = self.data.time_series['bar_strain'][self.timestep_idx]
+            limit = self.config['strain_limit']
+            t = np.clip((strains + limit) / (2 * limit), 0.0, 1.0)
+
+            self.bar_colors[:, 0] = np.clip(1.5 - np.abs(t - 0.75) * 4, 0, 1)
+            self.bar_colors[:, 1] = np.clip(1.5 - np.abs(t - 0.5) * 4, 0, 1)
+            self.bar_colors[:, 2] = np.clip(1.5 - np.abs(t - 0.25) * 4, 0, 1)
+        else:
+            self.bar_colors[:] = (0.5, 0.5, 0.5)
+
+        # Render
+        use_lines = self.config['use_lines_for_bars']
+
+        if use_lines:
+            for i in range(self.data.n_bars):
+                pgfx.draw_line(
+                    tuple(self.bar_start_pos[i]),
+                    tuple(self.bar_end_pos[i]),
+                    color=tuple(self.bar_colors[i]),
+                    width=2.0
+                )
+        else:
+            radius = self.scales.bar_radius
+            detail = self.config['cylinder_detail']
+            for i in range(self.data.n_bars):
+                pgfx.draw_cylinder(
+                    start=tuple(self.bar_start_pos[i]),
+                    end=tuple(self.bar_end_pos[i]),
+                    radius=radius,
+                    color=tuple(self.bar_colors[i]),
+                    detail=detail
+                )
+
+    def _render_faces(self):
+        """Render faces with smooth per-vertex strain coloring."""
+        if not self.data.has_faces:
+            return
+
+        # Compute per-vertex strains (vectorized)
+        if self.config['show_strain'] and 'bar_strain' in self.data.time_series:
+            strains = self.data.time_series['bar_strain'][self.timestep_idx]
+
+            # Reset buffers
+            self.vertex_strains[:] = 0
+            self.vertex_counts[:] = 0
+
+            # Accumulate strains (vectorized)
+            np.add.at(self.vertex_strains, self.bar_indices[:, 0], strains)
+            np.add.at(self.vertex_strains, self.bar_indices[:, 1], strains)
+            np.add.at(self.vertex_counts, self.bar_indices[:, 0], 1)
+            np.add.at(self.vertex_counts, self.bar_indices[:, 1], 1)
+
+            # Average
+            mask = self.vertex_counts > 0
+            self.vertex_strains[mask] /= self.vertex_counts[mask]
+
+            # Render with per-vertex colors
+            limit = self.config['strain_limit']
+            for face in self.face_indices:
+                v0_pos = tuple(self.all_positions[face[0]])
+                v1_pos = tuple(self.all_positions[face[1]])
+                v2_pos = tuple(self.all_positions[face[2]])
+
+                # Compute colors
+                s0 = self.vertex_strains[face[0]]
+                s1 = self.vertex_strains[face[1]]
+                s2 = self.vertex_strains[face[2]]
+
+                c0 = self._strain_to_color(s0, limit)
+                c1 = self._strain_to_color(s1, limit)
+                c2 = self._strain_to_color(s2, limit)
+
+                pgfx.draw_face(v0_pos, v1_pos, v2_pos, c0, c1, c2)
+        else:
+            # Static color
+            color = (0.85, 0.85, 0.85, self.face_default_opacity)
+            for face in self.face_indices:
+                v0 = tuple(self.all_positions[face[0]])
+                v1 = tuple(self.all_positions[face[1]])
+                v2 = tuple(self.all_positions[face[2]])
+                pgfx.draw_triangle(v0, v1, v2, color)
+
+    def _strain_to_color(self, strain, limit):
+        """Convert strain to color tuple with opacity."""
+        t = np.clip((strain + limit) / (2 * limit), 0.0, 1.0)
+        r = float(np.clip(1.5 - np.abs(t - 0.75) * 4, 0, 1))
+        g = float(np.clip(1.5 - np.abs(t - 0.5) * 4, 0, 1))
+        b = float(np.clip(1.5 - np.abs(t - 0.25) * 4, 0, 1))
+        return (r, g, b, self.face_default_opacity)
+
+    def _render_nodes(self):
+        """Render nodes - spheres or particles."""
+        n_floating = len(self.floating_nodes_idx)
+        use_particles = self.config['use_particles_for_nodes'] or n_floating > self.config['particle_threshold']
+
+        # Floating nodes
+        if n_floating > 0:
+            self.particle_positions[:] = self.all_positions[self.floating_nodes_idx]
+
+            if use_particles:
+                pgfx.draw_particles(
+                    positions=self.particle_positions,
+                    colors=self.particle_colors,
+                    sizes=self.particle_sizes
+                )
+            else:
+                for local_idx, global_idx in enumerate(self.floating_nodes_idx):
+                    pgfx.draw_sphere(
+                        center=tuple(self.particle_positions[local_idx]),
+                        radius=self.scales.node_radius,
+                        color=(0.3, 0.3, 0.3),
+                        detail=self.config['sphere_detail']
+                    )
+
+        # Fixed nodes (cubes)
+        for i in self.fixed_nodes_idx:
+            pgfx.draw_cube(
+                center=tuple(self.all_positions[i]),
+                size=self.scales.node_radius * 2.0,
+                color=Palette.Standard10[3]
             )
 
-    def cleanup(self):
-        if hasattr(self, 'sim_file'):
-            self.sim_file.close()
+        # Actuators
+        for i in self.position_actuators_idx:
+            pgfx.draw_cube(
+                center=tuple(self.all_positions[i]),
+                size=self.scales.node_radius * 2.0,
+                color=Palette.Standard10[2]
+            )
+
+        for i in self.force_actuators_idx:
+            pgfx.draw_cube(
+                center=tuple(self.all_positions[i]),
+                size=self.scales.node_radius * 1.5,
+                color=Palette.Standard10[1]
+            )
+
+    def _render_velocity_arrows(self, vels):
+        """Render velocity arrows for floating nodes."""
+        scale = self.config['velocity_scale']
+        head_size = self.scales.L_char * 0.1
+        width_radius = self.scales.L_char * 0.02
+        min_vel_threshold = 1e-6
+
+        for idx in self.floating_nodes_idx:
+            pos = self.all_positions[idx]
+            vel = vels[idx]
+            v_mag = np.linalg.norm(vel)
+
+            if v_mag > min_vel_threshold:
+                pgfx.draw_arrow(
+                    start=tuple(pos),
+                    end=tuple(pos + vel * scale),
+                    color=(0.0, 1.0, 1.0),
+                    head_size=head_size,
+                    width_radius=width_radius
+                )
 
 
-def play_experiment(experiment_name):
-    path = Path(experiment_name)
-    player = SimulationPlayer(path)
-    studio = PiVizStudio(scene_fx=player)
+# =============================================================================
+# CONVENIENCE FUNCTION
+# =============================================================================
+
+def visualize_experiment(experiment_path: str, config: Optional[Dict] = None):
+    """
+    Main entry point for visualizing DEMLAT experiments.
+    """
+    # Load data
+    data = ExperimentData(experiment_path)
+
+    # Create visualizer
+    viz = DEMLATVisualizer(data, config)
+
+    # Launch studio
+    studio = PiVizStudio(scene_fx=viz)
     studio.run()
 
 
-if __name__ == "__main__":
-    # --- ARGUMENT HANDLING FIX ---
-    # PiViz (moderngl_window) will parse sys.argv automatically.
-    # We must extract our experiment path and remove it from sys.argv
-    # so PiViz doesn't crash on "unrecognized arguments".
+# =============================================================================
+# MAIN
+# =============================================================================
 
-    experiment_arg = None
+if __name__ == '__main__':
+    # Separate user args from PiViz args BEFORE any processing
+    experiment_path = None
+    user_flags = []
+    piviz_args = []
 
-    # Filter arguments
-    new_argv = [sys.argv[0]]
-    for arg in sys.argv[1:]:
-        if arg.startswith("-"):
-            # This looks like a flag (e.g., -wnd, --fullscreen), keep it for PiViz
-            new_argv.append(arg)
+    i = 1
+    while i < len(sys.argv):
+        arg = sys.argv[i]
+
+        # User-specific flags
+        if arg in ['--no-strain', '--velocity', '--trails', '--particles', '--lines']:
+            user_flags.append(arg)
+            i += 1
+        # PiViz flags that take arguments
+        elif arg in ['-wnd', '-vs', '-hd', '-s', '-c', '--size', '--size_mult', '--backend']:
+            piviz_args.append(arg)
+            if i + 1 < len(sys.argv):
+                piviz_args.append(sys.argv[i + 1])
+                i += 2
+            else:
+                i += 1
+        # PiViz boolean flags
+        elif arg in ['-fs', '-r', '-h', '--help']:
+            piviz_args.append(arg)
+            i += 1
+        # Experiment path (first non-flag argument)
+        elif not arg.startswith('-') and experiment_path is None:
+            experiment_path = arg
+            i += 1
         else:
-            # This looks like our positional path argument
-            experiment_arg = arg
+            # Unknown arg, assume it's for PiViz
+            piviz_args.append(arg)
+            i += 1
 
-    # Replace sys.argv with the "clean" version that PiViz expects
-    sys.argv = new_argv
+    # Update sys.argv for PiViz (remove user args)
+    sys.argv = [sys.argv[0]] + piviz_args
 
-    # Run logic
-    if experiment_arg:
-        play_experiment(experiment_arg)
-    else:
-        print("Usage: python viz_player.py <path_to_experiment> [piviz_options]")
-        print("Example: python viz_player.py experiments/test_01 -wnd glfw")
+    if experiment_path is None:
+        print("Usage: python -m demlat.utils.viz_player <experiment_path> [options]")
+        print("\nExample:")
+        print("  python -m demlat.utils.viz_player experiments/miura_test")
+        print("\nOptions:")
+        print("  --no-strain    Disable strain coloring")
+        print("  --velocity     Show velocity arrows")
+        print("  --trails       Show motion trails")
+        print("  --particles    Force particle rendering")
+        print("  --lines        Use lines instead of cylinders")
+        sys.exit(1)
+
+    # Parse config options
+    config = {}
+    if '--no-strain' in user_flags:
+        config['show_strain'] = False
+    if '--velocity' in user_flags:
+        config['show_velocity'] = True
+    if '--trails' in user_flags:
+        config['show_trails'] = True
+    if '--particles' in user_flags:
+        config['use_particles_for_nodes'] = True
+    if '--lines' in user_flags:
+        config['use_lines_for_bars'] = True
+
+    visualize_experiment(experiment_path, config)
