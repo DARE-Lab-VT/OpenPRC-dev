@@ -43,6 +43,7 @@ import sys
 
 from piviz import PiVizStudio, PiVizFX, pgfx, Palette
 from piviz.ui import Slider, Label, Button, Checkbox
+from piviz import Colors, Colormap
 
 
 # =============================================================================
@@ -182,6 +183,29 @@ class ExperimentData:
                 if self.elements['hinges']['indices'] is not None:
                     self.n_hinges = self.elements['hinges']['indices'].shape[0]
                     print(f"  [Loaded] {self.n_hinges} hinges")
+
+            # Inside _load_geometry, after loading hinges, add:
+        if self.elements.get('hinges') and self.elements['hinges']['indices'] is not None:
+            # Compute hinge edge midpoints and normals for visualization
+            hinge_indices = self.elements['hinges']['indices']  # Shape: (n_hinges, 4)
+            positions = self.nodes['positions']
+
+            # For each hinge: [edge_node1, edge_node2, wing1, wing2]
+            self.elements['hinges']['edge_midpoints'] = (positions[hinge_indices[:, 0]] + positions[
+                hinge_indices[:, 1]]) / 2
+
+            # Compute fold angle direction (cross product of wing vectors)
+            edge_vec = positions[hinge_indices[:, 1]] - positions[hinge_indices[:, 0]]
+            wing1_vec = positions[hinge_indices[:, 2]] - self.elements['hinges']['edge_midpoints']
+            wing2_vec = positions[hinge_indices[:, 3]] - self.elements['hinges']['edge_midpoints']
+
+            # Normal to the hinge plane
+            normals = np.cross(wing1_vec, wing2_vec)
+            norms = np.linalg.norm(normals, axis=1, keepdims=True)
+            norms = np.where(norms < 1e-10, 1.0, norms)
+            self.elements['hinges']['normals'] = normals / norms
+
+            print(f"  [Computed] Hinge visualization data")
 
         print(f"  [Loaded] {self.n_nodes} nodes")
 
@@ -378,12 +402,12 @@ class VisualizationScales:
         if self.data.nodes['radius'] is not None:
             self.node_radius = np.median(self.data.nodes['radius'])
         else:
-            self.node_radius = self.L_char * 0.15
+            self.node_radius = self.L_char * 0.05
 
         print(f"Node Radius: {self.node_radius:.4f}")
 
         # Bar radius
-        self.bar_radius = self.L_char * 0.05
+        self.bar_radius = self.L_char * 0.03
         print(f"Bar Radius: {self.bar_radius:.4f}")
 
         # Velocity scale (if simulation data available)
@@ -462,6 +486,10 @@ class DEMLATVisualizer(PiVizFX):
             'strain_limit': None,
             'base_node_radius': None,
             'velocity_scale': None,
+            'hinge_color_mountain': (0.2, 0.6, 1.0),  # Blue for mountain folds (angle > π)
+            'hinge_color_valley': (1.0, 0.4, 0.2),  # Orange for valley folds (angle < π)
+            'hinge_color_flat': (0.5, 0.5, 0.5),  # Gray for flat (angle ≈ π)
+            'hinge_indicator_scale': 0.15,  # Scale for hinge direction indicators
         }
 
         if config:
@@ -547,6 +575,16 @@ class DEMLATVisualizer(PiVizFX):
         if 'velocities' in self.data.time_series:
             self.current_velocities = np.zeros((n, 3), dtype='f4')
 
+        # Hinges visualization
+        if self.data.n_hinges > 0 and self.data.elements.get('hinges'):
+            hinges = self.data.elements['hinges']
+            self.hinge_indices = hinges['indices']
+            self.hinge_rest_angles = hinges.get('rest_angle')
+            self.hinge_edge_midpoints = hinges.get('edge_midpoints')
+            self.hinge_normals = hinges.get('normals')
+            self.hinge_colors = np.zeros((self.data.n_hinges, 3), dtype='f4')
+            print(f"[Preallocated] Hinge visualization arrays ({self.data.n_hinges} hinges)")
+
         print("[Preallocated] All rendering arrays")
 
     def setup(self):
@@ -570,6 +608,81 @@ class DEMLATVisualizer(PiVizFX):
             print(f"Duration: {self.data.time_series['time'][-1]:.2f}s")
         print("=" * 60 + "\n")
 
+    # ============ FRAME-BY-FRAME CONTROL METHODS ============
+
+    def _on_timeline_change(self, value):
+        """Called when timeline slider is moved."""
+        self.timestep_idx = int(value)
+        self.float_timestep = float(self.timestep_idx)
+        # Pause when manually scrubbing
+        self.paused = True
+        self._update_pause_button()
+
+    def _on_step_change(self, value):
+        """Called when step size slider changes."""
+        self.frame_step = max(1, int(value))
+
+    def _goto_start(self):
+        """Jump to first frame."""
+        self.timestep_idx = 0
+        self.float_timestep = 0.0
+        self._clear_trails()
+        self._sync_timeline_slider()
+
+    def _goto_end(self):
+        """Jump to last frame."""
+        self.timestep_idx = self.data.n_frames - 1
+        self.float_timestep = float(self.timestep_idx)
+        self._sync_timeline_slider()
+
+    def _prev_frame(self):
+        """Go to previous frame(s)."""
+        self.paused = True
+        self._update_pause_button()
+        self.timestep_idx = max(0, self.timestep_idx - self.frame_step)
+        self.float_timestep = float(self.timestep_idx)
+        self._sync_timeline_slider()
+
+    def _next_frame(self):
+        """Go to next frame(s)."""
+        self.paused = True
+        self._update_pause_button()
+        self.timestep_idx = min(self.data.n_frames - 1, self.timestep_idx + self.frame_step)
+        self.float_timestep = float(self.timestep_idx)
+        self._sync_timeline_slider()
+
+    def _toggle_pause(self):
+        """Toggle play/pause state."""
+        self.paused = not self.paused
+        self._update_pause_button()
+
+    def _update_pause_button(self):
+        """Update pause button text based on state."""
+        if hasattr(self, 'ui_manager') and self.ui_manager:
+            btn = self.ui_manager.get_widget("btn_pause")
+            if btn:
+                btn.text = ">" if self.paused else "||"
+
+    def _sync_timeline_slider(self):
+        """Sync timeline slider to current frame."""
+        if hasattr(self, 'ui_manager') and self.ui_manager:
+            slider = self.ui_manager.get_widget("sld_timeline")
+            if slider:
+                slider.value = self.timestep_idx
+
+    def _clear_trails(self):
+        """Clear all motion trails."""
+        for k in self.trails:
+            self.trails[k].clear()
+
+    def _reset_sim(self):
+        """Reset simulation to start."""
+        self._goto_start()
+        self.paused = False
+        self._update_pause_button()
+
+        # ========================================================
+
     def _setup_ui(self):
         """Setup UI controls."""
         self.ui_manager.set_panel_title("DEMLAT Player")
@@ -589,14 +702,34 @@ class DEMLATVisualizer(PiVizFX):
         )
         self.ui_manager.add_widget("lbl_perf", self.lbl_perf)
 
-        # Playback controls
+        # ============ NEW: PLAYBACK CONTROLS ============
         if self.data.mode == 'simulation':
-            self.ui_manager.add_widget("btn_reset", Button("Reset", self._reset_sim))
-            self.ui_manager.add_widget("btn_pause", Button("Pause/Play", self._toggle_pause))
+            # Timeline slider
+            self.ui_manager.add_widget("sld_timeline",
+                                       Slider("Frame", 0, self.data.n_frames - 1, 0, self._on_timeline_change))
 
+            # Playback buttons row
+            self.ui_manager.add_widget("btn_start",
+                                       Button("|<", self._goto_start))
+            self.ui_manager.add_widget("btn_prev",
+                                       Button("<", self._prev_frame))
+            self.ui_manager.add_widget("btn_pause",
+                                       Button("||", self._toggle_pause))
+            self.ui_manager.add_widget("btn_next",
+                                       Button(">", self._next_frame))
+            self.ui_manager.add_widget("btn_end",
+                                       Button(">|", self._goto_end))
+
+            # Speed control
             self.ui_manager.add_widget("sld_speed",
                                        Slider("Speed", 10, 500, int(self.speed * 100),
                                               lambda v: setattr(self, 'speed', v / 100.0)))
+
+            # Frame step size (for prev/next buttons)
+            self.frame_step = 1
+            self.ui_manager.add_widget("sld_step",
+                                       Slider("Step", 1, 50, 1, self._on_step_change))
+        # ================================================
 
         # Visualization toggles
         self.ui_manager.add_widget("chk_nodes",
@@ -611,6 +744,11 @@ class DEMLATVisualizer(PiVizFX):
             self.ui_manager.add_widget("chk_faces",
                                        Checkbox("Show Faces", self.config['show_faces'],
                                                 lambda v: self.config.update({'show_faces': v})))
+
+        if self.data.n_hinges > 0:
+            self.ui_manager.add_widget("chk_hinges",
+                                       Checkbox("Show Hinges", self.config['show_hinges'],
+                                                lambda v: self.config.update({'show_hinges': v})))
 
         if 'bar_strain' in self.data.time_series:
             self.ui_manager.add_widget("chk_strain",
@@ -631,8 +769,7 @@ class DEMLATVisualizer(PiVizFX):
                                             lambda v: self.config.update({'use_lines_for_bars': v})))
 
         self.ui_manager.add_widget("chk_particles",
-                                   Checkbox("Particle Nodes",
-                                            self.config['use_particles_for_nodes'],
+                                   Checkbox("Particle Nodes", self.config['use_particles_for_nodes'],
                                             lambda v: self.config.update({'use_particles_for_nodes': v})))
 
     def _reset_sim(self):
@@ -650,15 +787,18 @@ class DEMLATVisualizer(PiVizFX):
     def render(self, time_val, dt):
         """Main render loop - optimized like ReservoirAnimator."""
 
-        # Update playback
+        # Update playback (only when not paused)
         if self.data.mode == 'simulation' and not self.paused:
             self.float_timestep += dt * 60 * self.speed
+
             if self.float_timestep >= self.data.n_frames:
                 self.float_timestep = 0.0
-                for k in self.trails:
-                    self.trails[k].clear()
+                self._clear_trails()
 
             self.timestep_idx = int(self.float_timestep)
+
+            # Sync slider during playback
+            self._sync_timeline_slider()
 
         idx = self.timestep_idx
 
@@ -690,6 +830,10 @@ class DEMLATVisualizer(PiVizFX):
         if self.config['show_bars']:
             self._render_bars()
 
+        # 3.5 Hinges (geometry mode or always)
+        if self.config['show_hinges'] and self.data.n_hinges > 0:
+            self._render_hinges()
+
         # 4. Nodes
         if self.config['show_nodes']:
             self._render_nodes()
@@ -702,6 +846,11 @@ class DEMLATVisualizer(PiVizFX):
         if self.data.mode == 'simulation' and hasattr(self, 'lbl_time'):
             t_display = self.data.time_series['time'][idx]
             self.lbl_time.text = f"Time: {t_display:.2f}s | Frame: {idx}/{self.data.n_frames - 1}"
+
+        if self.data.mode == 'simulation' and hasattr(self, 'lbl_time'):
+            t_display = self.data.time_series['time'][idx]
+            status = "PAUSED" if self.paused else "PLAYING"
+            self.lbl_time.text = f"Time: {t_display:.3f}s | Frame: {idx}/{self.data.n_frames - 1} | {status}"
 
     def _render_trails(self, x_curr):
         """Render motion trails for floating nodes."""
@@ -717,6 +866,147 @@ class DEMLATVisualizer(PiVizFX):
                     points=self.trails[i],
                     color=(1.0, 0.5, 0.0, 0.6),
                     width=2.0
+                )
+
+    def _render_hinges(self):
+        """
+        Render hinges with color-coded fold type visualization.
+
+        - Mountain folds (rest_angle > π): Blue
+        - Valley folds (rest_angle < π): Orange
+        - Flat hinges (rest_angle ≈ π): Gray
+
+        Shows:
+        - Hinge edge as thick line
+        - Small indicators for wing directions
+        - Optional: normal direction arrows
+        """
+        if self.data.n_hinges == 0 or not hasattr(self, 'hinge_indices'):
+            return
+
+        scale = self.config['hinge_indicator_scale'] * self.scales.L_char
+
+        for i in range(self.data.n_hinges):
+            idx = self.hinge_indices[i]  # [edge1, edge2, wing1, wing2]
+
+            # Get positions
+            p_edge1 = self.all_positions[idx[0]]
+            p_edge2 = self.all_positions[idx[1]]
+            p_wing1 = self.all_positions[idx[2]]
+            p_wing2 = self.all_positions[idx[3]]
+
+            edge_mid = (p_edge1 + p_edge2) / 2
+
+            # Determine color based on rest angle
+            if self.hinge_rest_angles is not None:
+                rest_angle = self.hinge_rest_angles[i]
+
+                if rest_angle > np.pi + 0.05:
+                    # Mountain fold
+                    color = self.config['hinge_color_mountain']
+                elif rest_angle < np.pi - 0.05:
+                    # Valley fold
+                    color = self.config['hinge_color_valley']
+                else:
+                    # Flat
+                    color = self.config['hinge_color_flat']
+            else:
+                color = self.config['hinge_color_flat']
+
+            # Draw hinge edge (thick line)
+            pgfx.draw_line(
+                tuple(p_edge1),
+                tuple(p_edge2),
+                color=color,
+                width=4.0
+            )
+
+            # Draw wing indicators (thin lines from edge midpoint to wings)
+            # Scale them down so they don't clutter
+            wing1_dir = p_wing1 - edge_mid
+            wing1_dir = wing1_dir / (np.linalg.norm(wing1_dir) + 1e-10) * scale
+
+            wing2_dir = p_wing2 - edge_mid
+            wing2_dir = wing2_dir / (np.linalg.norm(wing2_dir) + 1e-10) * scale
+
+            # Wing 1 indicator
+            pgfx.draw_line(
+                tuple(edge_mid),
+                tuple(edge_mid + wing1_dir),
+                color=(color[0] * 0.7, color[1] * 0.7, color[2] * 0.7),
+                width=2.0
+            )
+
+            # Wing 2 indicator
+            pgfx.draw_line(
+                tuple(edge_mid),
+                tuple(edge_mid + wing2_dir),
+                color=(color[0] * 0.7, color[1] * 0.7, color[2] * 0.7),
+                width=2.0
+            )
+
+            # Small sphere at hinge midpoint
+            pgfx.draw_sphere(
+                center=tuple(edge_mid),
+                radius=self.scales.node_radius * 0.5,
+                color=color,
+                detail=6
+            )
+
+    def _render_hinge_angles_overlay(self):
+        """
+        Optional: Render current vs rest angle as arc indicators.
+        Useful for debugging hinge behavior during simulation.
+        """
+        if self.data.n_hinges == 0 or self.hinge_rest_angles is None:
+            return
+
+        for i in range(min(self.data.n_hinges, 50)):  # Limit for performance
+            idx = self.hinge_indices[i]
+
+            p_edge1 = self.all_positions[idx[0]]
+            p_edge2 = self.all_positions[idx[1]]
+            p_wing1 = self.all_positions[idx[2]]
+            p_wing2 = self.all_positions[idx[3]]
+
+            edge_mid = (p_edge1 + p_edge2) / 2
+
+            # Compute current dihedral angle
+            edge_vec = p_edge2 - p_edge1
+            edge_vec = edge_vec / (np.linalg.norm(edge_vec) + 1e-10)
+
+            v1 = p_wing1 - edge_mid
+            v2 = p_wing2 - edge_mid
+
+            # Project onto plane perpendicular to edge
+            v1_perp = v1 - np.dot(v1, edge_vec) * edge_vec
+            v2_perp = v2 - np.dot(v2, edge_vec) * edge_vec
+
+            n1 = np.linalg.norm(v1_perp)
+            n2 = np.linalg.norm(v2_perp)
+
+            if n1 > 1e-10 and n2 > 1e-10:
+                v1_perp /= n1
+                v2_perp /= n2
+
+                cos_angle = np.clip(np.dot(v1_perp, v2_perp), -1, 1)
+                current_angle = np.arccos(cos_angle)
+
+                # Color based on deviation from rest
+                rest_angle = self.hinge_rest_angles[i]
+                deviation = abs(current_angle - (2 * np.pi - rest_angle))
+
+                # Green = at rest, Red = strained
+                strain_color = min(deviation / 0.5, 1.0)
+                color = (strain_color, 1.0 - strain_color, 0.0)
+
+                # Draw small arc indicator
+                arc_radius = self.scales.L_char * 0.1
+                pgfx.draw_sphere(
+                    center=tuple(edge_mid + edge_vec * arc_radius * 0.5),
+                    radius=arc_radius * 0.3,
+                    color=color,
+                    detail=4
                 )
 
     def _render_bars(self):
@@ -815,10 +1105,12 @@ class DEMLATVisualizer(PiVizFX):
     def _strain_to_color(self, strain, limit):
         """Convert strain to color tuple with opacity."""
         t = np.clip((strain + limit) / (2 * limit), 0.0, 1.0)
-        r = float(np.clip(1.5 - np.abs(t - 0.75) * 4, 0, 1))
-        g = float(np.clip(1.5 - np.abs(t - 0.5) * 4, 0, 1))
-        b = float(np.clip(1.5 - np.abs(t - 0.25) * 4, 0, 1))
-        return (r, g, b, self.face_default_opacity)
+        # r = float(np.clip(1.5 - np.abs(t - 0.75) * 4, 0, 1))
+        # g = float(np.clip(1.5 - np.abs(t - 0.5) * 4, 0, 1))
+        # b = float(np.clip(1.5 - np.abs(t - 0.25) * 4, 0, 1))
+        clr = Colormap.jet(t, self.face_default_opacity)
+        # return (r, g, b, self.face_default_opacity)
+        return clr
 
     def _render_nodes(self):
         """Render nodes - spheres or particles."""
@@ -845,25 +1137,28 @@ class DEMLATVisualizer(PiVizFX):
                     )
 
         # Fixed nodes (cubes)
+        s_fixed = self.scales.node_radius * 2.0
         for i in self.fixed_nodes_idx:
             pgfx.draw_cube(
                 center=tuple(self.all_positions[i]),
-                size=self.scales.node_radius * 2.0,
+                size=(s_fixed, s_fixed, s_fixed),
                 color=Palette.Standard10[3]
             )
 
         # Actuators
+        s_act = self.scales.node_radius * 2.0
         for i in self.position_actuators_idx:
             pgfx.draw_cube(
                 center=tuple(self.all_positions[i]),
-                size=self.scales.node_radius * 2.0,
+                size=(s_act, s_act, s_act),
                 color=Palette.Standard10[2]
             )
 
+        s_force = self.scales.node_radius * 1.5
         for i in self.force_actuators_idx:
             pgfx.draw_cube(
                 center=tuple(self.all_positions[i]),
-                size=self.scales.node_radius * 1.5,
+                size=(s_force, s_force, s_force),
                 color=Palette.Standard10[1]
             )
 

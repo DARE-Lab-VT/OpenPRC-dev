@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import demlat
 from demlat.models.barhinge import BarHingeModel
 from demlat.io.experiment_setup import ExperimentSetup
+from demlat.utils.viz_player import visualize_experiment
 
 DEMO_DIR = Path("experiments/miura_circular_test")
 
@@ -182,23 +183,8 @@ def step_2_run_simulation():
     eng.run(exp)
 
 
-def check_results():
-    sim_path = DEMO_DIR / "output" / "simulation.h5"
-    if not sim_path.exists():
-        print("Error: simulation.h5 was not created.")
-        return
-
-    import h5py
-    with h5py.File(sim_path, 'r') as f:
-        print("\n[Check] simulation.h5 Attributes:")
-        for k, v in f.attrs.items():
-            print(f"  - {k}: {v}")
-
-        if 'time_series/nodes/positions' in f:
-            print(f"  - Frames: {f['time_series/nodes/positions'].shape[0]}")
-
 
 if __name__ == "__main__":
     step_1_setup_experiment()
     step_2_run_simulation()
-    check_results()
+    visualize_experiment(DEMO_DIR)

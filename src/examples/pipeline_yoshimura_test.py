@@ -3,7 +3,7 @@ Yoshimura-Ori Geometry Test
 ===========================
 Generates Yoshimura origami geometry in folded configuration.
 """
-import numpy as np
+from examples.yoshimura_ori_geometry import *
 from pathlib import Path
 import h5py
 from demlat.io.experiment_setup import ExperimentSetup
@@ -12,278 +12,10 @@ from demlat.utils.viz_player import visualize_experiment
 DEMO_DIR = Path("experiments/yoshimura_test")
 
 
-def general_transform_matrix(psi, gamma, d):
-    """Generate transformation matrix for Yoshimura unit."""
-    return np.array([
-        [np.cos(psi) ** 2 + np.cos(gamma) * np.sin(psi) ** 2,
-         (1 - np.cos(gamma)) * np.sin(psi) * np.cos(psi),
-         np.sin(gamma) * np.sin(psi),
-         d * np.sin(psi) * np.sin(gamma / 2)],
-        [(1 - np.cos(gamma)) * np.sin(psi) * np.cos(psi),
-         np.sin(psi) ** 2 + np.cos(gamma) * np.cos(psi) ** 2,
-         -np.sin(gamma) * np.cos(psi),
-         -d * np.cos(psi) * np.sin(gamma / 2)],
-        [-np.sin(gamma) * np.sin(psi),
-         np.sin(gamma) * np.cos(psi),
-         np.cos(gamma),
-         d * np.cos(gamma / 2)],
-        [0, 0, 0, 1]
-    ])
-
-
-def find_circumcenter(A, B, C, D):
-    """Find circumcenter of quadrilateral ABCD."""
-    AC = (A + C) / 2
-    BD = (B + D) / 2
-
-    a = np.linalg.norm(A - B)
-    b = np.linalg.norm(B - D)
-    c = np.linalg.norm(D - C)
-    d = np.linalg.norm(C - A)
-
-    s = (a + b + c + d) / 2
-    R = 0.25 * ((a * b + c * d) * (a * c + b * d) * (a * d + b * c) /
-                ((s - a) * (s - b) * (s - c) * (s - d))) ** 0.5
-
-    m = (BD - AC) / np.linalg.norm(BD - AC)
-    circ_cent = AC + m * (R ** 2 - (d / 2) ** 2) ** 0.5
-
-    return circ_cent
-
-
-def generate_yoshimura_geometry(n, beta, d=None, gamma=0.0, psi=0.0):
-    """
-    Generate Yoshimura origami unit geometry in folded configuration.
-
-    Parameters
-    ----------
-    n : int
-        Number of sides in the polygon base
-    beta : float
-        Sector angle parameter
-    psi : float
-        Rotation angle (default: 0.0)
-    T0 : np.ndarray, optional
-        Initial transformation matrix (4x4)
-
-    Returns
-    -------
-    nodes : np.ndarray
-        Array of node positions, shape (N, 3)
-    bars : list of tuples
-        List of (node_i, node_j, length) for each bar
-    faces : list of tuples
-        List of (node_i, node_j, node_k) for each triangular face
-    """
-
-    # Calculate derived parameters for folded configuration
-    r = 1 / (2 * np.sin(np.pi / n))
-    w = 0.5 * np.tan(beta)
-
-    # Folded configuration: gamma=0, d calculated from beta
-    if d is None:
-        d = (np.tan(beta) ** 2 - np.tan(np.pi / (2 * n)) ** 2) ** 0.5
-
-    # Generate base polygon vertices
-    base = np.array([
-        [r * np.sin(2 * np.pi / n * i),
-         -r * np.cos(2 * np.pi / n * i),
-         0, 1]
-        for i in range(n)
-    ]).T
-
-    # Transform to get top polygon
-    T = general_transform_matrix(psi, gamma, d)
-    top = T @ base
-
-    params = [n, beta, d, gamma, psi]
-
-    # Calculate midpoint positions
-    mid = np.zeros((4, 2 * n))
-    centers = np.zeros((2 * n, 3))
-
-    for i in range(n):
-        A = base[:3, i]
-        B = base[:3, (i + 1) % n]
-        C = top[:3, i]
-        D = top[:3, (i + 1) % n]
-
-        p = np.cross(C - B, D - A)
-        s = np.linalg.norm((A + B) / 2 - (C + D) / 2)
-        a = 1 / (2 * np.cos(beta))
-
-        x_ = w ** 2 - (s / 2) ** 2 + 1e-20
-        x = np.abs(x_) ** 0.5 if x_ >= -1e-2 else 0.0
-
-        if np.linalg.norm(p) < 1e-10:
-            # Degenerate case - planar quadrilateral
-            A_ = base[:3, (i + n // 2) % n]
-            B_ = base[:3, (i + 1 + n // 2) % n]
-            C_ = top[:3, (i + n // 2) % n]
-            D_ = top[:3, (i + 1 + n // 2) % n]
-
-            ct = (A + B + C + D) / 4
-
-            if n % 2 == 0:
-                q_hat = ct - (A_ + B_ + C_ + D_) / 4
-            else:
-                q_hat = ct - (B_ + D_) / 2
-
-            centers[i] = ct + x * q_hat / np.linalg.norm(q_hat)
-        else:
-            # Non-planar quadrilateral
-            ct = find_circumcenter(A, B, C, D)
-            centers[i] = ct - p / np.linalg.norm(p) * np.abs(a ** 2 - np.linalg.norm(A - ct) ** 2) ** 0.5
-
-    # Assign mid-edge vertices
-    for i in range(n):
-        B = base[:3, (i + 1) % n]
-        D = top[:3, (i + 1) % n]
-
-        mid[:3, 2 * i] = centers[i]
-
-        if np.linalg.norm(B - D) < 1.95 * w:
-            mid[:3, 2 * i + 1] = (centers[i] + centers[(i + 1) % n]) / 2
-        else:
-            mid[:3, 2 * i + 1] = (B + D) / 2
-
-        mid[3, :] = 1.0
-
-    # Create three sets of 2n nodes each: base_nodes, mid_nodes, top_nodes
-    # Each set contains: [vertex, edge_midpoint, vertex, edge_midpoint, ...]
-    base_nodes = np.zeros((2 * n, 3))
-    mid_nodes = np.zeros((2 * n, 3))
-    top_nodes = np.zeros((2 * n, 3))
-
-    for i in range(n):
-        # Base layer: vertex at 2*i, edge midpoint at 2*i+1
-        base_nodes[2 * i] = base[:3, i]
-        base_nodes[2 * i + 1] = (base[:3, i] + base[:3, (i + 1) % n]) / 2
-
-        # Mid layer: interior vertices (from centers and edge mids)
-        mid_nodes[2 * i] = mid[:3, 2 * i - 1]
-        mid_nodes[2 * i + 1] = mid[:3, 2 * i]
-
-        # Top layer: vertex at 2*i, edge midpoint at 2*i+1
-        top_nodes[2 * i] = top[:3, i]
-        top_nodes[2 * i + 1] = (top[:3, i] + top[:3, (i + 1) % n]) / 2
-
-    # Assemble node list: [base_nodes, mid_nodes, top_nodes]
-    nodes = []
-    nodes.extend(base_nodes)  # indices 0 to 2n-1
-    nodes.extend(mid_nodes)  # indices 2n to 4n-1
-    nodes.extend(top_nodes)  # indices 4n to 6n-1
-    nodes = np.array(nodes)
-
-    # Index helper functions for the new structure
-    def base_idx(i):
-        """Get index in base layer (0 to 2n-1)"""
-        return i % (2 * n)
-
-    def mid_idx(i):
-        """Get index in mid layer (2n to 4n-1)"""
-        return 2 * n + i % (2 * n)
-
-    def top_idx(i):
-        """Get index in top layer (4n to 6n-1)"""
-        return 4 * n + i % (2 * n)
-
-    # Generate bars and faces
-    bars = []
-    faces = []
-
-    for i in range(2 * n):
-        j = i + 1
-        k = i - 1
-
-        # edges
-        i1, i2 = base_idx(i), base_idx(j)
-        length = np.linalg.norm(nodes[i1] - nodes[i2])
-        bars.append((i1, i2, length))
-
-        i1, i2 = mid_idx(i), mid_idx(j)
-        length = np.linalg.norm(nodes[i1] - nodes[i2])
-        bars.append((i1, i2, length))
-
-        i1, i2 = top_idx(i), top_idx(j)
-        length = np.linalg.norm(nodes[i1] - nodes[i2])
-        bars.append((i1, i2, length))
-
-        # base to mid
-        i1, i2 = base_idx(i), mid_idx(i)
-        length = np.linalg.norm(nodes[i1] - nodes[i2])
-        bars.append((i1, i2, length))
-
-        if i % 2 == 0:
-            i1, i2 = base_idx(i), mid_idx(j)
-            length = np.linalg.norm(nodes[i1] - nodes[i2])
-            bars.append((i1, i2, length))
-
-            i1, i2 = base_idx(i), mid_idx(k)
-            length = np.linalg.norm(nodes[i1] - nodes[i2])
-            bars.append((i1, i2, length))
-
-            # faces
-            faces.append((base_idx(i), mid_idx(i), mid_idx(j)))
-            faces.append((base_idx(i), mid_idx(i), mid_idx(k)))
-            faces.append((base_idx(i), base_idx(j), mid_idx(j)))
-            faces.append((base_idx(i), base_idx(k), mid_idx(k)))
-
-        # mid to top
-        i1, i2 = mid_idx(i), top_idx(i)
-        length = np.linalg.norm(nodes[i1] - nodes[i2])
-        bars.append((i1, i2, length))
-
-        if i % 2 == 0:
-            i1, i2 = top_idx(i), mid_idx(j)
-            length = np.linalg.norm(nodes[i1] - nodes[i2])
-            bars.append((i1, i2, length))
-
-            i1, i2 = top_idx(i), mid_idx(k)
-            length = np.linalg.norm(nodes[i1] - nodes[i2])
-            bars.append((i1, i2, length))
-
-            # faces
-            faces.append((top_idx(i), mid_idx(i), mid_idx(j)))
-            faces.append((top_idx(i), mid_idx(i), mid_idx(k)))
-            faces.append((top_idx(i), top_idx(j), mid_idx(j)))
-            faces.append((top_idx(i), top_idx(k), mid_idx(k)))
-
-    return nodes, bars, faces, params
-
-
 def create_yoshimura_geometry(setup: ExperimentSetup, n=4, beta=np.pi / 6, d=None, gamma=0.0, psi=0.0,
-                              k_axial=1000.0, k_fold=10.0, k_facet=200.0,
+                              k_axial=1000.0, k_fold=1.0, k_facet=0.1,
                               mass=0.01, damping=5.0):
-    """
-    Generates Yoshimura-Ori geometry and adds it to the ExperimentSetup.
-
-    Parameters
-    ----------
-    setup : ExperimentSetup
-        The experiment setup object
-    n : int
-        Number of polygon sides
-    beta : float
-        Sector angle in radians
-    k_axial : float
-        Axial stiffness for bars
-    k_fold : float
-        Fold stiffness for hinges (not yet implemented)
-    k_facet : float
-        Facet stiffness for hinges (not yet implemented)
-    mass : float
-        Mass per node
-    damping : float
-        Damping coefficient for bars
-
-    Returns
-    -------
-    faces : list
-        List of triangular faces for visualization
-    node_info : dict
-        Dictionary containing node indices for actuation setup
-    """
+    """..."""
 
     print(f"\nYoshimura Parameters:")
     print(f"  n={n}, beta={np.rad2deg(beta):.2f}°")
@@ -305,43 +37,47 @@ def create_yoshimura_geometry(setup: ExperimentSetup, n=4, beta=np.pi / 6, d=Non
 
     # Add nodes to setup
     for i, node_pos in enumerate(nodes):
-        # if node is in base or top corner fix it
-        if i in node_info['base_corners'] or i in node_info['top_corners']:
-            setup.add_node(node_pos, mass=mass, fixed=True)
-        else:
-            setup.add_node(node_pos, mass=mass, fixed=False)
+        # if i in node_info['base_corners'] or i in node_info['top_corners']:
+        #     setup.add_node(node_pos, mass=mass, fixed=True)
+        # else:
+        #     setup.add_node(node_pos, mass=mass, fixed=False)
+        setup.add_node(node_pos, mass=mass, fixed=False)
 
     # Add bars to setup
     for i, j, length in bars:
         setup.add_bar(i, j, stiffness=k_axial, rest_length=length, damping=damping)
 
-    # TODO: Add hinges here
-    # This is where we'll add hinge identification and creation logic
-
-    # Store node indices for actuation
-    # Base corners (vertices only, even indices): 0, 2, 4, ..., 2*(n-1)
-    # Top corners (vertices only, even indices): 4*n, 4*n+2, 4*n+4, ..., 4*n+2*(n-1)
+    # # ============ ADD HINGES ============
+    # add_yoshimura_hinges(
+    #     setup,
+    #     nodes,
+    #     faces,
+    #     n,
+    #     params,
+    #     k_fold=k_fold,
+    #     k_facet=k_facet
+    # )
+    # # ====================================
 
     return faces, node_info, params
 
 
-def setup_actuation(setup: ExperimentSetup, node_info: dict,
-                    amplitude=0.5, min_pos=0.0, max_pos=1.0, frequency=0.5, duration=10.0):
+def setup_actuation(setup: ExperimentSetup, node_info: dict, min_pos=0.0, max_pos=1.0, frequency=0.5, duration=10.0):
     """
-    Setup sinusoidal actuation for top corner nodes.
+    Setup linear (triangular wave) actuation for top corner nodes.
 
     Parameters
     ----------
-    setup : ExperimentSetup
-        The experiment setup object
-    node_info : dict
-        Dictionary containing node indices
-    amplitude : float
-        Amplitude of vertical oscillation
+    min_pos : float
+        Minimum displacement from initial position
+    max_pos : float
+        Maximum displacement from initial position
     frequency : float
-        Frequency of oscillation in Hz
+        Frequency of full cycle (down-up) in Hz
     duration : float
-        Duration of simulation
+        Total simulation duration
+    ramp_fraction : float
+        Fraction of half-period to use for smooth turnaround (0.05 = 5%)
     """
 
     # Get initial positions
@@ -364,24 +100,32 @@ def setup_actuation(setup: ExperimentSetup, node_info: dict,
     for i, idx in enumerate(top_corners):
         p0 = positions[idx]
 
-        #
-        # sig = np.zeros((len(t), 3), dtype=np.float32)
-        # sig[:, 0] = p0[0]  # X stays constant
-        # sig[:, 1] = p0[1]  # Y stays constant
-        # sig[:, 2] = p0[2] - ramp * amplitude * np.sin(omega * t)  # Z oscillates
-
         # generate a signal to go from min_pos to max_pos from p0[2] with given frequency
         sig = np.zeros((len(t), 3), dtype=np.float32)
         sig[:, 0] = p0[0]
         sig[:, 1] = p0[1]
-        sig[:, 2] = p0[2] - (max_pos - min_pos) * (1 + np.sin(omega * t)) / 2
+        sig[:, 2] = (max_pos - min_pos) * (1 + np.cos(omega * t)) / 2
 
         sig_name = f"sig_top_corner_{i}"
         setup.add_signal(sig_name, sig, dt=dt_sig)
         setup.add_actuator(idx, sig_name, type='position')
 
+    # add zero actuation to base corners
+    for i, idx in enumerate(base_corners):
+        p0 = positions[idx]
 
-def main():
+        # generate a signal to go from min_pos to max_pos from p0[2] with given frequency
+        sig = np.zeros((len(t), 3), dtype=np.float32)
+        sig[:, 0] = p0[0]
+        sig[:, 1] = p0[1]
+        sig[:, 2] = p0[2]
+
+        sig_name = f"sig_base_corner_{i}"
+        setup.add_signal(sig_name, sig, dt=dt_sig)
+        setup.add_actuator(idx, sig_name, type='position')
+
+
+def setup_experiment():
     """Setup the Yoshimura experiment"""
     print("\n[Setup] Creating Yoshimura Experiment...")
 
@@ -389,7 +133,7 @@ def main():
     setup = ExperimentSetup(DEMO_DIR, overwrite=True)
 
     # Simulation parameters
-    duration = 10.0
+    duration = 20.0
     dt = 0.0005
     save_interval = 0.01
 
@@ -397,27 +141,30 @@ def main():
     setup.set_simulation_params(duration=duration, dt=dt, save_interval=save_interval)
     setup.set_physics(gravity=0.0, damping=0.2)
 
+    beta = np.deg2rad(35)
+    d = np.tan(beta) - 0.001
+
     # Build Geometry
     faces, node_info, params = create_yoshimura_geometry(
         setup,
-        n=4,
-        beta=np.deg2rad(40),
-        # d=np.tan(np.deg2rad(35)),
+        n=3,
+        beta=beta,
+        d=d,
         k_axial=1000.0,
         mass=0.01,
-        damping=5.0
+        damping=1.0
     )
 
     n, beta, d, gamma, psi = params
+    d = np.tan(beta)
 
     # Setup Actuation
     setup_actuation(
         setup,
         node_info,
-        amplitude=0.0,
         min_pos=0.0,
         max_pos=d,
-        frequency=0.1,
+        frequency=0.2,
         duration=duration
     )
 
@@ -444,7 +191,122 @@ def run_simulation():
     print("\nSimulation complete!")
 
 
+def show_pe(demo_dir):
+    # Plot displacement vs potential energy with hysteresis
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from demlat.utils.plot_timeseries import SimulationPlotter
+
+    plotter = SimulationPlotter(demo_dir / "output" / "simulation.h5")
+
+    # Get data
+    time, _ = plotter.get_dataset("time")
+    positions, _ = plotter.get_dataset("nodes/positions")
+    potential_energy, _ = plotter.get_dataset("system/potential_energy")
+
+    # Flatten arrays if needed
+    time = np.asarray(time).flatten()
+    potential_energy = np.asarray(potential_energy).flatten()
+
+    # Skip first 5 seconds (transient)
+    t_start = 5.0
+    mask = time >= t_start
+    time = time[mask]
+    positions = positions[mask]
+    potential_energy = potential_energy[mask]
+
+    # Get driven node displacement
+    n = 4
+    driven_node_idx = 4 * n
+    z0 = positions[0, driven_node_idx, 2]
+    displacement = z0 - positions[:, driven_node_idx, 2]
+    displacement = np.asarray(displacement).flatten()
+
+    # Detect loading/unloading based on displacement rate
+    d_disp = np.gradient(displacement, time)
+    loading = d_disp > 0
+    unloading = d_disp <= 0
+
+    # Bin data for averaging
+    n_bins = 100
+    disp_min, disp_max = displacement.min(), displacement.max()
+    bin_edges = np.linspace(disp_min, disp_max, n_bins + 1)
+    bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+
+    def compute_envelope_stats(disp, energy):
+        """Compute mean, min, max per bin."""
+        means = np.full(n_bins, np.nan)
+        mins = np.full(n_bins, np.nan)
+        maxs = np.full(n_bins, np.nan)
+
+        bin_idx = np.digitize(disp, bin_edges) - 1
+        bin_idx = np.clip(bin_idx, 0, n_bins - 1)
+
+        for i in range(n_bins):
+            mask = bin_idx == i
+            if np.sum(mask) > 0:
+                vals = energy[mask]
+                means[i] = np.mean(vals)
+                mins[i] = np.min(vals)
+                maxs[i] = np.max(vals)
+
+        return means, mins, maxs
+
+    # Compute stats for loading and unloading
+    load_mean, load_min, load_max = compute_envelope_stats(
+        displacement[loading], potential_energy[loading]
+    )
+    unload_mean, unload_min, unload_max = compute_envelope_stats(
+        displacement[unloading], potential_energy[unloading]
+    )
+
+    # Remove NaN for plotting
+    def clean_data(x, y_mean, y_min, y_max):
+        valid = ~np.isnan(y_mean)
+        return x[valid], y_mean[valid], y_min[valid], y_max[valid]
+
+    bc_load, lm, lmin, lmax = clean_data(bin_centers, load_mean, load_min, load_max)
+    bc_unload, um, umin, umax = clean_data(bin_centers, unload_mean, unload_min, unload_max)
+
+    # Plot
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    # Loading: line + envelope
+    ax.fill_between(bc_load, lmin, lmax, alpha=0.25, color='royalblue', label='Loading envelope')
+    ax.plot(bc_load, lm, 'royalblue', lw=2, label='Loading (mean)')
+
+    # Unloading: line + envelope
+    ax.fill_between(bc_unload, umin, umax, alpha=0.25, color='orangered', label='Unloading envelope')
+    ax.plot(bc_unload, um, 'orangered', lw=2, label='Unloading (mean)')
+
+    # Calculate hysteresis area (between mean curves)
+    # Interpolate to common grid for area calculation
+    common_disp = np.linspace(
+        max(bc_load.min(), bc_unload.min()),
+        min(bc_load.max(), bc_unload.max()),
+        200
+    )
+    load_interp = np.interp(common_disp, bc_load, lm)
+    unload_interp = np.interp(common_disp, bc_unload, um)
+    hysteresis_area = np.abs(np.trapezoid(load_interp - unload_interp, common_disp))
+
+    ax.text(0.05, 0.95, f'Hysteresis Area ≈ {hysteresis_area:.4f} J',
+            transform=ax.transAxes, fontsize=11, verticalalignment='top',
+            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+
+    ax.set_xlabel('Displacement (m)', fontsize=12)
+    ax.set_ylabel('Total Potential Energy (J)', fontsize=12)
+    ax.set_title('Yoshimura Origami: Displacement vs Potential Energy (t > 5s)', fontsize=14)
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc='upper right')
+
+    fig.tight_layout()
+    plt.savefig(DEMO_DIR / "displacement_vs_energy_hysteresis.png", dpi=150)
+    plt.show()
+
+
 if __name__ == "__main__":
-    main()
-    run_simulation()
-    visualize_experiment(DEMO_DIR)
+    # setup_experiment()
+    # run_simulation()
+    # visualize_experiment(DEMO_DIR)
+    show_pe(DEMO_DIR)
