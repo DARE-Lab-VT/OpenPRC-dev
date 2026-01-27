@@ -306,7 +306,7 @@ def show_pe(demo_dir):
 
 
 if __name__ == "__main__":
-    # setup_experiment()
-    # run_simulation()
-    # visualize_experiment(DEMO_DIR)
+    setup_experiment()
+    run_simulation()
+    visualize_experiment(DEMO_DIR)
     show_pe(DEMO_DIR)

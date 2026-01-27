@@ -1,3 +1,81 @@
+# OpenPRC: Physical Reservoir Computing Framework
+
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Development Status](https://img.shields.io/badge/status-active_development-orange.svg)](https://github.com/yourusername/OpenPRC-dev)
+[![License](https://img.shields.io/badge/license-Apache_2.0-green.svg)](LICENSE)
+[![CUDA](https://img.shields.io/badge/CUDA-accelerated-76B900.svg)](https://developer.nvidia.com/cuda-zone)
+[![HDF5](https://img.shields.io/badge/HDF5-data_schema-blue.svg)](https://www.hdfgroup.org/)
+
+**OpenPRC** is a modular, GPU-accelerated Python framework for simulating and optimizing physical reservoir computers—mechanical systems that process information through their intrinsic dynamics. This repository contains the active development branch implementing the complete architecture specification.
+
+**Backend:** PyCUDA • NumPy • HDF5 Schema • Hybrid RK4-Constraint Relaxation
+
+---
+
+## Development Status
+
+> **Note:** This is the development repository (`OpenPRC-dev`) where individual modules are being implemented and tested. The `demlat` subpackage (Discrete Element Modeling) is feature-complete and production-ready.
+
+**Module Implementation Progress:**
+
+| Module | Status | Description |
+|--------|--------|-------------|
+| **demlat** |  Complete | GPU-accelerated physics simulation engine |
+| **reservoir** | In Progress | Reservoir computing interfaces and readout layers |
+| **analysis** | In Progress | Performance metrics and dimensionality analysis |
+| **optimize** | Planned | Evolutionary topology and parameter search |
+
+---
+
+## Simulation Capabilities
+
+The `demlat` module supports diverse mechanical systems ranging from compliant networks to rigid-foldable origami. Below are examples of validated simulation outputs:
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="media/soft_reservoir_network.gif" width="350px" alt="Soft Reservoir Network"/><br/>
+      <b>Soft Reservoir Network</b><br/>
+      Mass-spring lattice under dynamic actuation
+    </td>
+    <td align="center">
+      <img src="media/miura_ori_tessallation.gif" width="350px" alt="Miura-Ori Tessellation"/><br/>
+      <b>Miura-Ori Tessellation</b><br/>
+      Rigid-foldable origami pattern
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="media/kirigami_cut.gif" width="350px" alt="Kirigami Structure"/><br/>
+      <b>Kirigami Structure</b><br/>
+      Compliant network with geometric cuts
+    </td>
+    <td align="center">
+      <img src="media/k_cone.gif" width="350px" alt="K-Cone Origami"/><br/>
+      <b>K-Cone Origami</b><br/>
+      Non-periodic origami configuration
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="media/bistable_slab.gif" width="350px" alt="Bistable Slab"/><br/>
+      <b>Bistable Slab</b><br/>
+      Multistable mechanical metamaterial
+    </td>
+    <td align="center">
+      <img src="media/tepered_spring.gif" width="350px" alt="Tapered Spring"/><br/>
+      <b>Tapered Spring</b><br/>
+      Nonlinear elastic element dynamics
+    </td>
+  </tr>
+</table>
+
+All simulations shown were executed using the `demlat.models.barhinge` (truss networks) and `demlat.models.origami` (rigid-foldable) physics models with CUDA acceleration.
+
+---
+
+## Architecture Overview
+
 **Open Physical Reservoir Computing Framework**
 
 Version 0.1.0 | Architecture Specification
