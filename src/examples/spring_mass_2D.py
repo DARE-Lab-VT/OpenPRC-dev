@@ -19,9 +19,18 @@ from demlat.models.barhinge import BarHingeModel
 from demlat.io.experiment_setup import ExperimentSetup
 from demlat.utils.viz_player import visualize_experiment
 
-def run_pipeline():
+
+def run_pipeline(k_mat: np.ndarray = None, c_mat: np.ndarray = None):
     """
     Defines, saves, and runs the entire spring-mass experiment.
+
+    Args:
+        k_mat (np.ndarray, optional): An NxN matrix of spring stiffness values,
+            where N is the total number of nodes (ROWS * COLS). A non-zero
+            value at (i, j) creates a spring. If None, a default grid is
+            generated with default stiffness.
+        c_mat (np.ndarray, optional): An NxN matrix of spring damping values.
+            If None, the default damping value is used for all springs.
     """
     # --- 1. Define Grid and Simulation Parameters ---
     ROWS, COLS = 3, 3
@@ -29,7 +38,7 @@ def run_pipeline():
     STIFFNESS = 100.0  # N/m
     DAMPING = 0.4
     NODE_MASS = 0.01  # kg
-    OUTPUT_DIR = src_dir / "experiments" / f"spring_mass_{ROWS}x{COLS}_test"
+    OUTPUT_DIR = src_dir/"experiments"/f"spring_mass_{ROWS}x{COLS}_test"
 
     print(f"[Step 1] Setting up {ROWS}x{COLS} spring-mass grid in {OUTPUT_DIR}")
 
@@ -52,20 +61,43 @@ def run_pipeline():
     
     print(f"Added {len(setup.nodes['positions'])} nodes.")
 
-    # Add bars (springs)
-    # Horizontal
-    for r in range(ROWS):
-        for c in range(COLS - 1):
-            idx1 = node_indices[r, c]
-            idx2 = node_indices[r, c + 1]
-            setup.add_bar(idx1, idx2, stiffness=STIFFNESS, damping=DAMPING)
+    # Add bars (springs) based on the provided topology
+    if k_mat is not None:
+        print("Using provided stiffness matrix (k_mat) to create springs.")
+        num_nodes = ROWS * COLS
+        if not isinstance(k_mat, np.ndarray) or k_mat.shape != (num_nodes, num_nodes):
+            raise ValueError(
+                f"Stiffness matrix (k_mat) must be a NumPy array with shape "
+                f"({num_nodes}, {num_nodes}), but got shape {k_mat.shape if isinstance(k_mat, np.ndarray) else type(k_mat)}."
+            )
+        if c_mat is not None and (not isinstance(c_mat, np.ndarray) or c_mat.shape != (num_nodes, num_nodes)):
+            raise ValueError(
+                f"Damping matrix (c_mat) must be a NumPy array with shape "
+                f"({num_nodes}, {num_nodes}), but got shape {c_mat.shape if isinstance(c_mat, np.ndarray) else type(c_mat)}."
+            )
 
-    # Vertical
-    for r in range(ROWS - 1):
-        for c in range(COLS):
-            idx1 = node_indices[r, c]
-            idx2 = node_indices[r + 1, c]
-            setup.add_bar(idx1, idx2, stiffness=STIFFNESS, damping=DAMPING)
+        # Iterate over the upper triangle of the matrix to add bars
+        for i in range(num_nodes):
+            for j in range(i + 1, num_nodes):
+                stiffness = k_mat[i, j]
+                if stiffness > 0:
+                    damping = c_mat[i, j] if c_mat is not None else DAMPING
+                    setup.add_bar(i, j, stiffness=stiffness, damping=damping)
+    else:
+        print("Generating default fully connected grid topology.")
+        # Horizontal
+        for r in range(ROWS):
+            for c in range(COLS - 1):
+                idx1 = node_indices[r, c]
+                idx2 = node_indices[r, c + 1]
+                setup.add_bar(idx1, idx2, stiffness=STIFFNESS, damping=DAMPING)
+
+        # Vertical
+        for r in range(ROWS - 1):
+            for c in range(COLS):
+                idx1 = node_indices[r, c]
+                idx2 = node_indices[r + 1, c]
+                setup.add_bar(idx1, idx2, stiffness=STIFFNESS, damping=DAMPING)
             
     print(f"Added {len(setup.bars['indices'])} bars.")
 
