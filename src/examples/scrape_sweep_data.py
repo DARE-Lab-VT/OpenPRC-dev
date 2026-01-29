@@ -7,7 +7,7 @@ import json
 BASE_DIR = Path("experiments/yoshimura_beta_d_sweep/")
 OUTPUT_FILE = BASE_DIR / "hysteresis_data.npz"
 n = 3
-betas = np.linspace(30, 45, 500)
+betas = np.linspace(30, 45, 1000)
 n_bins = 100
 
 # Storage
@@ -102,7 +102,10 @@ for i, beta in enumerate(betas):
 
         time, _ = plotter.get_dataset("time")
         positions, _ = plotter.get_dataset("nodes/positions")
-        potential_energy, _ = plotter.get_dataset("system/potential_energy")
+        # potential_energy, _ = plotter.get_dataset("system/potential_energy")
+        strain_energies, _ = plotter.get_dataset("elements/bars/potential_energy")
+
+        potential_energy = np.sum(strain_energies, axis=1)
 
         time = np.asarray(time).flatten()
         potential_energy = np.asarray(potential_energy).flatten()

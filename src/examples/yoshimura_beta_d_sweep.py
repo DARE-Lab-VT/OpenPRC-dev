@@ -65,16 +65,19 @@ def run_and_save_experiment(dir_name, n, beta):
     for i, j, length in bars:
         setup.add_bar(i, j, stiffness=k_axial, rest_length=length, damping=damping)
 
+    k_fold = 1.0
+    k_facet = 0.0
+
     # Add hinges to setup
-    # add_yoshimura_hinges(
-    #     setup,
-    #     nodes,
-    #     faces,
-    #     n,
-    #     params,
-    #     k_fold=k_fold,
-    #     k_facet=k_facet
-    # )
+    add_yoshimura_hinges(
+        setup,
+        nodes,
+        faces,
+        n,
+        params,
+        k_fold=k_fold,
+        k_facet=k_facet
+    )
 
     n, beta, d, gamma, psi = params
     d = np.tan(beta)
@@ -109,13 +112,13 @@ def run_and_save_experiment(dir_name, n, beta):
 
 if __name__ == "__main__":
     n = 3
-    betas = np.linspace(30, 45, 500)
-    # for beta in betas:
-    #     dir_name = "exp_beta_" + str(beta) + "_n_" + str(n)
-    #     try:
-    #         run_and_save_experiment(dir_name, n, np.deg2rad(beta))
-    #     except Exception as e:
-    #         print(e)
+    betas = np.linspace(30, 45, 1000)
+    for beta in betas:
+        dir_name = "exp_beta_" + str(beta) + "_n_" + str(n)
+        try:
+            run_and_save_experiment(dir_name, n, np.deg2rad(beta))
+        except Exception as e:
+            print(e)
 
     beta = betas[499]
     dir_name = "exp_beta_" + str(beta) + "_n_" + str(n)

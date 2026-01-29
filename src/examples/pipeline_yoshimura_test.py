@@ -8,12 +8,17 @@ from pathlib import Path
 import h5py
 from demlat.io.experiment_setup import ExperimentSetup
 from demlat.utils.viz_player import visualize_experiment
+import matplotlib.pyplot as plt
+import numpy as np
+from demlat.utils.plot_timeseries import SimulationPlotter
+
+trapezoid = getattr(np, 'trapezoid', getattr(np, 'trapz', None))
 
 DEMO_DIR = Path("experiments/yoshimura_test")
 
 
 def create_yoshimura_geometry(setup: ExperimentSetup, n=4, beta=np.pi / 6, d=None, gamma=0.0, psi=0.0,
-                              k_axial=1000.0, k_fold=1.0, k_facet=0.1,
+                              k_axial=1000.0, k_fold=1.0, k_facet=0.0,
                               mass=0.01, damping=5.0):
     """..."""
 
@@ -44,20 +49,27 @@ def create_yoshimura_geometry(setup: ExperimentSetup, n=4, beta=np.pi / 6, d=Non
         setup.add_node(node_pos, mass=mass, fixed=False)
 
     # Add bars to setup
-    for i, j, length in bars:
-        setup.add_bar(i, j, stiffness=k_axial, rest_length=length, damping=damping)
+    for bar in bars:
+        i = bar[0]
+        j = bar[1]
+        length = bar[2]
+        if len(bar) > 3:
+            stiffness = bar[3]
+        else:
+            stiffness = 1.0
+        setup.add_bar(i, j, stiffness=stiffness * k_axial, rest_length=length, damping=damping)
 
-    # # ============ ADD HINGES ============
-    # add_yoshimura_hinges(
-    #     setup,
-    #     nodes,
-    #     faces,
-    #     n,
-    #     params,
-    #     k_fold=k_fold,
-    #     k_facet=k_facet
-    # )
-    # # ====================================
+    # ============ ADD HINGES ============
+    add_yoshimura_hinges(
+        setup,
+        nodes,
+        faces,
+        n,
+        params,
+        k_fold=k_fold,
+        k_facet=k_facet
+    )
+    # ====================================
 
     return faces, node_info, params
 
@@ -141,7 +153,7 @@ def setup_experiment():
     setup.set_simulation_params(duration=duration, dt=dt, save_interval=save_interval)
     setup.set_physics(gravity=0.0, damping=0.2)
 
-    beta = np.deg2rad(35)
+    beta = np.deg2rad(31.7)
     d = np.tan(beta) - 0.001
 
     # Build Geometry
@@ -185,7 +197,7 @@ def run_simulation():
     from demlat.models.barhinge import BarHingeModel
 
     exp = demlat.Experiment(DEMO_DIR)
-    eng = demlat.Engine(BarHingeModel, backend='cuda')
+    eng = demlat.Engine(BarHingeModel, backend='cpu')
     eng.run(exp)
 
     print("\nSimulation complete!")
@@ -193,9 +205,6 @@ def run_simulation():
 
 def show_pe(demo_dir):
     # Plot displacement vs potential energy with hysteresis
-    import matplotlib.pyplot as plt
-    import numpy as np
-    from demlat.utils.plot_timeseries import SimulationPlotter
 
     plotter = SimulationPlotter(demo_dir / "output" / "simulation.h5")
 
@@ -203,6 +212,9 @@ def show_pe(demo_dir):
     time, _ = plotter.get_dataset("time")
     positions, _ = plotter.get_dataset("nodes/positions")
     potential_energy, _ = plotter.get_dataset("system/potential_energy")
+    strain_energy, _ = plotter.get_dataset("elements/bars/potential_energy")
+    potential_energy = np.sum(strain_energy, axis=1)
+    print(np.array(potential_energy).shape, np.array(strain_energy).shape)
 
     # Flatten arrays if needed
     time = np.asarray(time).flatten()
@@ -288,7 +300,7 @@ def show_pe(demo_dir):
     )
     load_interp = np.interp(common_disp, bc_load, lm)
     unload_interp = np.interp(common_disp, bc_unload, um)
-    hysteresis_area = np.abs(np.trapezoid(load_interp - unload_interp, common_disp))
+    hysteresis_area = np.abs(trapezoid(load_interp - unload_interp, common_disp))
 
     ax.text(0.05, 0.95, f'Hysteresis Area ≈ {hysteresis_area:.4f} J',
             transform=ax.transAxes, fontsize=11, verticalalignment='top',
