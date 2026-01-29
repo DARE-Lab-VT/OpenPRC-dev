@@ -16,6 +16,20 @@ from ..core.exceptions import DemlatError, SchemaValidationError, ConfigurationE
 from ..utils.logging import get_logger
 
 
+class NumpyJSONEncoder(json.JSONEncoder):
+    """
+    A JSON encoder that can handle numpy data types.
+    """
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NumpyJSONEncoder, self).default(obj)
+
+
 class ExperimentSetup:
     """
     A setup class to programmatically create and modify DEMLat experiments.
@@ -222,7 +236,7 @@ class ExperimentSetup:
         
         # 1. Save Config
         with open(self.input_dir / "config.json", 'w') as f:
-            json.dump(self.config, f, indent=4)
+            json.dump(self.config, f, indent=4, cls=NumpyJSONEncoder)
             
         # 2. Save Geometry
         with h5py.File(self.input_dir / "geometry.h5", 'w') as f:
