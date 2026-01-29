@@ -26,7 +26,7 @@ def run_pipeline():
     # --- 1. Define Grid and Simulation Parameters ---
     ROWS, COLS = 3, 3
     SPACING = 0.053  # meters
-    STIFFNESS = 1000.0  # N/m
+    STIFFNESS = 100.0  # N/m
     DAMPING = 0.4
     NODE_MASS = 0.01  # kg
     OUTPUT_DIR = src_dir / "experiments" / f"spring_mass_{ROWS}x{COLS}_test"
@@ -107,11 +107,11 @@ def run_pipeline():
         setup.add_actuator(act_idx, sig_name, type='position')
 
     # --- 6. Save Experiment Files ---
-    print("\n[Step 4] Saving experiment files (config.json, geometry.h5)...")
+    print("\n[Step 2] Saving experiment files (config.json, geometry.h5)...")
     setup.save()
 
     # --- 7. Run Simulation ---
-    print("\n[Step 5] Running simulation...")
+    print("\n[Step 3] Running simulation...")
     exp = demlat.Experiment(OUTPUT_DIR)
     
     # Use CUDA if available, else CPU
@@ -139,5 +139,5 @@ def run_pipeline():
 if __name__ == "__main__":
     output_dir = run_pipeline()
     if output_dir:
-        print(f"\n[Step 6] Visualizing experiment: {output_dir}")
+        print(f"\n[Step 4] Visualizing experiment: {output_dir}")
         visualize_experiment(output_dir)
