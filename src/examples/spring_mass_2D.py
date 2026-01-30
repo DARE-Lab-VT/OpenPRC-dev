@@ -20,7 +20,7 @@ from demlat.io.experiment_setup import ExperimentSetup
 from demlat.utils.viz_player import visualize_experiment
 
 
-def run_pipeline(k_mat: np.ndarray = None, c_mat: np.ndarray = None):
+def run_pipeline(k_mat: np.ndarray = None, c_mat: np.ndarray = None, ga_generation: int = 0):
     """
     Defines, saves, and runs the entire spring-mass experiment.
 
@@ -38,7 +38,7 @@ def run_pipeline(k_mat: np.ndarray = None, c_mat: np.ndarray = None):
     STIFFNESS = 100.0  # N/m
     DAMPING = 0.4
     NODE_MASS = 0.01  # kg
-    OUTPUT_DIR = src_dir/"experiments"/f"spring_mass_{ROWS}x{COLS}_test"
+    OUTPUT_DIR = src_dir/"experiments"/f"spring_mass_{ROWS}x{COLS}_test"/f"generation_{ga_generation}"
 
     print(f"[Step 1] Setting up {ROWS}x{COLS} spring-mass grid in {OUTPUT_DIR}")
 
@@ -47,7 +47,7 @@ def run_pipeline(k_mat: np.ndarray = None, c_mat: np.ndarray = None):
 
     # --- 2. Configure Simulation and Physics ---
     setup.set_simulation_params(duration=30.0, dt=0.001, save_interval=0.01)
-    setup.set_physics(gravity=0.0, damping=0.5)
+    setup.set_physics(gravity=-9.8, damping=0.5)
 
     # --- 3. Generate Geometry and Actuation ---
     node_indices = np.zeros((ROWS, COLS), dtype=int)
@@ -102,41 +102,43 @@ def run_pipeline(k_mat: np.ndarray = None, c_mat: np.ndarray = None):
     print(f"Added {len(setup.bars['indices'])} bars.")
 
     # --- 4. Define Fixed Nodes ---
-    fixed_indices = [node_indices[ROWS - 1, 0]]
+    fixed_indices = []
     print(f"Fixing nodes via actuation: {fixed_indices}")
 
     sim_params = setup.config['simulation']
     dt_sig = sim_params['dt_base']
-    t = np.arange(0, sim_params['duration'], dt_sig)
+    t_ = np.arange(0, sim_params['duration'], dt_sig)
     
     # Create static signals to hold corner nodes in place
-    for i, idx in enumerate(fixed_indices):
-        p0 = setup.nodes['positions'][idx]
-        sig = np.tile(p0, (len(t), 1))
-        sig_name = f"sig_fixed_corner_{i}"
-        setup.add_signal(sig_name, sig, dt=dt_sig)
-        setup.add_actuator(idx, sig_name, type='position')
+    if len(fixed_indices) != 0:
+        for i, idx in enumerate(fixed_indices):
+            p0 = setup.nodes['positions'][idx]
+            sig = np.tile(p0, (len(t_), 1))
+            sig_name = f"sig_fixed_corner_{i}"
+            setup.add_signal(sig_name, sig, dt=dt_sig)
+            setup.add_actuator(idx, sig_name, type='position')
 
     # --- 5. Define Actuated Nodes ---
-    act_indices = [node_indices[0, COLS - 1]]
+    act_indices = [node_indices[0, 0], node_indices[0, COLS - 1], node_indices[ROWS - 1, 0], node_indices[ROWS - 1, COLS - 1]]
     act_indices = [idx for idx in act_indices if idx not in fixed_indices]
     print(f"Adding dynamic actuation to nodes: {act_indices}")
 
-    for i, act_idx in enumerate(act_indices):
-        # Create a sinusoidal signal in the X direction
-        p0 = setup.nodes['positions'][act_idx]
-        amp = 0.02  # 2 cm
-        freq = 3   # 3 Hz
-        omega = 2 * np.pi * freq
-        
-        sig = np.tile(p0, (len(t), 1))
-        sig[:, 0] += amp * np.sin(omega * t) * np.sin(np.pi/4)
-        sig[:, 1] += amp * np.sin(omega * t) * np.cos(np.pi/4)
-        
-        # Add the dynamic signal and actuator
-        sig_name = f"sig_actuator_{i}"
-        setup.add_signal(sig_name, sig, dt=dt_sig)
-        setup.add_actuator(act_idx, sig_name, type='position')
+    if len(act_indices) != 0:
+        for i, act_idx in enumerate(act_indices):
+            # Create a sinusoidal signal in the X direction
+            p0 = setup.nodes['positions'][act_idx]
+            amp = 0.02  # 2 cm
+            f1 = 2.11   # 2.11 Hz
+            f2 = 3.73   # 3.73 Hz
+            f3 = 4.33   # 4.33 Hz
+            
+            sig = np.tile(p0, (len(t_), 1))
+            sig[:, 0] += amp * np.sin(2 * np.pi * f1 * t_) * np.sin(2 * np.pi * f2 * t_) * np.sin(2 * np.pi * f3 * t_)
+            
+            # Add the dynamic signal and actuator
+            sig_name = f"sig_actuator_{i}"
+            setup.add_signal(sig_name, sig, dt=dt_sig)
+            setup.add_actuator(act_idx, sig_name, type='position')
 
     # --- 6. Save Experiment Files ---
     print("\n[Step 2] Saving experiment files (config.json, geometry.h5)...")
