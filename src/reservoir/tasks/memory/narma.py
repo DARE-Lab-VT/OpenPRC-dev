@@ -13,13 +13,13 @@ class NARMA(BaseTask):
         self.c = c
         self.d = d
 
-    def generate(self, length, u_input):
+    def generate(self, u_input):
         """
         Args:
-            length (int): Length of target signal.
             u_input (np.ndarray, optional): External input signal driving the reservoir.
                                             If None, generates random uniform [0, 0.5].
         """
+        length = len(u_input)
         # 1. Handle Input Signal
         # Ensure input matches requested length
         if len(u_input) != length:

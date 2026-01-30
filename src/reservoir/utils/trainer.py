@@ -38,7 +38,6 @@ class TrainingResult:
             # Model
             mg = f.create_group('model')
             mg.create_dataset('weights', data=self.readout.weights)
-            mg.create_dataset('bias', data=[0.0]) # Bias is in weights
             mg.create_dataset('regularization', data=getattr(self.readout.model, 'alpha', 0.0))
             mg.create_dataset('feature_indices', data=np.arange(self.cache['train'][0].shape[1]))
 
@@ -62,15 +61,16 @@ class Trainer:
     Standardizes data GLOBALLY before splitting into fixed train/test lengths.
     Structure: [1, X_standardized]
     """
-    def __init__(self, features, readout, experiment_dir, washout=500, train_len=2000, test_len=500):
+    def __init__(self, features, readout, experiment_dir, washout=500, train_len=2000, test_len=500, actuator_idx=0):
         self.features = features
         self.readout = readout
         self.experiment_dir = Path(experiment_dir)
         self.washout = washout
         self.train_len = train_len
         self.test_len = test_len
+        self.actuator_idx = actuator_idx
 
-    def fit(self, state_loader, task, u_input):
+    def fit(self, state_loader, task):
         # 1. Extract Full Features [T, N]
         X_full = self.features.transform(state_loader)
         
@@ -81,9 +81,13 @@ class Trainer:
                 f"Simulation too short! Need {required_len} frames, got {len(X_full)}."
             )
 
-        # 3. Generate Full Target [T]
-        # Pass u_input if available to ensure target matches physical drive
-        y_full = task.generate(len(X_full), u_input).flatten()
+        # 3. Handle task type for metadata and full target array
+        if isinstance(task, np.ndarray):
+            task_name = "Custom"
+            y_full = task
+        else:
+            task_name = task.__class__.__name__
+            y_full = task.generate(state_loader.get_actuation_signal(actuator_idx=self.actuator_idx)).flatten()
 
         # 4. GLOBAL STANDARDIZATION (Before Splitting)
         # Standardize X
@@ -124,7 +128,7 @@ class Trainer:
             "test":  (L_test, y_test, self.readout.predict(L_test))
         }
         
-        meta = {'sim': state_loader.sim_path, 'task': task.__class__.__name__}
+        meta = {'sim': state_loader.sim_path, 'task': task_name}
         feature_config = {
             "type": self.features.__class__.__name__, 
             "washout": self.washout,
