@@ -1,22 +1,16 @@
-import argparse
-import sys
-from pathlib import Path
-
-# --- UPDATED TEMPLATE CONTENT BELOW ---
-TEMPLATE_CONTENT = """
 import numpy as np
 import h5py
 from pathlib import Path
 from .base import BaseBenchmark, BaseBenchmarkResult
 
 class MyBenchmarkResult(BaseBenchmarkResult):
-    \"\"\"
+    """
     ### --- USER DEFINED SECTION --- ###
     Here is where you define WHAT you are saving.
     If you create a new benchmark (e.g. Memory Capacity), you change:
     1. The __init__ arguments (your specific scores)
     2. The save() dictionary mapping
-    \"\"\"
+    """
     
     # 1. DEFINE YOUR DATA VARIABLES
     # 'my_score' is specific to this benchmark. 
@@ -38,9 +32,9 @@ class MyBenchmarkResult(BaseBenchmarkResult):
 
 
 class MyBenchmark(BaseBenchmark):
-    \"\"\"
+    """
     ### --- USER DEFINED LOGIC --- ###
-    \"\"\"
+    """
     def run(self, experiment_dir: Path, **kwargs) -> MyBenchmarkResult:
         # A. Context: Create the result object just to use the FIXED path helpers
         context = MyBenchmarkResult(experiment_dir)
@@ -68,62 +62,3 @@ class MyBenchmark(BaseBenchmark):
             experiment_dir=experiment_dir, 
             my_score=calculated_score  # <--- Placing your calculated data into your container
         )
-"""
-# --- END UPDATED TEMPLATE ---
-
-def create_benchmark(args):
-    """Creates a new benchmark file from the template."""
-    filepath = Path(args.filepath)
-    
-    # Add .py extension if not present
-    if filepath.suffix != '.py':
-        filepath = filepath.with_suffix('.py')
-
-    if filepath.exists():
-        print(f"Error: File already exists at {filepath}", file=sys.stderr)
-        sys.exit(1)
-
-    try:
-        # Use strip() to remove leading/trailing whitespace from the template string
-        filepath.write_text(TEMPLATE_CONTENT.strip() + '\n')
-        print(f"Successfully created benchmark template at: {filepath.resolve()}")
-    except IOError as e:
-        print(f"Error writing to file: {e}", file=sys.stderr)
-        sys.exit(1)
-
-def main():
-    """Main entry point for the OpenPRC command-line interface."""
-    parser = argparse.ArgumentParser(
-        description="OpenPRC command-line tools.",
-        formatter_class=argparse.RawTextHelpFormatter
-    )
-    subparsers = parser.add_subparsers(dest='command', required=True)
-
-    # --- create-benchmark command ---
-    parser_create = subparsers.add_parser(
-        'create-benchmark',
-        help='Create a new benchmark file from a template.',
-        description='''
-Creates a new Python file containing a boilerplate template for a custom benchmark.
-This makes it easy to add your own analysis to the OpenPRC pipeline.
-
-Example:
-  openprc create-benchmark my_new_analysis
-'''
-    )
-    parser_create.add_argument(
-        'filepath',
-        type=str,
-        help='The path for the new benchmark file (e.g., "my_analysis.py").'
-    )
-    parser_create.set_defaults(func=create_benchmark)
-
-    if len(sys.argv) == 1:
-        parser.print_help(sys.stderr)
-        sys.exit(1)
-
-    args = parser.parse_args()
-    args.func(args)
-
-if __name__ == "__main__":
-    main()

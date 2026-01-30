@@ -53,7 +53,7 @@ def run_pipeline(experiment_subpath, task, benchmark, benchmark_args, visualizer
     # 3. Train
     print(f"\n[Processing] Training for {task.__class__.__name__}")
     result = trainer.fit(loader, task) 
-    readout_path = result.save()
+    result.save()
     
     # 4. Analyze
     print(f"\n[Processing] Running benchmark: {benchmark.__class__.__name__}")
@@ -79,7 +79,7 @@ if __name__ == "__main__":
     exp_path = "spring_mass_3x3_test/generation_0"
 
     # 2. Define the Task
-    task = NARMA(2)
+    task = NARMA(2) # You can customize this task
     
     # 3. Define the Benchmark and its specific arguments
     # --- Option A: Standard NARMA Benchmark ---
@@ -88,6 +88,7 @@ if __name__ == "__main__":
     
     # --- Option B: User-Defined Custom Benchmark ---
     # To create your own benchmark
+    # benchmark = CustomBenchmark()  
     
     # 4. Define the Visualizer
     visualizer = TimeSeriesComparison()

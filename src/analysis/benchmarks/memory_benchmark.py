@@ -1,72 +1,62 @@
-import h5py
 import numpy as np
+import h5py
 from pathlib import Path
-
 from .base import BaseBenchmark, BaseBenchmarkResult
 
 class NARMABenchmarkResult(BaseBenchmarkResult):
     """
-    Holds the NARMA score and saves it to the standard metrics file.
+    ### --- USER DEFINED SECTION --- ###
+    Here is where you define WHAT you are saving.
+    If you create a new benchmark (e.g. Memory Capacity), you change:
+    1. The __init__ arguments (your specific scores)
+    2. The save() dictionary mapping
     """
-    def __init__(self, experiment_dir: Path, nrmse: float, order: int):
+    
+    # 1. DEFINE YOUR DATA VARIABLES
+    # 'nrmse' and 'order' are specific to NARMA. 
+    # If this was 'MemoryBenchmark', you might have 'memory_score' and 'lag' here.
+    def __init__(self, experiment_dir: Path, nrmse: float = None, order: int = None):
         super().__init__(experiment_dir)
-        self.nrmse = nrmse
-        self.order = order
+        self.nrmse = nrmse      # User-defined
+        self.order = order      # User-defined
 
+    # 2. MAP YOUR DATA TO THE SAVE HELPER
     def save(self) -> Path:
-        """Saves the narma{order}_nrmse metric to the metrics.h5 file."""
-        metrics_path = self.get_metrics_path()
-        
-        print(f"Updating Metrics Report: {metrics_path}")
-        
-        # USE APPEND MODE ('a') to allow multiple benchmarks/tasks in one file
-        with h5py.File(metrics_path, 'a') as f:
-            # Update attributes
-            f.attrs['source_readout'] = str(self.readout_path)
-            
-            # Create benchmark_suite group if it doesn't exist
-            suite_grp = f.require_group('benchmark_suite')
-            
-            # Save specific task metric (e.g., 'narma10_nrmse')
-            metric_key = f'narma{self.order}_nrmse'
-            
-            # Overwrite if exists, otherwise create
-            if metric_key in suite_grp:
-                suite_grp[metric_key][...] = self.nrmse
-            else:
-                suite_grp.create_dataset(metric_key, data=self.nrmse)
-            
-        return metrics_path
+        return self.save_metric_to_suite(
+            metrics={
+                f'narma{self.order}_nrmse': self.nrmse  # User can add more metrics by appending this dictionary
+            },
+            metadata={
+                'source_readout': self.readout_path     # User can add more metadata by appending this dictionary
+            }
+        )
 
 
 class NARMABenchmark(BaseBenchmark):
-    """Benchmark for calculating the Normalized Root Mean Square Error (NRMSE) for a NARMA task."""
-    
+    """
+    ### --- USER DEFINED LOGIC --- ###
+    """
     def run(self, experiment_dir: Path, order: int = 10) -> NARMABenchmarkResult:
-        """
-        Calculates the NRMSE from a readout artifact in the experiment directory.
-
-        Args:
-            experiment_dir (Path): Path to the experiment directory.
-            order (int): The order of the NARMA task being evaluated.
-
-        Returns:
-            NARMABenchmarkResult: A result object containing the NRMSE score.
-        """
-        # The result object has a helper property to find the readout file
-        temp_result_for_path = NARMABenchmarkResult(experiment_dir, 0.0, 0)
-        readout_path = temp_result_for_path.readout_path
+        # A. Context: Create the result object just to use the FIXED path helpers
+        context = NARMABenchmarkResult(experiment_dir)
         
+        # B. Get Data: Use the fixed helper properties
+        # There are options like: geometry_path, signal_path, readout_path, and simulation_path. User can call it as follows:
+        readout_path = context.readout_path
+        
+        # C. Do Math: This is your custom logic
         with h5py.File(readout_path, 'r') as f:
-            # Prefer to score on validation data if it exists
             group = 'validation' if 'validation' in f else 'training'
             target = f[f'{group}/target'][:]
             prediction = f[f'{group}/prediction'][:]
 
         rmse = np.sqrt(np.mean((target - prediction)**2))
         std_dev = np.std(target)
-        
-        # Avoid division by zero if the target signal is flat
         nrmse = rmse / (std_dev if std_dev > 1e-9 else 1.0)
 
-        return NARMABenchmarkResult(experiment_dir, nrmse, order)
+        # D. Return Result: Populate the USER-DEFINED variables
+        return NARMABenchmarkResult(
+            experiment_dir=experiment_dir, 
+            nrmse=nrmse,  # <--- Placing your calculated data into your container
+            order=order
+        )
