@@ -5,9 +5,8 @@ Generates Yoshimura origami geometry in folded configuration.
 """
 from examples.yoshimura_ori_geometry import *
 from pathlib import Path
-import h5py
 from demlat.io.experiment_setup import ExperimentSetup
-from demlat.utils.viz_player import visualize_experiment
+
 import matplotlib.pyplot as plt
 import numpy as np
 from demlat.utils.plot_timeseries import SimulationPlotter
@@ -17,20 +16,28 @@ trapezoid = getattr(np, 'trapezoid', getattr(np, 'trapz', None))
 DEMO_DIR = Path("experiments/yoshimura_test")
 
 
-def create_yoshimura_geometry(setup: ExperimentSetup, n=4, beta=np.pi / 6, d=None, gamma=0.0, psi=0.0,
-                              k_axial=1000.0, k_fold=1.0, k_facet=0.0,
-                              mass=0.01, damping=5.0):
-    """..."""
+def create_yoshimura_geometry(setup: ExperimentSetup,
+                              n=4,
+                              beta=np.pi / 6,
+                              d=None,
+                              gamma=0.0,
+                              psi=0.0,
+                              k_axial=100.0,
+                              k_fold=0.00,
+                              k_facet=0.0,
+                              mass=0.01,
+                              damping=2.0):
 
     print(f"\nYoshimura Parameters:")
     print(f"  n={n}, beta={np.rad2deg(beta):.2f}°")
 
     # Generate geometry
-    nodes, bars, faces, params = generate_yoshimura_geometry(n, beta, d=d, gamma=gamma, psi=psi)
+    nodes, bars, hinges, faces, params = generate_yoshimura_geometry(n, beta, d=d, gamma=gamma, psi=psi)
 
     print(f"\nGenerated Geometry:")
     print(f"  Nodes: {len(nodes)}")
     print(f"  Bars: {len(bars)}")
+    print(f"  Hinges: {len(hinges)}")
     print(f"  Faces: {len(faces)}")
 
     node_info = {
@@ -42,10 +49,6 @@ def create_yoshimura_geometry(setup: ExperimentSetup, n=4, beta=np.pi / 6, d=Non
 
     # Add nodes to setup
     for i, node_pos in enumerate(nodes):
-        # if i in node_info['base_corners'] or i in node_info['top_corners']:
-        #     setup.add_node(node_pos, mass=mass, fixed=True)
-        # else:
-        #     setup.add_node(node_pos, mass=mass, fixed=False)
         setup.add_node(node_pos, mass=mass, fixed=False)
 
     # Add bars to setup
@@ -59,39 +62,26 @@ def create_yoshimura_geometry(setup: ExperimentSetup, n=4, beta=np.pi / 6, d=Non
             stiffness = 1.0
         setup.add_bar(i, j, stiffness=stiffness * k_axial, rest_length=length, damping=damping)
 
-    # ============ ADD HINGES ============
-    add_yoshimura_hinges(
-        setup,
-        nodes,
-        faces,
-        n,
-        params,
-        k_fold=k_fold,
-        k_facet=k_facet
-    )
-    # ====================================
+    # Add hinges to setup
+    for hinge in hinges:
+        i = hinge[0]
+        j = hinge[1]
+        k = hinge[2]
+        l = hinge[3]
+        rest_angle = hinge[4]
+        edge_type = hinge[5]
+        if edge_type == 'fold' and k_fold >= 0.0:
+            setup.add_hinge(nodes=[i, j, k, l], stiffness=k_fold, rest_angle=rest_angle)
+        elif edge_type == 'facet' and k_facet >= 0.0:
+            setup.add_hinge(nodes=[i, j, k, l], stiffness=k_facet, rest_angle=rest_angle)
+
+    for face in faces:
+        setup.add_face(face)
 
     return faces, node_info, params
 
 
 def setup_actuation(setup: ExperimentSetup, node_info: dict, min_pos=0.0, max_pos=1.0, frequency=0.5, duration=10.0):
-    """
-    Setup linear (triangular wave) actuation for top corner nodes.
-
-    Parameters
-    ----------
-    min_pos : float
-        Minimum displacement from initial position
-    max_pos : float
-        Maximum displacement from initial position
-    frequency : float
-        Frequency of full cycle (down-up) in Hz
-    duration : float
-        Total simulation duration
-    ramp_fraction : float
-        Fraction of half-period to use for smooth turnaround (0.05 = 5%)
-    """
-
     # Get initial positions
     positions = setup.nodes['positions']
 
@@ -137,7 +127,7 @@ def setup_actuation(setup: ExperimentSetup, node_info: dict, min_pos=0.0, max_po
         setup.add_actuator(idx, sig_name, type='position')
 
 
-def setup_experiment():
+def setup_experiment(beta):
     """Setup the Yoshimura experiment"""
     print("\n[Setup] Creating Yoshimura Experiment...")
 
@@ -153,7 +143,7 @@ def setup_experiment():
     setup.set_simulation_params(duration=duration, dt=dt, save_interval=save_interval)
     setup.set_physics(gravity=0.0, damping=0.2)
 
-    beta = np.deg2rad(31.7)
+    beta = np.deg2rad(beta)
     d = np.tan(beta) - 0.001
 
     # Build Geometry
@@ -163,8 +153,10 @@ def setup_experiment():
         beta=beta,
         d=d,
         k_axial=1000.0,
+        k_fold=1.0,
+        k_facet=0.0,
         mass=0.01,
-        damping=1.0
+        damping=3.0
     )
 
     n, beta, d, gamma, psi = params
@@ -183,12 +175,6 @@ def setup_experiment():
     # Save Everything
     setup.save()
 
-    # Save Visualization Faces
-    with h5py.File(DEMO_DIR / "input" / "visualization.h5", 'w') as f:
-        f.create_dataset("faces", data=np.array(faces, dtype=np.int32))
-
-    print(f"\nSaved to: {DEMO_DIR}")
-
 
 def run_simulation():
     """Run the simulation"""
@@ -197,7 +183,7 @@ def run_simulation():
     from demlat.models.barhinge import BarHingeModel
 
     exp = demlat.Experiment(DEMO_DIR)
-    eng = demlat.Engine(BarHingeModel, backend='cpu')
+    eng = demlat.Engine(BarHingeModel, backend='cuda')
     eng.run(exp)
 
     print("\nSimulation complete!")
@@ -211,7 +197,7 @@ def show_pe(demo_dir):
     # Get data
     time, _ = plotter.get_dataset("time")
     positions, _ = plotter.get_dataset("nodes/positions")
-    potential_energy, _ = plotter.get_dataset("system/potential_energy")
+    # potential_energy, _ = plotter.get_dataset("system/potential_energy")
     strain_energy, _ = plotter.get_dataset("elements/bars/potential_energy")
     potential_energy = np.sum(strain_energy, axis=1)
     print(np.array(potential_energy).shape, np.array(strain_energy).shape)
@@ -221,8 +207,10 @@ def show_pe(demo_dir):
     potential_energy = np.asarray(potential_energy).flatten()
 
     # Skip first 5 seconds (transient)
-    t_start = 5.0
+    t_start = 0.0
+    t_end = 20.0
     mask = time >= t_start
+    mask &= time <= t_end
     time = time[mask]
     positions = positions[mask]
     potential_energy = potential_energy[mask]
@@ -234,91 +222,128 @@ def show_pe(demo_dir):
     displacement = z0 - positions[:, driven_node_idx, 2]
     displacement = np.asarray(displacement).flatten()
 
-    # Detect loading/unloading based on displacement rate
-    d_disp = np.gradient(displacement, time)
-    loading = d_disp > 0
-    unloading = d_disp <= 0
+    # # Detect loading/unloading based on displacement rate
+    # d_disp = np.gradient(displacement, time)
+    # loading = d_disp > 0
+    # unloading = d_disp <= 0
+    #
+    # # Bin data for averaging
+    # n_bins = 100
+    # disp_min, disp_max = displacement.min(), displacement.max()
+    # bin_edges = np.linspace(disp_min, disp_max, n_bins + 1)
+    # bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+    #
+    # def compute_envelope_stats(disp, energy):
+    #     """Compute mean, min, max per bin."""
+    #     means = np.full(n_bins, np.nan)
+    #     mins = np.full(n_bins, np.nan)
+    #     maxs = np.full(n_bins, np.nan)
+    #
+    #     bin_idx = np.digitize(disp, bin_edges) - 1
+    #     bin_idx = np.clip(bin_idx, 0, n_bins - 1)
+    #
+    #     for i in range(n_bins):
+    #         mask = bin_idx == i
+    #         if np.sum(mask) > 0:
+    #             vals = energy[mask]
+    #             means[i] = np.mean(vals)
+    #             mins[i] = np.min(vals)
+    #             maxs[i] = np.max(vals)
+    #
+    #     return means, mins, maxs
+    #
+    # # Compute stats for loading and unloading
+    # load_mean, load_min, load_max = compute_envelope_stats(
+    #     displacement[loading], potential_energy[loading]
+    # )
+    # unload_mean, unload_min, unload_max = compute_envelope_stats(
+    #     displacement[unloading], potential_energy[unloading]
+    # )
+    #
+    # # Remove NaN for plotting
+    # def clean_data(x, y_mean, y_min, y_max):
+    #     valid = ~np.isnan(y_mean)
+    #     return x[valid], y_mean[valid], y_min[valid], y_max[valid]
+    #
+    # bc_load, lm, lmin, lmax = clean_data(bin_centers, load_mean, load_min, load_max)
+    # bc_unload, um, umin, umax = clean_data(bin_centers, unload_mean, unload_min, unload_max)
+    #
+    # # Compute derivative of PE vs displacement
+    # # We'll use the mean curves for this
+    # dPE_ddisp_load = np.gradient(lm, bc_load)
+    # dPE_ddisp_unload = np.gradient(um, bc_unload)
+    #
+    # # Plot
+    # fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10), sharex=True)
+    #
+    # # Subplot 1: PE vs Displacement
+    # # Loading: line + envelope
+    # ax1.fill_between(bc_load, lmin, lmax, alpha=0.25, color='royalblue', label='Loading envelope')
+    # ax1.plot(bc_load, lm, 'royalblue', lw=2, label='Loading (mean)')
+    #
+    # # Unloading: line + envelope
+    # ax1.fill_between(bc_unload, umin, umax, alpha=0.25, color='orangered', label='Unloading envelope')
+    # ax1.plot(bc_unload, um, 'orangered', lw=2, label='Unloading (mean)')
+    #
+    # # Calculate hysteresis area (between mean curves)
+    # # Interpolate to common grid for area calculation
+    # common_disp = np.linspace(
+    #     max(bc_load.min(), bc_unload.min()),
+    #     min(bc_load.max(), bc_unload.max()),
+    #     200
+    # )
+    # load_interp = np.interp(common_disp, bc_load, lm)
+    # unload_interp = np.interp(common_disp, bc_unload, um)
+    # hysteresis_area = np.abs(trapezoid(load_interp - unload_interp, common_disp))
+    #
+    # ax1.text(0.05, 0.95, f'Hysteresis Area ≈ {hysteresis_area:.4f} J',
+    #         transform=ax1.transAxes, fontsize=11, verticalalignment='top',
+    #         bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+    #
+    # ax1.set_ylabel('Total Potential Energy (J)', fontsize=12)
+    # ax1.set_title('Yoshimura Origami: Displacement vs Potential Energy (t > 5s)', fontsize=14)
+    # ax1.grid(True, alpha=0.3)
+    # ax1.legend(loc='upper right')
+    #
+    # # Subplot 2: dPE/ddisp vs Displacement
+    # ax2.plot(bc_load, dPE_ddisp_load, 'royalblue', lw=2, label='dPE/ddisp (Loading)')
+    # ax2.plot(bc_unload, dPE_ddisp_unload, 'orangered', lw=2, label='dPE/ddisp (Unloading)')
+    #
+    # ax2.set_xlabel('Displacement (m)', fontsize=12)
+    # ax2.set_ylabel('d(PE)/d(disp) (N)', fontsize=12)
+    # ax2.set_title('Derivative of Potential Energy vs Displacement', fontsize=14)
+    # ax2.grid(True, alpha=0.3)
+    # ax2.legend(loc='upper right')
+    #
+    # fig.tight_layout()
+    # plt.savefig(DEMO_DIR / "displacement_vs_energy_hysteresis.png", dpi=150)
+    # plt.show()
 
-    # Bin data for averaging
-    n_bins = 100
-    disp_min, disp_max = displacement.min(), displacement.max()
-    bin_edges = np.linspace(disp_min, disp_max, n_bins + 1)
-    bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+    plt.figure()
+    plt.plot(time, displacement)
+    plt.xlabel('Time (s)')
+    plt.ylabel('Displacement (m)')
+    plt.title('Yoshimura Origami: Displacement vs Time')
 
-    def compute_envelope_stats(disp, energy):
-        """Compute mean, min, max per bin."""
-        means = np.full(n_bins, np.nan)
-        mins = np.full(n_bins, np.nan)
-        maxs = np.full(n_bins, np.nan)
+    plt.figure()
+    plt.plot(displacement, potential_energy)
+    plt.xlabel('displacement (m)')
+    plt.ylabel('potential energy (J)')
+    plt.title('Yoshimura Origami: Potential Energy vs Displacement')
 
-        bin_idx = np.digitize(disp, bin_edges) - 1
-        bin_idx = np.clip(bin_idx, 0, n_bins - 1)
-
-        for i in range(n_bins):
-            mask = bin_idx == i
-            if np.sum(mask) > 0:
-                vals = energy[mask]
-                means[i] = np.mean(vals)
-                mins[i] = np.min(vals)
-                maxs[i] = np.max(vals)
-
-        return means, mins, maxs
-
-    # Compute stats for loading and unloading
-    load_mean, load_min, load_max = compute_envelope_stats(
-        displacement[loading], potential_energy[loading]
-    )
-    unload_mean, unload_min, unload_max = compute_envelope_stats(
-        displacement[unloading], potential_energy[unloading]
-    )
-
-    # Remove NaN for plotting
-    def clean_data(x, y_mean, y_min, y_max):
-        valid = ~np.isnan(y_mean)
-        return x[valid], y_mean[valid], y_min[valid], y_max[valid]
-
-    bc_load, lm, lmin, lmax = clean_data(bin_centers, load_mean, load_min, load_max)
-    bc_unload, um, umin, umax = clean_data(bin_centers, unload_mean, unload_min, unload_max)
-
-    # Plot
-    fig, ax = plt.subplots(figsize=(10, 6))
-
-    # Loading: line + envelope
-    ax.fill_between(bc_load, lmin, lmax, alpha=0.25, color='royalblue', label='Loading envelope')
-    ax.plot(bc_load, lm, 'royalblue', lw=2, label='Loading (mean)')
-
-    # Unloading: line + envelope
-    ax.fill_between(bc_unload, umin, umax, alpha=0.25, color='orangered', label='Unloading envelope')
-    ax.plot(bc_unload, um, 'orangered', lw=2, label='Unloading (mean)')
-
-    # Calculate hysteresis area (between mean curves)
-    # Interpolate to common grid for area calculation
-    common_disp = np.linspace(
-        max(bc_load.min(), bc_unload.min()),
-        min(bc_load.max(), bc_unload.max()),
-        200
-    )
-    load_interp = np.interp(common_disp, bc_load, lm)
-    unload_interp = np.interp(common_disp, bc_unload, um)
-    hysteresis_area = np.abs(trapezoid(load_interp - unload_interp, common_disp))
-
-    ax.text(0.05, 0.95, f'Hysteresis Area ≈ {hysteresis_area:.4f} J',
-            transform=ax.transAxes, fontsize=11, verticalalignment='top',
-            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-
-    ax.set_xlabel('Displacement (m)', fontsize=12)
-    ax.set_ylabel('Total Potential Energy (J)', fontsize=12)
-    ax.set_title('Yoshimura Origami: Displacement vs Potential Energy (t > 5s)', fontsize=14)
-    ax.grid(True, alpha=0.3)
-    ax.legend(loc='upper right')
-
-    fig.tight_layout()
-    plt.savefig(DEMO_DIR / "displacement_vs_energy_hysteresis.png", dpi=150)
+    plt.figure()
+    # derivative of pe vs displacement
+    dPE_ddisp = np.gradient(potential_energy, displacement)
+    plt.plot(displacement, dPE_ddisp)
+    plt.xlabel('displacement (m)')
+    plt.ylabel('dPE/ddisp (N)')
+    plt.title('Yoshimura Origami: dPE/ddisp vs Displacement')
     plt.show()
 
 
 if __name__ == "__main__":
-    setup_experiment()
+    setup_experiment(35)
     run_simulation()
+    from demlat.utils.viz_player import visualize_experiment
     visualize_experiment(DEMO_DIR)
     show_pe(DEMO_DIR)

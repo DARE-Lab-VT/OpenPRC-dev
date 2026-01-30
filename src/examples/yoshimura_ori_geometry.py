@@ -1,4 +1,5 @@
 import numpy as np
+from collections import defaultdict
 
 
 def general_transform_matrix(psi, gamma, d):
@@ -65,6 +66,7 @@ def generate_yoshimura_geometry(n, beta, d=None, gamma=0.0, psi=0.0):
         List of (node_i, node_j, node_k) for each triangular face
     """
 
+    l = 0.075  # m
     # Calculate derived parameters for folded configuration
     r = 1 / (2 * np.sin(np.pi / n))
     w = 0.5 * np.tan(beta)
@@ -179,6 +181,7 @@ def generate_yoshimura_geometry(n, beta, d=None, gamma=0.0, psi=0.0):
 
     # Generate bars and faces
     bars = []
+    hinges = []
     faces = []
 
     for i in range(2 * n):
@@ -238,38 +241,6 @@ def generate_yoshimura_geometry(n, beta, d=None, gamma=0.0, psi=0.0):
             faces.append((top_idx(i), top_idx(j), mid_idx(j)))
             faces.append((top_idx(i), top_idx(k), mid_idx(k)))
 
-    return nodes, bars, faces, params
-
-
-def add_yoshimura_hinges(setup, nodes, faces, n, params, k_fold=10.0, k_facet=200.0):
-    """
-    Add hinges to Yoshimura geometry.
-
-    Hinges are added along edges shared by two triangular faces.
-    The rest angle depends on whether it's a fold crease or a facet diagonal.
-
-    Parameters
-    ----------
-    setup : ExperimentSetup
-    nodes : np.ndarray
-        Node positions
-    faces : list of tuples
-        Triangular faces (i, j, k)
-    n : int
-        Number of polygon sides
-    params : list
-        [n, beta, d, gamma, psi] - geometry parameters
-    k_fold : float
-        Stiffness for fold creases (mountain/valley)
-    k_facet : float
-        Stiffness for facet diagonals (keep faces planar)
-    """
-    from collections import defaultdict
-
-    n_sides, beta, d, gamma, psi = params
-
-    # Build edge-to-faces mapping
-    # Each edge can be shared by at most 2 faces
     edge_faces = defaultdict(list)
 
     for face_idx, face in enumerate(faces):
@@ -281,16 +252,6 @@ def add_yoshimura_hinges(setup, nodes, faces, n, params, k_fold=10.0, k_facet=20
         ]
         for edge in edges:
             edge_faces[edge].append(face_idx)
-
-    # Index helpers
-    def base_idx(i):
-        return i % (2 * n)
-
-    def mid_idx(i):
-        return 2 * n + i % (2 * n)
-
-    def top_idx(i):
-        return 4 * n + i % (2 * n)
 
     def get_layer(idx):
         """Return which layer a node belongs to: 'base', 'mid', or 'top'"""
@@ -383,9 +344,6 @@ def add_yoshimura_hinges(setup, nodes, faces, n, params, k_fold=10.0, k_facet=20
 
         return 'facet'  # default
 
-    # Add hinges for shared edges
-    hinges_added = 0
-
     for edge, face_indices in edge_faces.items():
         if len(face_indices) != 2:
             # Boundary edge - no hinge needed
@@ -407,13 +365,5 @@ def add_yoshimura_hinges(setup, nodes, faces, n, params, k_fold=10.0, k_facet=20
 
         # Classify edge and select stiffness
         edge_type = classify_edge(edge)
-        k = k_fold if edge_type == 'fold' else k_facet
-
-        # Hinge format: [edge_node1, edge_node2, wing1, wing2]
-        hinge_nodes = [edge[0], edge[1], wing1, wing2]
-
-        setup.add_hinge(hinge_nodes, stiffness=k, rest_angle=rest_angle)
-        hinges_added += 1
-
-    print(f"  Hinges added: {hinges_added}")
-    return hinges_added
+        hinges.append([edge[0], edge[1], wing1, wing2, rest_angle, edge_type])
+    return nodes, bars, hinges, faces, params

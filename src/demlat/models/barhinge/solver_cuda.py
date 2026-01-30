@@ -15,6 +15,7 @@ class CudaSolver:
     an RK4 integration scheme for time-stepping and supports both soft (spring-damper)
     and rigid (Position Based Dynamics - PBD) constraints for bars and hinges.
     """
+
     def __init__(self, n_nodes, mass, attributes, bars, hinges=None, options=None):
         """
         Initialize the CUDA solver.
@@ -49,6 +50,7 @@ class CudaSolver:
         self.k_proj_bars = self.mod.get_function("project_rigid_bars")
         self.k_proj_hinges = self.mod.get_function("project_rigid_hinges")  # NEW
         self.k_vel_rigid = self.mod.get_function("correct_rigid_velocity")
+        self.k_vel_correction = self.mod.get_function("correct_all_rigid_velocities")
 
         # Dimensions
         self.block = (256, 1, 1)
@@ -205,7 +207,8 @@ class CudaSolver:
                     val = actuation_map[node_idx]['value']
                     self.h_act_vals[i * 3:i * 3 + 3] = val
             cuda.memcpy_htod(self.d_act_vals, self.h_act_vals)
-            self.k_act_pos(np.int32(self.n_actuators), self.d_act_idx, self.d_act_vals, self.d_x, self.d_v, np.float64(dt), block=self.block,
+            self.k_act_pos(np.int32(self.n_actuators), self.d_act_idx, self.d_act_vals, self.d_x, self.d_v,
+                           np.float64(dt), block=self.block,
                            grid=((self.n_actuators + 255) // 256, 1))
 
         # 2. Physics Params
@@ -240,15 +243,41 @@ class CudaSolver:
         # 4. PBD Loop (Rigid Constraints)
         if self.n_rigid_bars > 0 or self.n_rigid_hinges > 0:
             for _ in range(5):
-                if self.n_rigid_bars > 0: # PBD for rigid bars
-                    self.k_proj_bars(np.int32(self.n_rigid_bars), self.d_rbar_idx, self.d_rbar_l0, self.d_mass,
-                                     self.d_attrs, self.d_x, np.float64(0.8), block=self.block, grid=self.grid_rbars)
-                if self.n_rigid_hinges > 0:
-                    self.k_proj_hinges(np.int32(self.n_rigid_hinges), self.d_rhinge_idx, self.d_rhinge_phi, self.d_mass,
-                                       self.d_attrs, self.d_x, np.float64(0.8), block=self.block,
-                                       grid=self.grid_rhinges)
+                if self.n_rigid_bars > 0:
+                    self.k_proj_bars(
+                        np.int32(self.n_rigid_bars),
+                        self.d_rbar_idx,
+                        self.d_rbar_l0,
+                        self.d_mass,
+                        self.d_attrs,
+                        self.d_x,
+                        np.float64(0.8),
+                        block=self.block,
+                        grid=self.grid_rbars
+                    )
 
-            # Velocity Correction (for both rigid bars and hinges)
-            if self.n_rigid_bars > 0 or self.n_rigid_hinges > 0:
-                self.k_vel_rigid(np.int32(self.n_nodes), self.d_x, self.d_v, self.d_attrs, block=self.block,
-                                 grid=self.grid_nodes)
+                if self.n_rigid_hinges > 0:
+                    self.k_proj_hinges(
+                        np.int32(self.n_rigid_hinges),
+                        self.d_rhinge_idx,
+                        self.d_rhinge_phi,
+                        self.d_mass,
+                        self.d_attrs,
+                        self.d_x,
+                        np.float64(0.8),
+                        block=self.block,
+                        grid=self.grid_rhinges
+                    )
+
+            # Velocity Correction (only for rigid bars)
+            if self.n_rigid_bars > 0:
+                self.k_vel_rigid(
+                    np.int32(self.n_rigid_bars),
+                    self.d_rbar_idx,
+                    self.d_mass,
+                    self.d_attrs,
+                    self.d_x,
+                    self.d_v,
+                    block=self.block,
+                    grid=self.grid_rbars
+                )
