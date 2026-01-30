@@ -92,9 +92,10 @@ if __name__ == "__main__":
     
     # --- Option B: User-Defined Custom Benchmark ---
     # To create your own benchmark: python3 openprc_cli.py create-benchmark ./analysis/benchmarks/benchmark_template.py
+    # We can make this command to be more user-friendly once it is released to pypi, this is just for testing 
     # Once the above-mentioned command is run, it generates benchmark_template.py for the user to modify, just follow the instructions in that script
     # Then, import the module:
-    
+
     # from analysis.benchmarks.benchmark_template import MyBenchmark()
     # benchmark = MyBenchmark()  
     
