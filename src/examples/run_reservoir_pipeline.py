@@ -79,7 +79,11 @@ if __name__ == "__main__":
     exp_path = "spring_mass_3x3_test/generation_0"
 
     # 2. Define the Task
+    # --- Option A: Standard NARMA Task ---
     task = NARMA(2) # You can customize this task
+
+    # --- Option B: User-Defined Custom Task
+    # task = YOUR_TASK: np.ndarray
     
     # 3. Define the Benchmark and its specific arguments
     # --- Option A: Standard NARMA Benchmark ---
@@ -87,8 +91,12 @@ if __name__ == "__main__":
     benchmark_args = {"order": 2}
     
     # --- Option B: User-Defined Custom Benchmark ---
-    # To create your own benchmark
-    # benchmark = CustomBenchmark()  
+    # To create your own benchmark: python3 openprc_cli.py create-benchmark ./analysis/benchmarks/benchmark_template.py
+    # Once the above-mentioned command is run, it generates benchmark_template.py for the user to modify, just follow the instructions in that script
+    # Then, import the module:
+    
+    # from analysis.benchmarks.benchmark_template import MyBenchmark()
+    # benchmark = MyBenchmark()  
     
     # 4. Define the Visualizer
     visualizer = TimeSeriesComparison()
