@@ -206,7 +206,13 @@ def generate_yoshimura_geometry(n, beta, d=None, gamma=0.0, psi=0.0):
         length = np.linalg.norm(nodes[i1] - nodes[i2])
         bars.append((i1, i2, length))
 
+        # mid to top
+        i1, i2 = mid_idx(i), top_idx(i)
+        length = np.linalg.norm(nodes[i1] - nodes[i2])
+        bars.append((i1, i2, length))
+
         if i % 2 == 0:
+            # mid to base
             i1, i2 = base_idx(i), mid_idx(j)
             length = np.linalg.norm(nodes[i1] - nodes[i2])
             bars.append((i1, i2, length))
@@ -221,12 +227,7 @@ def generate_yoshimura_geometry(n, beta, d=None, gamma=0.0, psi=0.0):
             faces.append((base_idx(i), base_idx(j), mid_idx(j)))
             faces.append((base_idx(i), base_idx(k), mid_idx(k)))
 
-        # mid to top
-        i1, i2 = mid_idx(i), top_idx(i)
-        length = np.linalg.norm(nodes[i1] - nodes[i2])
-        bars.append((i1, i2, length))
-
-        if i % 2 == 0:
+            # mid to top
             i1, i2 = top_idx(i), mid_idx(j)
             length = np.linalg.norm(nodes[i1] - nodes[i2])
             bars.append((i1, i2, length))
@@ -241,6 +242,21 @@ def generate_yoshimura_geometry(n, beta, d=None, gamma=0.0, psi=0.0):
             faces.append((top_idx(i), top_idx(j), mid_idx(j)))
             faces.append((top_idx(i), top_idx(k), mid_idx(k)))
 
+            hinges.append((base_idx(i), mid_idx(j), mid_idx(i), base_idx(j), np.pi, 'fold'))
+            hinges.append((top_idx(i), mid_idx(j), mid_idx(i), top_idx(j), np.pi, 'fold'))
+            hinges.append((mid_idx(i), mid_idx(j), top_idx(i), base_idx(i), np.pi, 'fold'))
+            hinges.append((mid_idx(i), mid_idx(k), top_idx(i), base_idx(i), np.pi, 'fold'))
+
+        else:
+            hinges.append((mid_idx(i), base_idx(j), base_idx(i), mid_idx(j), np.pi, 'fold'))
+            hinges.append((mid_idx(i), top_idx(j), top_idx(i), mid_idx(j), np.pi, 'fold'))
+            pass
+
+        hinges.append((base_idx(i), mid_idx(i), base_idx(j), base_idx(k), np.pi, 'facet'))
+        hinges.append((top_idx(i), mid_idx(i), top_idx(j), top_idx(k), np.pi, 'facet'))
+
+
+
     edge_faces = defaultdict(list)
 
     for face_idx, face in enumerate(faces):
@@ -253,117 +269,4 @@ def generate_yoshimura_geometry(n, beta, d=None, gamma=0.0, psi=0.0):
         for edge in edges:
             edge_faces[edge].append(face_idx)
 
-    def get_layer(idx):
-        """Return which layer a node belongs to: 'base', 'mid', or 'top'"""
-        if idx < 2 * n:
-            return 'base'
-        elif idx < 4 * n:
-            return 'mid'
-        else:
-            return 'top'
-
-    def is_vertex(idx):
-        """Check if node is a vertex (even local index) or edge midpoint (odd)"""
-        local_idx = idx % (2 * n)
-        return local_idx % 2 == 0
-
-    # Calculate dihedral angle between two faces sharing an edge
-    def calc_dihedral(face1, face2, edge):
-        """
-        Calculate dihedral angle between two triangular faces sharing an edge.
-        Returns angle in radians.
-        """
-        # Find the non-shared vertices
-        v1_set = set(face1)
-        v2_set = set(face2)
-        edge_set = set(edge)
-
-        wing1 = list(v1_set - edge_set)[0]
-        wing2 = list(v2_set - edge_set)[0]
-
-        # Get positions
-        p_edge1 = nodes[edge[0]]
-        p_edge2 = nodes[edge[1]]
-        p_wing1 = nodes[wing1]
-        p_wing2 = nodes[wing2]
-
-        # Edge vector
-        edge_vec = p_edge2 - p_edge1
-        edge_vec = edge_vec / np.linalg.norm(edge_vec)
-
-        # Vectors to wings
-        v1 = p_wing1 - p_edge1
-        v2 = p_wing2 - p_edge1
-
-        # Project onto plane perpendicular to edge
-        v1_perp = v1 - np.dot(v1, edge_vec) * edge_vec
-        v2_perp = v2 - np.dot(v2, edge_vec) * edge_vec
-
-        # Normalize
-        v1_perp = v1_perp / (np.linalg.norm(v1_perp) + 1e-10)
-        v2_perp = v2_perp / (np.linalg.norm(v2_perp) + 1e-10)
-
-        # Angle between them
-        cos_angle = np.clip(np.dot(v1_perp, v2_perp), -1, 1)
-        angle = np.arccos(cos_angle)
-
-        # Determine sign using cross product
-        cross = np.cross(v1_perp, v2_perp)
-        if np.dot(cross, edge_vec) < 0:
-            angle = 2 * np.pi - angle
-
-        return angle
-
-    def classify_edge(edge):
-        """
-        Classify edge type for determining hinge stiffness.
-        Returns: 'fold' for crease lines, 'facet' for face diagonals
-        """
-        idx1, idx2 = edge
-        layer1, layer2 = get_layer(idx1), get_layer(idx2)
-        is_v1, is_v2 = is_vertex(idx1), is_vertex(idx2)
-
-        # Edges within same layer (ring edges)
-        if layer1 == layer2:
-            # These are the polygon edges - typically fold creases
-            return 'fold'
-
-        # Edges between layers
-        # Base-to-mid or mid-to-top connections
-        if (layer1 == 'base' and layer2 == 'mid') or \
-                (layer1 == 'mid' and layer2 == 'base') or \
-                (layer1 == 'mid' and layer2 == 'top') or \
-                (layer1 == 'top' and layer2 == 'mid'):
-
-            # Vertex-to-vertex or midpoint-to-midpoint: fold crease
-            if is_v1 == is_v2:
-                return 'fold'
-            # Vertex-to-midpoint: typically facet diagonal
-            else:
-                return 'facet'
-
-        return 'facet'  # default
-
-    for edge, face_indices in edge_faces.items():
-        if len(face_indices) != 2:
-            # Boundary edge - no hinge needed
-            continue
-
-        face1 = faces[face_indices[0]]
-        face2 = faces[face_indices[1]]
-
-        # Find wing vertices (non-shared vertices)
-        v1_set = set(face1)
-        v2_set = set(face2)
-        edge_set = set(edge)
-
-        wing1 = list(v1_set - edge_set)[0]
-        wing2 = list(v2_set - edge_set)[0]
-
-        # Calculate rest angle from current geometry
-        rest_angle = calc_dihedral(face1, face2, edge)
-
-        # Classify edge and select stiffness
-        edge_type = classify_edge(edge)
-        hinges.append([edge[0], edge[1], wing1, wing2, rest_angle, edge_type])
     return nodes, bars, hinges, faces, params

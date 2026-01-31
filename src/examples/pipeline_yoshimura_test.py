@@ -23,11 +23,10 @@ def create_yoshimura_geometry(setup: ExperimentSetup,
                               gamma=0.0,
                               psi=0.0,
                               k_axial=100.0,
-                              k_fold=0.00,
+                              k_fold=0.0,
                               k_facet=0.0,
                               mass=0.01,
                               damping=2.0):
-
     print(f"\nYoshimura Parameters:")
     print(f"  n={n}, beta={np.rad2deg(beta):.2f}°")
 
@@ -44,7 +43,9 @@ def create_yoshimura_geometry(setup: ExperimentSetup,
         'base_corners': [2 * i for i in range(n)],
         'top_corners': [4 * n + 2 * i for i in range(n)],
         'n': n,
-        'total_nodes': len(nodes)
+        'total_nodes': len(nodes),
+        'beta': beta,
+        'd': d,
     }
 
     # Add nodes to setup
@@ -81,7 +82,8 @@ def create_yoshimura_geometry(setup: ExperimentSetup,
     return faces, node_info, params
 
 
-def setup_actuation(setup: ExperimentSetup, node_info: dict, min_pos=0.0, max_pos=1.0, frequency=0.5, duration=10.0):
+def setup_actuation(setup: ExperimentSetup, node_info: dict, min_pos=0.0, max_pos=1.0, frequency=0.5, duration=10.0,
+                    drivers=3):
     # Get initial positions
     positions = setup.nodes['positions']
 
@@ -93,6 +95,7 @@ def setup_actuation(setup: ExperimentSetup, node_info: dict, min_pos=0.0, max_po
     # Create signals for each top corner
     base_corners = node_info['base_corners']
     top_corners = node_info['top_corners']
+    beta = node_info['beta']
 
     print(f"\nSetting up actuation:")
     print(f"  Fixed base corners: {base_corners}")
@@ -100,34 +103,36 @@ def setup_actuation(setup: ExperimentSetup, node_info: dict, min_pos=0.0, max_po
 
     # Create sinusoidal signals for top corners
     for i, idx in enumerate(top_corners):
-        p0 = positions[idx]
+        if i < drivers:
+            p0 = positions[idx]
 
-        # generate a signal to go from min_pos to max_pos from p0[2] with given frequency
-        sig = np.zeros((len(t), 3), dtype=np.float32)
-        sig[:, 0] = p0[0]
-        sig[:, 1] = p0[1]
-        sig[:, 2] = (max_pos - min_pos) * (1 + np.cos(omega * t)) / 2
+            # generate a signal to go from min_pos to max_pos from p0[2] with given frequency
+            sig = np.zeros((len(t), 3), dtype=np.float32)
+            sig[:, 0] = p0[0]
+            sig[:, 1] = p0[1]
+            sig[:, 2] = np.tan(beta) - (max_pos - min_pos) * (1 - np.cos(omega * t)) / 4
 
-        sig_name = f"sig_top_corner_{i}"
-        setup.add_signal(sig_name, sig, dt=dt_sig)
-        setup.add_actuator(idx, sig_name, type='position')
+            sig_name = f"sig_top_corner_{i}"
+            setup.add_signal(sig_name, sig, dt=dt_sig)
+            setup.add_actuator(idx, sig_name, type='position')
 
     # add zero actuation to base corners
     for i, idx in enumerate(base_corners):
-        p0 = positions[idx]
+        if i < drivers:
+            p0 = positions[idx]
 
-        # generate a signal to go from min_pos to max_pos from p0[2] with given frequency
-        sig = np.zeros((len(t), 3), dtype=np.float32)
-        sig[:, 0] = p0[0]
-        sig[:, 1] = p0[1]
-        sig[:, 2] = p0[2]
+            # generate a signal to go from min_pos to max_pos from p0[2] with given frequency
+            sig = np.zeros((len(t), 3), dtype=np.float32)
+            sig[:, 0] = p0[0]
+            sig[:, 1] = p0[1]
+            sig[:, 2] = 0 + (max_pos - min_pos) * (1 - np.cos(omega * t)) / 4
 
-        sig_name = f"sig_base_corner_{i}"
-        setup.add_signal(sig_name, sig, dt=dt_sig)
-        setup.add_actuator(idx, sig_name, type='position')
+            sig_name = f"sig_base_corner_{i}"
+            setup.add_signal(sig_name, sig, dt=dt_sig)
+            setup.add_actuator(idx, sig_name, type='position')
 
 
-def setup_experiment(beta):
+def setup_experiment(beta, drivers=3):
     """Setup the Yoshimura experiment"""
     print("\n[Setup] Creating Yoshimura Experiment...")
 
@@ -144,7 +149,7 @@ def setup_experiment(beta):
     setup.set_physics(gravity=0.0, damping=0.2)
 
     beta = np.deg2rad(beta)
-    d = np.tan(beta) - 0.001
+    d = np.tan(beta)
 
     # Build Geometry
     faces, node_info, params = create_yoshimura_geometry(
@@ -152,9 +157,9 @@ def setup_experiment(beta):
         n=3,
         beta=beta,
         d=d,
-        k_axial=1000.0,
-        k_fold=1.0,
-        k_facet=0.0,
+        k_axial=2000.0,
+        k_fold=0.0,
+        k_facet=10.0,
         mass=0.01,
         damping=3.0
     )
@@ -169,7 +174,8 @@ def setup_experiment(beta):
         min_pos=0.0,
         max_pos=d,
         frequency=0.2,
-        duration=duration
+        duration=duration,
+        drivers=drivers
     )
 
     # Save Everything
@@ -197,9 +203,9 @@ def show_pe(demo_dir):
     # Get data
     time, _ = plotter.get_dataset("time")
     positions, _ = plotter.get_dataset("nodes/positions")
-    # potential_energy, _ = plotter.get_dataset("system/potential_energy")
+    potential_energy, _ = plotter.get_dataset("system/potential_energy")
     strain_energy, _ = plotter.get_dataset("elements/bars/potential_energy")
-    potential_energy = np.sum(strain_energy, axis=1)
+    # potential_energy = np.sum(strain_energy, axis=1)
     print(np.array(potential_energy).shape, np.array(strain_energy).shape)
 
     # Flatten arrays if needed
@@ -207,7 +213,7 @@ def show_pe(demo_dir):
     potential_energy = np.asarray(potential_energy).flatten()
 
     # Skip first 5 seconds (transient)
-    t_start = 0.0
+    t_start = 10.0
     t_end = 20.0
     mask = time >= t_start
     mask &= time <= t_end
@@ -216,108 +222,11 @@ def show_pe(demo_dir):
     potential_energy = potential_energy[mask]
 
     # Get driven node displacement
-    n = 4
+    n = 0
     driven_node_idx = 4 * n
     z0 = positions[0, driven_node_idx, 2]
     displacement = z0 - positions[:, driven_node_idx, 2]
     displacement = np.asarray(displacement).flatten()
-
-    # # Detect loading/unloading based on displacement rate
-    # d_disp = np.gradient(displacement, time)
-    # loading = d_disp > 0
-    # unloading = d_disp <= 0
-    #
-    # # Bin data for averaging
-    # n_bins = 100
-    # disp_min, disp_max = displacement.min(), displacement.max()
-    # bin_edges = np.linspace(disp_min, disp_max, n_bins + 1)
-    # bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
-    #
-    # def compute_envelope_stats(disp, energy):
-    #     """Compute mean, min, max per bin."""
-    #     means = np.full(n_bins, np.nan)
-    #     mins = np.full(n_bins, np.nan)
-    #     maxs = np.full(n_bins, np.nan)
-    #
-    #     bin_idx = np.digitize(disp, bin_edges) - 1
-    #     bin_idx = np.clip(bin_idx, 0, n_bins - 1)
-    #
-    #     for i in range(n_bins):
-    #         mask = bin_idx == i
-    #         if np.sum(mask) > 0:
-    #             vals = energy[mask]
-    #             means[i] = np.mean(vals)
-    #             mins[i] = np.min(vals)
-    #             maxs[i] = np.max(vals)
-    #
-    #     return means, mins, maxs
-    #
-    # # Compute stats for loading and unloading
-    # load_mean, load_min, load_max = compute_envelope_stats(
-    #     displacement[loading], potential_energy[loading]
-    # )
-    # unload_mean, unload_min, unload_max = compute_envelope_stats(
-    #     displacement[unloading], potential_energy[unloading]
-    # )
-    #
-    # # Remove NaN for plotting
-    # def clean_data(x, y_mean, y_min, y_max):
-    #     valid = ~np.isnan(y_mean)
-    #     return x[valid], y_mean[valid], y_min[valid], y_max[valid]
-    #
-    # bc_load, lm, lmin, lmax = clean_data(bin_centers, load_mean, load_min, load_max)
-    # bc_unload, um, umin, umax = clean_data(bin_centers, unload_mean, unload_min, unload_max)
-    #
-    # # Compute derivative of PE vs displacement
-    # # We'll use the mean curves for this
-    # dPE_ddisp_load = np.gradient(lm, bc_load)
-    # dPE_ddisp_unload = np.gradient(um, bc_unload)
-    #
-    # # Plot
-    # fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10), sharex=True)
-    #
-    # # Subplot 1: PE vs Displacement
-    # # Loading: line + envelope
-    # ax1.fill_between(bc_load, lmin, lmax, alpha=0.25, color='royalblue', label='Loading envelope')
-    # ax1.plot(bc_load, lm, 'royalblue', lw=2, label='Loading (mean)')
-    #
-    # # Unloading: line + envelope
-    # ax1.fill_between(bc_unload, umin, umax, alpha=0.25, color='orangered', label='Unloading envelope')
-    # ax1.plot(bc_unload, um, 'orangered', lw=2, label='Unloading (mean)')
-    #
-    # # Calculate hysteresis area (between mean curves)
-    # # Interpolate to common grid for area calculation
-    # common_disp = np.linspace(
-    #     max(bc_load.min(), bc_unload.min()),
-    #     min(bc_load.max(), bc_unload.max()),
-    #     200
-    # )
-    # load_interp = np.interp(common_disp, bc_load, lm)
-    # unload_interp = np.interp(common_disp, bc_unload, um)
-    # hysteresis_area = np.abs(trapezoid(load_interp - unload_interp, common_disp))
-    #
-    # ax1.text(0.05, 0.95, f'Hysteresis Area ≈ {hysteresis_area:.4f} J',
-    #         transform=ax1.transAxes, fontsize=11, verticalalignment='top',
-    #         bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-    #
-    # ax1.set_ylabel('Total Potential Energy (J)', fontsize=12)
-    # ax1.set_title('Yoshimura Origami: Displacement vs Potential Energy (t > 5s)', fontsize=14)
-    # ax1.grid(True, alpha=0.3)
-    # ax1.legend(loc='upper right')
-    #
-    # # Subplot 2: dPE/ddisp vs Displacement
-    # ax2.plot(bc_load, dPE_ddisp_load, 'royalblue', lw=2, label='dPE/ddisp (Loading)')
-    # ax2.plot(bc_unload, dPE_ddisp_unload, 'orangered', lw=2, label='dPE/ddisp (Unloading)')
-    #
-    # ax2.set_xlabel('Displacement (m)', fontsize=12)
-    # ax2.set_ylabel('d(PE)/d(disp) (N)', fontsize=12)
-    # ax2.set_title('Derivative of Potential Energy vs Displacement', fontsize=14)
-    # ax2.grid(True, alpha=0.3)
-    # ax2.legend(loc='upper right')
-    #
-    # fig.tight_layout()
-    # plt.savefig(DEMO_DIR / "displacement_vs_energy_hysteresis.png", dpi=150)
-    # plt.show()
 
     plt.figure()
     plt.plot(time, displacement)
@@ -342,8 +251,9 @@ def show_pe(demo_dir):
 
 
 if __name__ == "__main__":
-    setup_experiment(35)
-    run_simulation()
+    setup_experiment(beta=35.0, drivers=3)
+    # run_simulation()
     from demlat.utils.viz_player import visualize_experiment
+
     visualize_experiment(DEMO_DIR)
-    show_pe(DEMO_DIR)
+    # show_pe(DEMO_DIR)

@@ -516,12 +516,12 @@ def run_hilbert_sweep(n, beta, hilbert_order=4, psi=0.0, gamma_range=(0.0, np.pi
     k_fold = 1.0
     k_facet = 0.0
 
-    for hinge in hinges:
-        i, j, k, l, rest_angle, edge_type = hinge
-        if edge_type == 'fold' and k_fold >= 0.0:
-            setup.add_hinge(nodes=[i, j, k, l], stiffness=k_fold, rest_angle=rest_angle)
-        elif edge_type == 'facet' and k_facet >= 0.0:
-            setup.add_hinge(nodes=[i, j, k, l], stiffness=k_facet, rest_angle=rest_angle)
+    # for hinge in hinges:
+    #     i, j, k, l, rest_angle, edge_type = hinge
+    #     if edge_type == 'fold' and k_fold >= 0.0:
+    #         setup.add_hinge(nodes=[i, j, k, l], stiffness=k_fold, rest_angle=rest_angle)
+    #     elif edge_type == 'facet' and k_facet >= 0.0:
+    #         setup.add_hinge(nodes=[i, j, k, l], stiffness=k_facet, rest_angle=rest_angle)
 
     # Add visualization faces
     for face in faces:
@@ -612,7 +612,7 @@ def run_hilbert_sweep(n, beta, hilbert_order=4, psi=0.0, gamma_range=(0.0, np.pi
 
 
 if __name__ == "__main__":
-    # for beta in [31.7, 35, 40, 45]:
+    # for beta in [31.7]:
     #     # Test with different Hilbert orders
     #     n = 3
     #     beta = np.deg2rad(beta)
@@ -636,14 +636,14 @@ if __name__ == "__main__":
     from demlat.utils.viz_player import visualize_experiment
 
     n = 3
-    beta = np.deg2rad(35)
+    beta = np.deg2rad(31.7)
     order = 7
 
-    # Visualize just the curve without running simulation
-    print("Generating Hilbert curve visualization...")
-    gamma_range = (0.0, np.pi / 4)
-    d_range = (0.00, np.tan(beta))
-
+    # # Visualize just the curve without running simulation
+    # print("Generating Hilbert curve visualization...")
+    # gamma_range = (0.0, np.pi / 4)
+    # d_range = (0.00, np.tan(beta))
+    #
     # visualize_hilbert_curve(hilbert_order=order, gamma_range=gamma_range,
     #                         d_range=d_range, beta=beta)
 

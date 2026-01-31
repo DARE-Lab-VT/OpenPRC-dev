@@ -8,6 +8,7 @@ from pathlib import Path
 from scipy.interpolate import griddata
 from demlat.utils.plot_timeseries import SimulationPlotter
 from scipy.optimize import fsolve
+from scipy.ndimage import minimum_filter
 
 
 
@@ -188,6 +189,11 @@ def plot_hilbert_manifold(exp_path):
                            (gamma_mesh, d_mesh),
                            method='cubic',
                            fill_value=np.nan)
+    
+    # Also interpolate time onto the grid to find corresponding times for minima
+    time_grid = griddata(points, time,
+                         (gamma_mesh, d_mesh),
+                         method='nearest')
 
     # Fill any NaN values with nearest neighbor interpolation
     if np.any(np.isnan(energy_grid)):
@@ -219,10 +225,38 @@ def plot_hilbert_manifold(exp_path):
                   fontsize=14, fontweight='bold')
     ax1.grid(True, alpha=0.3, linestyle='--')
 
-    # plot params with legend
+    # # plot params with legend
     for param in params:
         beta, psi, gamma, d, idx = param
         ax1.plot(np.rad2deg(gamma), d, 'r*')
+    
+    # draw and print all the local minimas
+    # Use minimum filter to find local minima
+    local_min = minimum_filter(energy_grid, size=3) == energy_grid
+    
+    # Filter out edge cases and high energy points if needed
+    # For now, just get all local minima
+    min_indices = np.where(local_min)
+    
+    print("\nLocal Minima found:")
+    print(f"{'Index':<5} {'Gamma (deg)':<15} {'d':<10} {'Energy':<15} {'Time (s)':<10}")
+    print("-" * 65)
+    
+    for i in range(len(min_indices[0])):
+        row, col = min_indices[0][i], min_indices[1][i]
+        
+        # Get coordinates and energy
+        gamma_val = gamma_grid[col]
+        d_val = d_grid[row]
+        energy_val = energy_grid[row, col]
+        time_val = time_grid[row, col]
+        
+        # Print
+        print(f"{i:<5} {np.rad2deg(gamma_val):<15.4f} {d_val:<10.4f} {energy_val:<15.6f} {time_val:<10.3f}")
+        
+        # Plot on the manifold
+        ax1.plot(np.rad2deg(gamma_val), d_val, 'w+', markersize=10, markeredgewidth=2)
+        ax1.plot(np.rad2deg(gamma_val), d_val, 'k+', markersize=10, markeredgewidth=1)
 
     cbar1 = plt.colorbar(im1, ax=ax1)
     cbar1.set_label('Potential Energy', fontsize=12, fontweight='bold')
@@ -312,5 +346,5 @@ def plot_hilbert_manifold(exp_path):
 
 
 if __name__ == "__main__":
-    exp_path = Path("experiments/yoshimura_hilbert_sweep/exp_n3_beta35.0deg_hilbert7")
+    exp_path = Path("experiments/yoshimura_hilbert_sweep/exp_n3_beta31.7deg_hilbert7")
     plot_hilbert_manifold(exp_path)

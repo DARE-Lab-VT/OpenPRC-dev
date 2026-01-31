@@ -490,6 +490,7 @@ class DEMLATVisualizer(PiVizFX):
             'hinge_color_valley': (1.0, 0.4, 0.2),  # Orange for valley folds (angle < π)
             'hinge_color_flat': (0.5, 0.5, 0.5),  # Gray for flat (angle ≈ π)
             'hinge_indicator_scale': 0.15,  # Scale for hinge direction indicators
+            'show_hinge_rest_angle': True,  # NEW: toggle rest angle visualization
         }
 
         if config:
@@ -679,6 +680,10 @@ class DEMLATVisualizer(PiVizFX):
         """Reset simulation to start."""
         self._goto_start()
         self.paused = False
+        self.timestep_idx = 0
+        self.float_timestep = 0.0
+        for k in self.trails:
+            self.trails[k].clear()
         self._update_pause_button()
 
         # ========================================================
@@ -731,6 +736,14 @@ class DEMLATVisualizer(PiVizFX):
                                        Slider("Step", 1, 50, 1, self._on_step_change))
         # ================================================
 
+        if self.data.n_hinges > 0:
+            self.ui_manager.add_widget("chk_hinges",
+                                       Checkbox("Show Hinges", self.config['show_hinges'],
+                                                lambda v: self.config.update({'show_hinges': v})))
+
+        self.ui_manager.add_widget("chk_hinge_rest",
+                                   Checkbox("Show Rest Angle", self.config['show_hinge_rest_angle'],
+                                            lambda v: self.config.update({'show_hinge_rest_angle': v})))
         # Visualization toggles
         self.ui_manager.add_widget("chk_nodes",
                                    Checkbox("Show Nodes", self.config['show_nodes'],
@@ -771,15 +784,6 @@ class DEMLATVisualizer(PiVizFX):
         self.ui_manager.add_widget("chk_particles",
                                    Checkbox("Particle Nodes", self.config['use_particles_for_nodes'],
                                             lambda v: self.config.update({'use_particles_for_nodes': v})))
-
-    def _reset_sim(self):
-        self.timestep_idx = 0
-        self.float_timestep = 0.0
-        for k in self.trails:
-            self.trails[k].clear()
-
-    def _toggle_pause(self):
-        self.paused = not self.paused
 
     def _toggle_velocity(self, v):
         self.config['show_velocity'] = v
@@ -870,87 +874,254 @@ class DEMLATVisualizer(PiVizFX):
 
     def _render_hinges(self):
         """
-        Render hinges with color-coded fold type visualization.
-
-        - Mountain folds (rest_angle > π): Blue
-        - Valley folds (rest_angle < π): Orange
-        - Flat hinges (rest_angle ≈ π): Gray
-
-        Shows:
-        - Hinge edge as thick line
-        - Small indicators for wing directions
-        - Optional: normal direction arrows
+        Enhanced hinge visualization showing:
+        - Current hinge configuration (solid)
+        - Rest angle configuration (semi-transparent)
+        - Color coding by fold type
+        - Clear wing assignments
         """
         if self.data.n_hinges == 0 or not hasattr(self, 'hinge_indices'):
             return
 
         scale = self.config['hinge_indicator_scale'] * self.scales.L_char
+        show_rest = self.config.get('show_hinge_rest_angle', True)
 
         for i in range(self.data.n_hinges):
             idx = self.hinge_indices[i]  # [edge1, edge2, wing1, wing2]
 
-            # Get positions
+            # Get current positions
             p_edge1 = self.all_positions[idx[0]]
             p_edge2 = self.all_positions[idx[1]]
             p_wing1 = self.all_positions[idx[2]]
             p_wing2 = self.all_positions[idx[3]]
 
             edge_mid = (p_edge1 + p_edge2) / 2
+            edge_vec = p_edge2 - p_edge1
+            edge_length = np.linalg.norm(edge_vec)
+            if edge_length < 1e-10:
+                continue
+            edge_vec = edge_vec / edge_length
 
             # Determine color based on rest angle
             if self.hinge_rest_angles is not None:
                 rest_angle = self.hinge_rest_angles[i]
 
                 if rest_angle > np.pi + 0.05:
-                    # Mountain fold
                     color = self.config['hinge_color_mountain']
+                    fold_type = "M"
                 elif rest_angle < np.pi - 0.05:
-                    # Valley fold
                     color = self.config['hinge_color_valley']
+                    fold_type = "V"
                 else:
-                    # Flat
                     color = self.config['hinge_color_flat']
+                    fold_type = "F"
             else:
                 color = self.config['hinge_color_flat']
+                fold_type = "F"
+                rest_angle = np.pi
 
-            # Draw hinge edge (thick line)
+            # === Draw CURRENT configuration ===
+
+            # 1. Hinge edge (thick line)
             pgfx.draw_line(
                 tuple(p_edge1),
                 tuple(p_edge2),
                 color=color,
-                width=4.0
+                width=5.0
             )
 
-            # Draw wing indicators (thin lines from edge midpoint to wings)
-            # Scale them down so they don't clutter
-            wing1_dir = p_wing1 - edge_mid
-            wing1_dir = wing1_dir / (np.linalg.norm(wing1_dir) + 1e-10) * scale
+            # 2. Wing vectors (current configuration)
+            wing1_vec = p_wing1 - edge_mid
+            wing2_vec = p_wing2 - edge_mid
 
-            wing2_dir = p_wing2 - edge_mid
-            wing2_dir = wing2_dir / (np.linalg.norm(wing2_dir) + 1e-10) * scale
+            w1_len = np.linalg.norm(wing1_vec)
+            w2_len = np.linalg.norm(wing2_vec)
 
-            # Wing 1 indicator
+            if w1_len < 1e-10 or w2_len < 1e-10:
+                continue
+
+            wing1_dir = wing1_vec / w1_len
+            wing2_dir = wing2_vec / w2_len
+
+            # Draw wing indicators (solid, current position)
+            wing_length = scale * 1.5
+
+            # Wing 1 - darker shade of hinge color
             pgfx.draw_line(
                 tuple(edge_mid),
-                tuple(edge_mid + wing1_dir),
-                color=(color[0] * 0.7, color[1] * 0.7, color[2] * 0.7),
-                width=2.0
+                tuple(edge_mid + wing1_dir * wing_length),
+                color=(color[0] * 0.8, color[1] * 0.8, color[2] * 0.8),
+                width=3.0
             )
 
-            # Wing 2 indicator
+            # Wing 2 - lighter shade (CURRENT position)
             pgfx.draw_line(
                 tuple(edge_mid),
-                tuple(edge_mid + wing2_dir),
-                color=(color[0] * 0.7, color[1] * 0.7, color[2] * 0.7),
-                width=2.0
+                tuple(edge_mid + wing2_dir * wing_length),
+                color=(min(color[0] * 1.2, 1.0), min(color[1] * 1.2, 1.0), min(color[2] * 1.2, 1.0)),
+                width=3.0
             )
 
-            # Small sphere at hinge midpoint
+            # Small spheres at wing tips (current)
+            pgfx.draw_sphere(
+                center=tuple(edge_mid + wing1_dir * wing_length),
+                radius=self.scales.node_radius * 0.4,
+                color=(color[0] * 0.8, color[1] * 0.8, color[2] * 0.8),
+                detail=6
+            )
+
+            pgfx.draw_sphere(
+                center=tuple(edge_mid + wing2_dir * wing_length),
+                radius=self.scales.node_radius * 0.4,
+                color=(min(color[0] * 1.2, 1.0), min(color[1] * 1.2, 1.0), min(color[2] * 1.2, 1.0)),
+                detail=6
+            )
+
+            # === Draw REST configuration (ghosted) ===
+            if show_rest and self.hinge_rest_angles is not None:
+                # Project wings onto plane perpendicular to edge
+                w1_perp = wing1_vec - np.dot(wing1_vec, edge_vec) * edge_vec
+                w2_perp = wing2_vec - np.dot(wing2_vec, edge_vec) * edge_vec
+
+                w1_perp_len = np.linalg.norm(w1_perp)
+                w2_perp_len = np.linalg.norm(w2_perp)
+
+                if w1_perp_len > 1e-10 and w2_perp_len > 1e-10:
+                    w1_perp_norm = w1_perp / w1_perp_len
+                    w2_perp_norm = w2_perp / w2_perp_len
+
+                    # Calculate current dihedral angle
+                    cos_current = np.clip(np.dot(w1_perp_norm, w2_perp_norm), -1.0, 1.0)
+                    cross_prod = np.cross(w1_perp_norm, w2_perp_norm)
+                    sign = np.sign(np.dot(cross_prod, edge_vec))
+                    if sign == 0:
+                        sign = 1.0
+                    current_angle = sign * np.arccos(cos_current)
+
+                    # Compute rotation needed to go from current to rest
+                    # Rest angle is the dihedral angle we want
+                    rotation_angle = rest_angle - np.pi - current_angle
+
+                    # Only draw if there's a significant difference
+                    if abs(rotation_angle) > 0.05:  # ~3 degrees
+                        # Compute rest position of wing2 by rotating current w2_perp
+                        cos_theta = np.cos(rotation_angle)
+                        sin_theta = np.sin(rotation_angle)
+
+                        # Rodrigues rotation formula
+                        w2_rest_perp = (w2_perp_norm * cos_theta +
+                                        np.cross(edge_vec, w2_perp_norm) * sin_theta +
+                                        edge_vec * np.dot(edge_vec, w2_perp_norm) * (1 - cos_theta))
+
+                        # Scale back to original length
+                        w2_rest_perp = w2_rest_perp * w2_perp_len
+
+                        # Add back the component along edge
+                        w2_rest = w2_rest_perp + np.dot(wing2_vec, edge_vec) * edge_vec
+
+                        w2_rest_len = np.linalg.norm(w2_rest)
+                        if w2_rest_len > 1e-10:
+                            w2_rest_dir = w2_rest / w2_rest_len
+
+                            # Draw rest configuration (dashed)
+                            rest_wing2_end = edge_mid + w2_rest_dir * wing_length
+
+                            # Draw as dashed line
+                            self._draw_dashed_line(
+                                tuple(edge_mid),
+                                tuple(rest_wing2_end),
+                                color=(1.0, 1.0, 0.0, 0.8),  # Yellow for rest
+                                width=2.5,
+                                dash_length=0.03 * self.scales.L_char
+                            )
+
+                            # Sphere at rest wing tip
+                            pgfx.draw_sphere(
+                                center=tuple(rest_wing2_end),
+                                radius=self.scales.node_radius * 0.3,
+                                color=(1.0, 1.0, 0.0, 0.6),
+                                detail=6
+                            )
+
+                            # Draw arc showing the rotation angle
+                            self._draw_angle_arc(
+                                center=edge_mid,
+                                axis=edge_vec,
+                                start_vec=w2_perp_norm,
+                                angle=rotation_angle,
+                                radius=wing_length * 0.6,
+                                color=(1.0, 1.0, 0.0, 0.7),
+                                segments=16
+                            )
+
+            # 3. Central sphere at hinge midpoint
             pgfx.draw_sphere(
                 center=tuple(edge_mid),
-                radius=self.scales.node_radius * 0.5,
+                radius=self.scales.node_radius * 0.7,
                 color=color,
-                detail=6
+                detail=8
+            )
+
+    def _draw_dashed_line(self, start, end, color, width, dash_length):
+        """Draw a dashed line."""
+        start = np.array(start)
+        end = np.array(end)
+        vec = end - start
+        length = np.linalg.norm(vec)
+
+        if length < 1e-10:
+            return
+
+        direction = vec / length
+        num_dashes = int(length / (2 * dash_length))
+
+        for i in range(num_dashes):
+            t0 = (2 * i * dash_length) / length
+            t1 = ((2 * i + 1) * dash_length) / length
+            if t1 > 1.0:
+                t1 = 1.0
+
+            p0 = start + t0 * vec
+            p1 = start + t1 * vec
+
+            pgfx.draw_line(
+                tuple(p0),
+                tuple(p1),
+                color=color,
+                width=width
+            )
+
+    def _draw_angle_arc(self, center, axis, start_vec, angle, radius, color, segments=16):
+        """Draw an arc to visualize an angle around an axis."""
+        center = np.array(center)
+        axis = np.array(axis)
+        start_vec = np.array(start_vec)
+
+        # Normalize
+        axis = axis / (np.linalg.norm(axis) + 1e-10)
+        start_vec = start_vec / (np.linalg.norm(start_vec) + 1e-10)
+
+        # Generate arc points using Rodrigues rotation
+        points = []
+        for i in range(segments + 1):
+            theta = angle * i / segments
+            cos_t = np.cos(theta)
+            sin_t = np.sin(theta)
+
+            # Rodrigues rotation formula
+            rotated = (start_vec * cos_t +
+                       np.cross(axis, start_vec) * sin_t +
+                       axis * np.dot(axis, start_vec) * (1 - cos_t))
+
+            point = center + rotated * radius
+            points.append(tuple(point))
+
+        # Draw arc as connected line segments
+        if len(points) > 1:
+            pgfx.draw_path(
+                points=points,
+                color=color,
+                width=2.0
             )
 
     def _render_hinge_angles_overlay(self):
