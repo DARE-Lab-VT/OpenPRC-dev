@@ -7,8 +7,8 @@ class NARMABenchmark(BaseBenchmark):
     """
     Calculates the Normalized Root Mean Square Error (NRMSE) for a NARMA task.
     """
-    def __init__(self):
-        super().__init__()
+    def __init__(self, group_name: str = "narma_benchmark"):
+        super().__init__(group_name)
 
     def run(self, experiment_dir: Path, order: int = 10) -> 'NARMABenchmark':
         """

@@ -286,3 +286,39 @@ class StateComputer:
         except Exception as e:
             self.logger.error(f"Error in hinge angle calculation: {e}", exc_info=True)
             raise
+
+    def compute_actuation_signal(self, time_array: np.ndarray, raw_signal_data: np.ndarray, signal_dt: float, actuator_type: str = 'force', node_idx: int = None) -> np.ndarray:
+        """
+        Interpolates a high-resolution signal to align with the simulation time steps.
+        If actuator_type is 'position', it computes the displacement from the rest position.
+        """
+        from scipy.interpolate import interp1d
+
+        try:
+            u_high_res = raw_signal_data.astype(np.float32)
+            t_high_res = np.arange(u_high_res.shape[0]) * signal_dt
+
+            # Create an interpolator
+            interpolator = interp1d(t_high_res, u_high_res, axis=0, kind='linear', fill_value="extrapolate")
+            
+            # Align to Simulation Time
+            u_input = interpolator(time_array)
+
+            if actuator_type == 'position':
+                if node_idx is None:
+                    self.logger.warning("Actuator type is 'position' but no node_idx was provided. Cannot subtract rest position.")
+                elif self.geometry.get('nodes') is None or node_idx >= len(self.geometry['nodes']):
+                    self.logger.warning(f"Node index {node_idx} is out of bounds. Cannot subtract rest position.")
+                else:
+                    rest_position = self.geometry['nodes'][node_idx]
+                    u_input -= rest_position
+
+            return u_input.astype(np.float32)
+        except Exception as e:
+            self.logger.error(f"Error computing actuation signal: {e}", exc_info=True)
+            # Return a zero array of the correct shape on failure
+            if raw_signal_data.ndim > 1:
+                shape = (len(time_array), raw_signal_data.shape[1])
+            else:
+                shape = len(time_array)
+            return np.zeros(shape, dtype=np.float32)

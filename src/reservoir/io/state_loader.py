@@ -42,30 +42,38 @@ class StateLoader:
                 return data[:].reshape(self.total_frames, -1)
             return data[:, node_ids, :].reshape(self.total_frames, -1)
 
-    def get_actuation_signal(self, actuator_idx=0):
+    def get_actuation_signal(self, actuator_idx=0, dof=None):
         """
-        Loads signal from signals.h5 and aligns it to simulation time using loader.dt
-        """
-        if not self.signal_path.exists():
-            # Fallback if signal file is missing (e.g. pure gravity sim)
-            return np.zeros(self.total_frames)
-
-        with h5py.File(self.signal_path, 'r') as f:
-            keys = sorted([k for k in f.keys() if k.startswith("sig_actuator")])
-            if not keys: return np.zeros(self.total_frames)
-            
-            target_key = keys[actuator_idx] if actuator_idx < len(keys) else keys[0]
-            
-            # Load High-Res Data
-            raw_data = f[target_key][:] 
-            dt_signal = f.attrs.get('dt_base', 0.001) 
-            
-        # Extract X-axis (assuming 1D drive)
-        u_high_res = raw_data[:, 0] if raw_data.ndim > 1 else raw_data
-        t_high_res = np.arange(len(u_high_res)) * dt_signal
-
-        # Align to Simulation Time
-        interpolator = interp1d(t_high_res, u_high_res, kind='linear', fill_value="extrapolate")
-        u_input = interpolator(self.time)
+        Loads a specific actuation signal from simulation.h5 based on the new
+        data structure where signals are stored by node ID.
         
-        return u_input
+        Args:
+            actuator_idx (int): The index of the actuator signal to load, based on the
+                                sorted order of actuated node IDs.
+            dof (int, optional): The degree of freedom (0=x, 1=y, 2=z) to extract.
+                                 If None, the full 3D signal is returned.
+        """
+        try:
+            with h5py.File(self.sim_path, 'r') as f:
+                if 'time_series/actuation_signals' in f:
+                    act_group = f['time_series/actuation_signals']
+                    # Get node IDs (stored as strings) and sort them numerically
+                    node_ids = sorted([int(k) for k in act_group.keys()])
+                    
+                    if actuator_idx < 0 or actuator_idx >= len(node_ids):
+                        # print(f"Actuator index {actuator_idx} out of bounds.")
+                        return np.zeros(self.total_frames)
+
+                    target_node_id = str(node_ids[actuator_idx])
+                    signal_data = act_group[target_node_id][:]
+                    
+                    if dof is not None and dof < signal_data.shape[1]:
+                        return signal_data[:, dof]
+                    else:
+                        return signal_data
+                else:
+                    # Fallback for older format or if no signals are saved
+                    return np.zeros(self.total_frames)
+        except Exception:
+            # Fallback on any H5 read error
+            return np.zeros(self.total_frames)

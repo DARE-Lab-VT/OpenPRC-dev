@@ -485,6 +485,7 @@ reservoir/
 │   └── topology_synthesis.py     # Task-driven structure generation
 │
 └── utils/
+    ├── trainer.py                # Readout training and evaluation
     ├── washout.py                # Transient removal utilities
     ├── normalization.py          # Feature scaling strategies
     └── validation.py             # Cross-validation schemes
@@ -502,24 +503,30 @@ readout.h5
 │   ├── feature_config        : {...}  (JSON string)
 │   └── training_timestamp    : "2026-01-20T14:32:00"
 │
+├── preprocessing/
+│   ├── X_mean                : [D] (float64) # Feature means for scaling
+│   ├── X_scale               : [D] (float64) # Feature std dev for scaling
+│   ├── y_mean                : [O] (float64) # Target means for scaling
+│   └── y_scale               : [O] (float64) # Target std dev for scaling
+│
 ├── model/
-│   ├── weights               : [D, O]     (float64)  # Readout weights
-│   ├── bias                  : [O]        (float64)
+│   ├── weights               : [D+1, O]   (float64)  # Readout weights (includes bias term)
 │   ├── regularization        : scalar     (float64)
 │   └── feature_indices       : [D]        (int32)    # Selected node/element IDs
 │
 ├── training/
-│   ├── input                 : [T_train]  (float32)
-│   ├── target                : [T_train, O] (float32)
-│   ├── prediction            : [T_train, O] (float32)
-│   └── loss_curve            : [epochs]   (float32)  # If iterative
+│   ├── input                 : [T_train, D+1] (float32) # Standardized features + bias
+│   ├── target                : [T_train, O] (float32) # Standardized targets
+│   ├── prediction            : [T_train, O] (float32) # Standardized predictions
+│   └── loss_curve            : [epochs]   (float32)  # Optional: for iterative solvers
 │
 └── validation/
-    ├── input                 : [T_val]    (float32)
-    ├── target                : [T_val, O] (float32)
-    ├── prediction            : [T_val, O] (float32)
+    ├── input                 : [T_val, D+1]   (float32)
+    ├── target                : [T_val, O]   (float32)
+    ├── prediction            : [T_val, O]   (float32)
     └── metrics/
-        ├── nmse              : scalar     (float64)
+        # Metrics computed on the validation set during training can be stored here.
+        # Note: Formal benchmark results are in metrics.h5
         ├── nrmse             : scalar     (float64)
         └── correlation       : scalar     (float64)
 
@@ -531,27 +538,23 @@ readout.h5
 from openprc import reservoir
 
 # Load simulation and define features
-states = reservoir.StateLoader("./experiments/lattice_01/output/simulation.h5")
-features = reservoir.features.Composite([
-    reservoir.features.NodePositions(node_ids=[10, 15, 20]),
-    reservoir.features.BarStrains(bar_ids="all"),
-    reservoir.features.PolynomialExpansion(degree=2),
-])
+loader = reservoir.io.StateLoader("./experiments/lattice_01/output/simulation.h5")
+features = reservoir.features.node_features.NodePositions()
+task = reservoir.tasks.memory.NARMA(order=10)
 
-# Train readout on NARMA-10 task
-task = reservoir.tasks.NARMA(order=10, length=5000)
-readout = reservoir.readout.Ridge(regularization=1e-6)
-
-trainer = reservoir.Trainer(
+# Configure and run the Trainer
+trainer = reservoir.utils.Trainer(
     features=features,
-    readout=readout,
+    readout=reservoir.readout.ridge.Ridge(alpha=1e-5),
+    experiment_dir="./experiments/lattice_01",
     washout=500,
-    train_split=0.8,
+    train_len=2000,
+    test_len=500
 )
-result = trainer.fit(states, task)
-result.save("./experiments/lattice_01/output/readout.h5")
+result = trainer.fit(loader, task)
+readout_path = result.save() # Saves to <experiment_dir>/readout/readout_narma.h5
 
-print(f"Test NRMSE: {result.metrics.nrmse:.4f}")
+print(f"Readout artifact saved to: {readout_path}")
 
 ```
 
@@ -584,13 +587,15 @@ analysis/
 │   └── attractor.py              # Lyapunov exponents, fractal dimension
 │
 ├── benchmarks/
-│   ├── standard_suite.py         # Consolidated benchmark runner
+│   ├── base.py                   # Abstract benchmark class
+│   ├── custom_benchmark.py       # User-defined benchmark wrapper
 │   ├── memory_benchmark.py       # MC, NARMA suite
 │   ├── separation_benchmark.py   # Kernel quality, generalization
 │   ├── nonlinearity_benchmark.py # Parity, XOR, polynomial tasks
 │   └── comparison.py             # Multi-reservoir comparison tools
 │
 ├── visualization/
+│   ├── time_series.py            # Time series plotting utilities
 │   ├── trajectories.py           # 2D/3D state-space plots
 │   ├── heatmaps.py               # Correlation matrices, weight maps
 │   ├── memory_profiles.py        # MC decay curves
@@ -643,26 +648,39 @@ metrics.h5
 
 ```python
 from openprc import analysis
+from pathlib import Path
 
-# Compute memory capacity profile
-mc = analysis.correlation.MemoryCapacity(max_delay=100)
-mc_result = mc.compute("./experiments/lattice_01/output/simulation.h5")
-
-print(f"Total Linear MC: {mc_result.total_linear:.2f}")
-print(f"Total Nonlinear MC: {mc_result.total_nonlinear:.2f}")
-
-# Run full benchmark suite
-suite = analysis.benchmarks.StandardSuite()
-report = suite.run("./experiments/lattice_01/")
-report.save("./experiments/lattice_01/output/metrics.h5")
-report.export_pdf("./experiments/lattice_01/output/benchmark_report.pdf")
-
-# Interactive visualization
-analysis.visualization.trajectories.plot_3d(
-    "./experiments/lattice_01/output/simulation.h5",
-    node_ids=[10, 15, 20],
-    color_by="time"
+# Example 1: Run a standard benchmark
+# Assumes a readout has already been trained for a NARMA task
+narma_benchmark = analysis.benchmarks.NARMABenchmark(group_name="narma_10_performance")
+score = narma_benchmark.run(
+    experiment_dir=Path("./experiments/lattice_01/"),
+    order=10
 )
+metrics_path = score.save() # Saves to <experiment_dir>/metrics/metrics.h5
+
+print(f"NARMA-10 NRMSE: {score.metrics['narma10_nrmse']:.4f}")
+print(f"Metrics saved to: {metrics_path}")
+
+
+# Example 2: Run a custom benchmark
+def my_logic(benchmark, **kwargs):
+    # ... your logic here ...
+    metrics = {"my_metric": 0.99}
+    metadata = {"info": "this is my custom metric"}
+    return metrics, metadata
+
+custom_benchmark = analysis.benchmarks.CustomBenchmark(
+    group_name="my_analysis",
+    benchmark_logic=my_logic
+)
+custom_score = custom_benchmark.run(experiment_dir=Path("./experiments/lattice_01/"))
+custom_score.save()
+
+# Example 3: Visualization
+# (Assuming visualization objects are used as in the Quick Start example)
+visualizer = analysis.visualization.time_series.TimeSeriesComparison()
+plot = visualizer.plot(narma_benchmark.readout_path).save()
 
 ```
 
@@ -944,60 +962,100 @@ pip install openprc[full]
 
 ---
 
-## 8. Quick Start Example
+## 8. Quick Start: Reservoir & Analysis Pipeline
+
+This example demonstrates the core workflow for training a reservoir computer and evaluating its performance using the `reservoir` and `analysis` modules. It follows the logic from the `src/examples/run_reservoir_pipeline.py` script.
+
+The pipeline is designed to be modular, allowing you to easily swap components like tasks, benchmarks, and feature extractors.
+
+### 8.1 The Core Pipeline
+
+The main components of the pipeline are:
+
+1.  **Data Loading**: Load the physical reservoir's state trajectories from a `simulation.h5` file generated by the `demlat` module.
+2.  **Training**: Train a readout model (e.g., Ridge regression) to perform a specific task (e.g., NARMA) using the reservoir's states as features.
+3.  **Benchmarking**: Evaluate the trained readout model's performance on the task using a standardized benchmark.
+4.  **Visualization**: Plot the results to inspect the model's behavior.
+
+Here is a conceptual overview of the pipeline:
 
 ```python
-import openprc
-from openprc import demlat, reservoir, analysis
+from openprc import reservoir, analysis
 
-# 1. Create a lattice geometry
-geometry = demlat.meshing.rectangular_lattice(
-    nx=10, ny=10,
-    spacing=0.01,
-    stiffness=1e4,
-    damping=0.1,
+# 1. Define the experiment path and load data
+exp_path = "spring_mass_3x3_test/generation_0"
+loader = reservoir.io.StateLoader(f"src/experiments/{exp_path}/output/simulation.h5")
+
+# 2. Define the Task and Features
+task = reservoir.tasks.memory.NARMA(order=2)
+features = reservoir.features.node_features.NodePositions()
+
+# 3. Configure and run the Trainer
+trainer = reservoir.utils.Trainer(
+    features=features,
+    readout=reservoir.readout.ridge.Ridge(alpha=1e-5),
+    washout=500,
+    train_len=2000,
+    test_len=500,
 )
-geometry.save("./my_experiment/input/geometry.h5")
+result = trainer.fit(loader, task)
+result.save() # Saves readout.h5
 
-# 2. Define input signal and run simulation
-experiment = (
-    demlat.ExperimentSetup("./my_experiment")
-    .add_signal("input", demlat.signals.white_noise(duration=10.0, amplitude=0.1))
-    .wire_actuator(node_idx=0, signal="input", type="force", direction=[1, 0, 0])
-    .set_duration(10.0)
-    .build()
-)
+# 4. Run a Benchmark
+benchmark = analysis.benchmarks.memory_benchmark.NARMABenchmark()
+score = benchmark.run(result.experiment_dir, order=2)
+score.save() # Saves metrics.h5
 
-engine = demlat.Engine(backend="cuda")
-engine.run(experiment)
+# 5. Visualize the results
+visualizer = analysis.visualization.time_series.TimeSeriesComparison()
+plot_path = visualizer.plot(score.readout_path).save()
 
-# 3. Train reservoir and evaluate
-task = reservoir.tasks.NARMA(order=10)
-trainer = reservoir.Trainer(
-    features=reservoir.features.AllNodePositions(),
-    readout=reservoir.readout.Ridge(regularization=1e-6),
-)
-result = trainer.fit("./my_experiment/output/simulation.h5", task)
-print(f"NARMA-10 NRMSE: {result.metrics.nrmse:.4f}")
-
-# 4. Analyze computational properties
-mc = analysis.correlation.MemoryCapacity(max_delay=50)
-mc_result = mc.compute("./my_experiment/output/simulation.h5")
-print(f"Total Memory Capacity: {mc_result.total_linear:.2f}")
-
-# 5. Visualize
-# Plot the memory capacity decay curve (completing your cut-off line)
-analysis.visualization.memory_profiles.plot(
-    mc_result, 
-    title="NARMA-10 Memory Profile",
-    save_path="./my_experiment/output/mc_profile.png"
-)
-
-# Visualize 3D dynamics of the lattice
-analysis.visualization.trajectories.plot_3d(
-    "./my_experiment/output/simulation.h5",
-    node_ids=[45, 50, 55],  # Visualize specific nodes
-    color_by="energy"
-)
-
+print(f"Plot saved to: {plot_path}")
 ```
+
+### 8.2 Customizing the Pipeline
+
+The true power of the framework lies in its flexibility. You can create custom benchmarks and tasks to suit your research needs.
+
+#### Custom Benchmarks
+
+The `analysis` module includes a `CustomBenchmark` class that lets you define your own evaluation logic. This is useful when standard benchmarks are not sufficient.
+
+To create a custom benchmark, you define a function that takes a benchmark instance as input and returns a dictionary of metrics and metadata.
+
+```python
+from analysis.benchmarks.custom_benchmark import CustomBenchmark
+import h5py
+import numpy as np
+
+def custom_nrmse_logic(benchmark_instance, **kwargs):
+    """
+    A custom function that calculates NRMSE and returns metrics.
+    """
+    readout_path = benchmark_instance.readout_path
+    
+    with h5py.File(readout_path, 'r') as f:
+        target = f['validation/target'][:]
+        prediction = f['validation/prediction'][:]
+
+    rmse = np.sqrt(np.mean((target - prediction)**2))
+    std_dev = np.std(target)
+    nrmse = rmse / (std_dev if std_dev > 1e-9 else 1.0)
+    
+    metrics = {
+        'nrmse': nrmse,
+        'components': {'rmse': rmse, 'std_dev': std_dev}
+    }
+    metadata = {'calculation_type': 'custom_nrmse'}
+    
+    return metrics, metadata
+
+# Use the custom benchmark in the pipeline
+custom_benchmark = CustomBenchmark(benchmark_logic=custom_nrmse_logic)
+
+# Then, run it just like a standard benchmark
+score = custom_benchmark.run(result.experiment_dir)
+score.save()
+```
+
+This modular approach allows you to focus on the novel aspects of your research while leveraging the framework's robust components for simulation, training, and analysis. For a complete, runnable example, see `src/examples/run_reservoir_pipeline.py`.

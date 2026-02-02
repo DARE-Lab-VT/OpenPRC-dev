@@ -41,10 +41,11 @@ def run_pipeline(experiment_subpath, task, benchmark, benchmark_args=None, visua
         features=NodePositions(),
         readout=Ridge(1e-5),
         experiment_dir=experiment_dir,
-        washout=500,
-        train_len=2000,
-        test_len=500,
-        actuator_idx=0  # Task is driven by the first actuator signal
+        washout=5.0,
+        train_duration=20.0,
+        test_duration=5.0,
+        actuator_idx=0,  # Task is driven by the first actuator signal
+        dof=0   # The desired degree of freedom --> 0: 'x', 1: 'y', 2: 'z', None: return 3D np.ndarray
     )
     
     # 3. Train
@@ -92,63 +93,62 @@ if __name__ == "__main__":
 
     # 2. Define the Task
     # --- Option A: Standard NARMA Task ---
-    task = NARMA(2) # You can customize this task
+    task = NARMA(2)
 
     # --- Option B: User-Defined Custom Task
     # task = YOUR_TASK: np.ndarray
     
     # 3. Define the Benchmark and its specific arguments
     # --- Option A: Standard NARMA Benchmark ---
-    # benchmark = NARMABenchmark()
-    # benchmark_args = {"order": 2}
+    benchmark = NARMABenchmark(group_name="narma_benchmark")
+    benchmark_args = {"order": 2}
     
     # --- Option B: User-Defined Custom Benchmark via Function ---
     # To define a desired custom benchmark, you can pass a function directly to the `CustomBenchmark` class.
-    from analysis.benchmarks.custom_benchmark import CustomBenchmark
-    import h5py
+    # from analysis.benchmarks.custom_benchmark import CustomBenchmark
+    # import h5py
 
-    def nrmse_logic_with_metadata(benchmark_instance, **kwargs):
-        """
-        A custom function that calculates NRMSE and returns metrics and metadata.
-        This example demonstrates returning various data types, including nested
-        dictionaries, which the `save` method can now handle.
-        """
-        readout_path = benchmark_instance.readout_path
+    # def nrmse_logic_with_metadata(benchmark_instance, **kwargs):
+    #     """
+    #     A custom function that calculates NRMSE and returns metrics and metadata.
+    #     This example demonstrates returning various data types, including nested
+    #     dictionaries, which the `save` method can now handle.
+    #     """
+    #     readout_path = benchmark_instance.readout_path
         
-        #================ Define your own logic here #================#
-        with h5py.File(readout_path, 'r') as f:
-            group = 'validation' if 'validation' in f else 'training'
-            target = f[f'{group}/target'][:]
-            prediction = f[f'{group}/prediction'][:]
+    #     #================ Define your own logic here #================#
+    #     with h5py.File(readout_path, 'r') as f:
+    #         group = 'validation' if 'validation' in f else 'training'
+    #         target = f[f'{group}/target'][:]
+    #         prediction = f[f'{group}/prediction'][:]
 
-        rmse = np.sqrt(np.mean((target - prediction)**2))
-        std_dev = np.std(target)
-        nrmse = rmse / (std_dev if std_dev > 1e-9 else 1.0)
-        #=============================================================#
+    #     rmse = np.sqrt(np.mean((target - prediction)**2))
+    #     std_dev = np.std(target)
+    #     nrmse = rmse / (std_dev if std_dev > 1e-9 else 1.0)
+    #     #=============================================================#
         
-        # The new save logic can handle nested dictionaries, lists, and numpy arrays.
-        metrics = {
-            'nrmse': nrmse,
-            'components': {
-                'rmse': rmse,
-                'std_dev': std_dev
-            },
-            'some_list': [1, 2, 3],
-            'a_numpy_array': np.array([
-                [1, 2, 3],
-                [4, 5, 6]
-            ])
-        }
-        metadata = {
-            'source_readout': str(readout_path),
-            'calculation_type': 'NRMSE_with_components',
-            'random_example_metadata': 'hello_world'
-        }
+    #     metrics = {
+    #         'nrmse': nrmse,
+    #         'components': {
+    #             'rmse': rmse,
+    #             'std_dev': std_dev
+    #         },
+    #         'some_list': [1, 2, 3],
+    #         'a_numpy_array': np.array([
+    #             [1, 2, 3],
+    #             [4, 5, 6]
+    #         ])
+    #     }
+    #     metadata = {
+    #         'source_readout': str(readout_path),
+    #         'calculation_type': 'NRMSE_with_components',
+    #         'random_example_metadata': 'hello_world'
+    #     }
         
-        return metrics, metadata
+    #     return metrics, metadata
 
-    benchmark = CustomBenchmark(benchmark_logic=nrmse_logic_with_metadata)
-    benchmark_args = {}     # Define benchmark arguments if you have any, otherwise you may delete this line or leave it blank
+    # benchmark = CustomBenchmark(group_name="custom_nrmse_benchmark", benchmark_logic=nrmse_logic_with_metadata)
+    # benchmark_args = {}     # Define benchmark arguments if you have any, otherwise you may delete this line or leave it blank
     
     # 4. Define the Visualizer
     visualizer = TimeSeriesComparison()

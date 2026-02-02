@@ -23,14 +23,14 @@ class CustomBenchmark(BaseBenchmark):
         metadata = {"source_readout": str(benchmark.readout_path)}
         return metrics, metadata
 
-    benchmark = CustomBenchmark(benchmark_logic=my_logic)
+    benchmark = CustomBenchmark(group_name="my_custom_benchmark", benchmark_logic=my_logic)
     results = benchmark.run(Path("/path/to/experiment"))
     results.save()
     print(results.metrics)
     ```
     """
-    def __init__(self, benchmark_logic: Callable[..., Tuple[Dict[str, Any], Dict[str, Any]]]):
-        super().__init__()
+    def __init__(self, group_name: str, benchmark_logic: Callable[..., Tuple[Dict[str, Any], Dict[str, Any]]]):
+        super().__init__(group_name)
         if not callable(benchmark_logic):
             raise TypeError("The 'benchmark_logic' provided must be a callable function.")
         self.benchmark_logic = benchmark_logic

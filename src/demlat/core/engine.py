@@ -83,6 +83,40 @@ class Engine:
             with h5py.File(save_path, 'w') as f:
                 # Initialize Storage
                 self._init_minimal_storage(f, model.n_nodes)
+                # --- Compute and Save Actuation Signals (as an add-on) ---
+                if actuators and signals:
+                    sc = self._create_state_computer(experiment)
+                    if sc:
+                        n_save_steps = int(duration / dt_save)
+                        t_save = np.linspace(0, duration, n_save_steps + 1)
+                        
+                        signals_map = {}
+                        for act_def in actuators:
+                            node_idx = act_def.get('node_idx')
+                            if node_idx is None or node_idx in signals_map:
+                                continue
+
+                            sig_name = act_def.get('signal_name')
+                            raw_signal = signals.get(sig_name)
+                            signal_dt = signals.get('dt_base')
+                            act_type = act_def.get('type', 'force')
+
+                            if raw_signal is not None and signal_dt is not None:
+                                computed_signal = sc.compute_actuation_signal(
+                                    t_save, raw_signal, signal_dt, act_type, node_idx
+                                )
+                                signals_map[node_idx] = computed_signal
+                        
+                        if signals_map:
+                            actuated_node_indices = sorted(signals_map.keys())
+                            self.logger.info(f"Saving computed actuation signals for nodes: {actuated_node_indices}")
+                            try:
+                                ts_act_group = f.create_group('time_series/actuation_signals')
+                                for node_idx in actuated_node_indices:
+                                    signal_data = signals_map[node_idx]
+                                    ts_act_group.create_dataset(str(node_idx), data=signal_data.astype(np.float32), chunks=True)
+                            except Exception as e:
+                                self.logger.error(f"Failed to save actuation signals to HDF5: {e}", exc_info=True)
 
                 # --- Write Metadata ---
                 f.attrs['schema_version'] = self.SCHEMA_VERSION

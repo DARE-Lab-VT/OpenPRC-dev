@@ -16,10 +16,11 @@ class BaseBenchmark(ABC):
     - File and directory path properties.
     - A `save` method to persist metrics.
     """
-    def __init__(self):
+    def __init__(self, group_name: str):
         self.experiment_dir: Path | None = None
         self.metrics: Dict[str, Any] = {}
         self.metadata: Dict[str, Any] = {}
+        self.group_name = group_name
 
     def _setup(self, experiment_dir: Path):
         """Initializes the experiment directory and validates it."""
@@ -91,7 +92,7 @@ class BaseBenchmark(ABC):
                     else:
                         f.attrs[key] = str(value)
             
-            results_grp = f.require_group('benchmark_results')
+            results_grp = f.require_group(self.group_name)
             
             def _recursive_save(group, data_dict):
                 for key, value in data_dict.items():
