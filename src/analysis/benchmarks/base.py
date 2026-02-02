@@ -4,30 +4,48 @@ from pathlib import Path
 from abc import ABC, abstractmethod
 from typing import Dict, Any
 
-class BaseBenchmarkResult(ABC):
+class BaseBenchmark(ABC):
     """
     ### --- FIXED INFRASTRUCTURE --- ###
-    This class handles the "Boring Stuff": 
-    1. finding files
-    2. validating directories
-    3. writing generic dictionaries to disk
+    This base class provides the core utilities for creating benchmarks.
+    
+    A concrete benchmark should inherit from this class and implement the
+    abstract `run` method. This base class provides:
+    - A standard constructor.
+    - A `_setup` method to be called inside `run` to initialize paths.
+    - File and directory path properties.
+    - A `save` method to persist metrics.
     """
-    def __init__(self, experiment_dir: Path):
+    def __init__(self):
+        self.experiment_dir: Path | None = None
+        self.metrics: Dict[str, Any] = {}
+        self.metadata: Dict[str, Any] = {}
+
+    def _setup(self, experiment_dir: Path):
+        """Initializes the experiment directory and validates it."""
         self.experiment_dir = Path(experiment_dir)
         if not self.experiment_dir.is_dir():
             raise FileNotFoundError(f"Experiment directory not found: {self.experiment_dir}")
 
-    # --- 1. DIRECTORY PROPERTIES (FIXED) ---
+    # --- 1. DIRECTORY PROPERTIES (Dynamically available after `_setup` is called) ---
     @property
-    def input_dir(self) -> Path: return self.experiment_dir / "input"
+    def input_dir(self) -> Path: 
+        if self.experiment_dir is None: raise RuntimeError("Accessing 'input_dir' before 'run' has called '_setup'.")
+        return self.experiment_dir / "input"
     @property
-    def output_dir(self) -> Path: return self.experiment_dir / "output"
+    def output_dir(self) -> Path: 
+        if self.experiment_dir is None: raise RuntimeError("Accessing 'output_dir' before 'run' has called '_setup'.")
+        return self.experiment_dir / "output"
     @property
-    def readout_dir(self) -> Path: return self.experiment_dir / "readout"
+    def readout_dir(self) -> Path: 
+        if self.experiment_dir is None: raise RuntimeError("Accessing 'readout_dir' before 'run' has called '_setup'.")
+        return self.experiment_dir / "readout"
     @property
-    def metrics_dir(self) -> Path: return self.experiment_dir / "metrics"
+    def metrics_dir(self) -> Path: 
+        if self.experiment_dir is None: raise RuntimeError("Accessing 'metrics_dir' before 'run' has called '_setup'.")
+        return self.experiment_dir / "metrics"
     
-    # --- 2. FILE ACCESSORS (FIXED) ---
+    # --- 2. FILE ACCESSORS (Dynamically available after `_setup` is called) ---
     @property
     def geometry_path(self) -> Path:
         path = self.input_dir / "geometry.h5"
@@ -59,38 +77,46 @@ class BaseBenchmarkResult(ABC):
         return self.metrics_dir / filename
 
     # --- 3. THE GENERIC SAVER (FIXED) ---
-    def save_metric_to_suite(self, metrics: Dict[str, Any], metadata: Dict[str, Any] = None) -> Path:
-        path = self.get_metrics_path()
+    def save(self, filename: str = "metrics.h5") -> Path:
+        if self.experiment_dir is None:
+            raise RuntimeError("Cannot save before running the benchmark, as `experiment_dir` is not set.")
+        
+        path = self.get_metrics_path(filename)
         
         with h5py.File(path, 'a') as f:
-            # --- INTELLIGENT METADATA HANDLING ---
-            if metadata:
-                for key, value in metadata.items():
-                    # 1. If it's a list/tuple (Multiple Files), join them cleanly
+            if self.metadata:
+                for key, value in self.metadata.items():
                     if isinstance(value, (list, tuple)):
-                        # Converts [Path('a'), Path('b')] -> "a, b"
                         f.attrs[key] = ", ".join(str(v) for v in value)
-                    # 2. Otherwise, just save as string
                     else:
                         f.attrs[key] = str(value)
             
-            # --- METRIC SAVING ---
-            suite_grp = f.require_group('benchmark_suite')
-            for key, value in metrics.items():
-                if key in suite_grp: del suite_grp[key]
-                suite_grp.create_dataset(key, data=value)
+            results_grp = f.require_group('benchmark_results')
+            
+            def _recursive_save(group, data_dict):
+                for key, value in data_dict.items():
+                    if key in group:
+                        del group[key]
+                    
+                    if isinstance(value, dict):
+                        new_group = group.create_group(key)
+                        _recursive_save(new_group, value)
+                    else:
+                        try:
+                            group.create_dataset(key, data=value)
+                        except TypeError:
+                            # As a fallback for simple non-numpy types, save as string
+                            group.create_dataset(key, data=str(value))
+
+            _recursive_save(results_grp, self.metrics)
                 
         return path
 
     @abstractmethod
-    def save(self) -> Path:
+    def run(self, experiment_dir: Path, **kwargs) -> 'BaseBenchmark':
         """
-        User must implement this to map their specific variables (like nrmse)
-        to the generic 'metrics' dictionary.
+        User must implement this method to set up the experiment,
+        run the benchmark calculation, populate self.metrics and self.metadata,
+        and return the instance.
         """
-        pass
-
-class BaseBenchmark(ABC):
-    @abstractmethod
-    def run(self, experiment_dir: Path, **kwargs) -> BaseBenchmarkResult:
         pass

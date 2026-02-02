@@ -13,14 +13,11 @@ from reservoir.features.node_features import NodePositions
 from reservoir.readout.ridge import Ridge
 from reservoir.utils.trainer import Trainer
 from analysis.visualization.time_series import TimeSeriesComparison
-
-# --- User-configurable Imports for Task and Benchmark ---
-# A user can import any task or benchmark that follows the base interfaces
 from reservoir.tasks.memory.narma import NARMA
 from analysis.benchmarks.memory_benchmark import NARMABenchmark
 
 
-def run_pipeline(experiment_subpath, task, benchmark, benchmark_args, visualizer=None):
+def run_pipeline(experiment_subpath, task, benchmark, benchmark_args=None, visualizer=None):
     """
     A generic pipeline that trains a readout, runs a benchmark, and visualizes.
     It is agnostic to the specific task or benchmark being used.
@@ -60,10 +57,25 @@ def run_pipeline(experiment_subpath, task, benchmark, benchmark_args, visualizer
     score = benchmark.run(experiment_dir, **benchmark_args)
     score.save()
     
-    # The pipeline doesn't need to know the result type, only that it has a `__dict__`
-    for key, value in score.__dict__.items():
-        if isinstance(value, (int, float, np.number)):
-             print(f" >> {key}: {value:.5f}")
+    # [OPTIONAL] Print metrics as you desired, feel free to modify to suit your need
+    print("\n[Processing] Printing Benchmark Results:")
+    def print_metrics_recursively(metrics_dict, indent=""):
+        for key, value in metrics_dict.items():
+            print_prefix = f"{indent}>> {key}: "
+            if isinstance(value, dict):
+                print(f"{indent}>> {key}:")
+                print_metrics_recursively(value, indent + "  ")
+            elif isinstance(value, (int, float, np.number)):
+                print(f"{print_prefix}{value:.5f}")
+            elif isinstance(value, np.ndarray):
+                print(f"{print_prefix}<np.ndarray, shape: {value.shape}>")
+            elif isinstance(value, list):
+                print(f"{print_prefix}<list, len: {len(value)}>")
+            else:
+                # Fallback for other types
+                print(f"{print_prefix}{value}")
+
+    print_metrics_recursively(score.metrics, indent="  ")
     
     # 5. Visualize (if provided)
     if visualizer:
@@ -87,17 +99,56 @@ if __name__ == "__main__":
     
     # 3. Define the Benchmark and its specific arguments
     # --- Option A: Standard NARMA Benchmark ---
-    benchmark = NARMABenchmark()
-    benchmark_args = {"order": 2}
+    # benchmark = NARMABenchmark()
+    # benchmark_args = {"order": 2}
     
-    # --- Option B: User-Defined Custom Benchmark ---
-    # To create your own benchmark: python3 openprc_cli.py create-benchmark ./analysis/benchmarks/benchmark_template.py
-    # We can make this command to be more user-friendly once it is released to pypi, this is just for testing 
-    # Once the above-mentioned command is run, it generates benchmark_template.py for the user to modify, just follow the instructions in that script
-    # Then, import the module:
+    # --- Option B: User-Defined Custom Benchmark via Function ---
+    # To define a desired custom benchmark, you can pass a function directly to the `CustomBenchmark` class.
+    from analysis.benchmarks.custom_benchmark import CustomBenchmark
+    import h5py
 
-    # from analysis.benchmarks.benchmark_template import MyBenchmark()
-    # benchmark = MyBenchmark()  
+    def nrmse_logic_with_metadata(benchmark_instance, **kwargs):
+        """
+        A custom function that calculates NRMSE and returns metrics and metadata.
+        This example demonstrates returning various data types, including nested
+        dictionaries, which the `save` method can now handle.
+        """
+        readout_path = benchmark_instance.readout_path
+        
+        #================ Define your own logic here #================#
+        with h5py.File(readout_path, 'r') as f:
+            group = 'validation' if 'validation' in f else 'training'
+            target = f[f'{group}/target'][:]
+            prediction = f[f'{group}/prediction'][:]
+
+        rmse = np.sqrt(np.mean((target - prediction)**2))
+        std_dev = np.std(target)
+        nrmse = rmse / (std_dev if std_dev > 1e-9 else 1.0)
+        #=============================================================#
+        
+        # The new save logic can handle nested dictionaries, lists, and numpy arrays.
+        metrics = {
+            'nrmse': nrmse,
+            'components': {
+                'rmse': rmse,
+                'std_dev': std_dev
+            },
+            'some_list': [1, 2, 3],
+            'a_numpy_array': np.array([
+                [1, 2, 3],
+                [4, 5, 6]
+            ])
+        }
+        metadata = {
+            'source_readout': str(readout_path),
+            'calculation_type': 'NRMSE_with_components',
+            'random_example_metadata': 'hello_world'
+        }
+        
+        return metrics, metadata
+
+    benchmark = CustomBenchmark(benchmark_logic=nrmse_logic_with_metadata)
+    benchmark_args = {}     # Define benchmark arguments if you have any, otherwise you may delete this line or leave it blank
     
     # 4. Define the Visualizer
     visualizer = TimeSeriesComparison()
