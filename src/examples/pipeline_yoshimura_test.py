@@ -50,7 +50,10 @@ def create_yoshimura_geometry(setup: ExperimentSetup,
 
     # Add nodes to setup
     for i, node_pos in enumerate(nodes):
-        setup.add_node(node_pos, mass=mass, fixed=False)
+        if i in node_info['base_corners']:
+            setup.add_node(node_pos, mass=mass, fixed=False)
+        else:
+            setup.add_node(node_pos, mass=mass, fixed=False)
 
     # Add bars to setup
     for bar in bars:
@@ -157,8 +160,8 @@ def setup_experiment(beta, drivers=3):
         n=3,
         beta=beta,
         d=d,
-        k_axial=2000.0,
-        k_fold=0.0,
+        k_axial=1000.0,
+        k_fold=5.0,
         k_facet=10.0,
         mass=0.01,
         damping=3.0
@@ -252,7 +255,7 @@ def show_pe(demo_dir):
 
 if __name__ == "__main__":
     setup_experiment(beta=35.0, drivers=3)
-    # run_simulation()
+    run_simulation()
     from demlat.utils.viz_player import visualize_experiment
 
     visualize_experiment(DEMO_DIR)

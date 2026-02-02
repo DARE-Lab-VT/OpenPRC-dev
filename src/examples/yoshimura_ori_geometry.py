@@ -42,36 +42,8 @@ def find_circumcenter(A, B, C, D):
 
 
 def generate_yoshimura_geometry(n, beta, d=None, gamma=0.0, psi=0.0):
-    """
-    Generate Yoshimura origami unit geometry in folded configuration.
-
-    Parameters
-    ----------
-    n : int
-        Number of sides in the polygon base
-    beta : float
-        Sector angle parameter
-    psi : float
-        Rotation angle (default: 0.0)
-    T0 : np.ndarray, optional
-        Initial transformation matrix (4x4)
-
-    Returns
-    -------
-    nodes : np.ndarray
-        Array of node positions, shape (N, 3)
-    bars : list of tuples
-        List of (node_i, node_j, length) for each bar
-    faces : list of tuples
-        List of (node_i, node_j, node_k) for each triangular face
-    """
-
-    l = 0.075  # m
-    # Calculate derived parameters for folded configuration
     r = 1 / (2 * np.sin(np.pi / n))
     w = 0.5 * np.tan(beta)
-
-    # Folded configuration: gamma=0, d calculated from beta
     if d is None:
         d = (np.tan(beta) ** 2 - np.tan(np.pi / (2 * n)) ** 2) ** 0.5
 
@@ -142,22 +114,43 @@ def generate_yoshimura_geometry(n, beta, d=None, gamma=0.0, psi=0.0):
 
     # Create three sets of 2n nodes each: base_nodes, mid_nodes, top_nodes
     # Each set contains: [vertex, edge_midpoint, vertex, edge_midpoint, ...]
-    base_nodes = np.zeros((2 * n, 3))
-    mid_nodes = np.zeros((2 * n, 3))
-    top_nodes = np.zeros((2 * n, 3))
+    # base_nodes = np.zeros((2 * n, 3))
+    # mid_nodes = np.zeros((2 * n, 3))
+    # top_nodes = np.zeros((2 * n, 3))
 
-    for i in range(n):
-        # Base layer: vertex at 2*i, edge midpoint at 2*i+1
-        base_nodes[2 * i] = base[:3, i]
-        base_nodes[2 * i + 1] = (base[:3, i] + base[:3, (i + 1) % n]) / 2
+    base_nodes = np.array([
+        [r * np.sin(np.pi / (n) * i),
+         -r * np.cos(np.pi / n * i),
+         0]
+        for i in range(2 * n)
+    ])
 
-        # Mid layer: interior vertices (from centers and edge mids)
-        mid_nodes[2 * i] = mid[:3, 2 * i - 1]
-        mid_nodes[2 * i + 1] = mid[:3, 2 * i]
+    mid_nodes = np.array([
+        [r * np.sin(np.pi / n * i),
+         -r * np.cos(np.pi / n * i),
+         w]
+        for i in range(2 * n)
+    ])
 
-        # Top layer: vertex at 2*i, edge midpoint at 2*i+1
-        top_nodes[2 * i] = top[:3, i]
-        top_nodes[2 * i + 1] = (top[:3, i] + top[:3, (i + 1) % n]) / 2
+    top_nodes = np.array([
+        [r * np.sin(np.pi / n * i),
+         -r * np.cos(np.pi / n * i),
+         2 * w]
+        for i in range(2 * n)
+    ])
+
+    # for i in range(n):
+    #     # Base layer: vertex at 2*i, edge midpoint at 2*i+1
+    #     base_nodes[2 * i] = base[:3, i]
+    #     base_nodes[2 * i + 1] = (base[:3, i] + base[:3, (i + 1) % n]) / 2
+    #
+    #     # Mid layer: interior vertices (from centers and edge mids)
+    #     mid_nodes[2 * i] = mid[:3, 2 * i - 1]
+    #     mid_nodes[2 * i + 1] = mid[:3, 2 * i]
+    #
+    #     # Top layer: vertex at 2*i, edge midpoint at 2*i+1
+    #     top_nodes[2 * i] = top[:3, i]
+    #     top_nodes[2 * i + 1] = (top[:3, i] + top[:3, (i + 1) % n]) / 2
 
     # Assemble node list: [base_nodes, mid_nodes, top_nodes]
     nodes = []
@@ -242,20 +235,15 @@ def generate_yoshimura_geometry(n, beta, d=None, gamma=0.0, psi=0.0):
             faces.append((top_idx(i), top_idx(j), mid_idx(j)))
             faces.append((top_idx(i), top_idx(k), mid_idx(k)))
 
-            hinges.append((base_idx(i), mid_idx(j), mid_idx(i), base_idx(j), np.pi, 'fold'))
-            hinges.append((top_idx(i), mid_idx(j), mid_idx(i), top_idx(j), np.pi, 'fold'))
+            hinges.append((base_idx(i), mid_idx(j), base_idx(j), mid_idx(i), np.pi, 'fold'))
+            hinges.append((top_idx(i), mid_idx(j), top_idx(j), mid_idx(i), np.pi, 'fold'))
             hinges.append((mid_idx(i), mid_idx(j), top_idx(i), base_idx(i), np.pi, 'fold'))
             hinges.append((mid_idx(i), mid_idx(k), top_idx(i), base_idx(i), np.pi, 'fold'))
+            hinges.append((mid_idx(i), base_idx(k), base_idx(i), mid_idx(k), np.pi, 'fold'))
+            hinges.append((mid_idx(i), top_idx(k), top_idx(i), mid_idx(k), np.pi, 'fold'))
 
-        else:
-            hinges.append((mid_idx(i), base_idx(j), base_idx(i), mid_idx(j), np.pi, 'fold'))
-            hinges.append((mid_idx(i), top_idx(j), top_idx(i), mid_idx(j), np.pi, 'fold'))
-            pass
-
-        hinges.append((base_idx(i), mid_idx(i), base_idx(j), base_idx(k), np.pi, 'facet'))
-        hinges.append((top_idx(i), mid_idx(i), top_idx(j), top_idx(k), np.pi, 'facet'))
-
-
+        hinges.append((base_idx(i), mid_idx(i), base_idx(j), base_idx(k), np.pi - np.pi / n, 'facet'))
+        hinges.append((top_idx(i), mid_idx(i), top_idx(j), top_idx(k), np.pi + np.pi / n, 'facet'))
 
     edge_faces = defaultdict(list)
 

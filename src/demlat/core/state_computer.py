@@ -58,8 +58,8 @@ class StateComputer:
                 # Priority 2: 'phi0' or 'rest_angle' (legacy/alternative names)
                 elif 'phi0' in hinges:
                     self._hinge_rest_angles = np.asarray(hinges['phi0'], dtype=np.float32)
-                elif 'rest_angle' in hinges:
-                    self._hinge_rest_angles = np.asarray(hinges['rest_angle'], dtype=np.float32)
+                elif 'angle' in hinges:
+                    self._hinge_rest_angles = np.asarray(hinges['angle'], dtype=np.float32)
                 elif self.geometry.get('nodes') is not None:
                     # Priority 3: Compute from initial geometry
                     self.logger.info("Computing hinge rest angles from initial geometry.")

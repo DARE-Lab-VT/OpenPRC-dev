@@ -466,6 +466,8 @@ class DEMLATVisualizer(PiVizFX):
         self.float_timestep = 0.0
         self.paused = False
         self.speed = 1.0
+        self.frame_step = 1
+        self._updating_slider = False  # Flag to prevent feedback loops
 
         # Configuration
         self.config = {
@@ -613,6 +615,9 @@ class DEMLATVisualizer(PiVizFX):
 
     def _on_timeline_change(self, value):
         """Called when timeline slider is moved."""
+        if self._updating_slider:
+            return
+            
         self.timestep_idx = int(value)
         self.float_timestep = float(self.timestep_idx)
         # Pause when manually scrubbing
@@ -640,16 +645,27 @@ class DEMLATVisualizer(PiVizFX):
         """Go to previous frame(s)."""
         self.paused = True
         self._update_pause_button()
-        self.timestep_idx = max(0, self.timestep_idx - self.frame_step)
+        
+        step = max(1, int(self.frame_step))
+        self.timestep_idx = max(0, self.timestep_idx - step)
         self.float_timestep = float(self.timestep_idx)
         self._sync_timeline_slider()
 
     def _next_frame(self):
         """Go to next frame(s)."""
+        print(f"DEBUG: Next frame. Current: {self.timestep_idx}")
         self.paused = True
         self._update_pause_button()
-        self.timestep_idx = min(self.data.n_frames - 1, self.timestep_idx + self.frame_step)
+        
+        step = max(1, int(self.frame_step))
+        max_idx = self.data.n_frames - 1
+        
+        new_idx = min(max_idx, self.timestep_idx + step)
+        
+        self.timestep_idx = int(new_idx)
         self.float_timestep = float(self.timestep_idx)
+        
+        print(f"DEBUG: New index: {self.timestep_idx}")
         self._sync_timeline_slider()
 
     def _toggle_pause(self):
@@ -669,7 +685,9 @@ class DEMLATVisualizer(PiVizFX):
         if hasattr(self, 'ui_manager') and self.ui_manager:
             slider = self.ui_manager.get_widget("sld_timeline")
             if slider:
+                self._updating_slider = True
                 slider.value = self.timestep_idx
+                self._updating_slider = False
 
     def _clear_trails(self):
         """Clear all motion trails."""
@@ -689,9 +707,9 @@ class DEMLATVisualizer(PiVizFX):
         # ========================================================
 
     def _setup_ui(self):
-        """Setup UI controls."""
+        """Setup UI controls with explicit layout."""
         self.ui_manager.set_panel_title("DEMLAT Player")
-
+        
         # Time display
         if self.data.mode == 'simulation':
             self.lbl_time = Label("Time: 0.00s | Frame: 0")
@@ -714,6 +732,9 @@ class DEMLATVisualizer(PiVizFX):
                                        Slider("Frame", 0, self.data.n_frames - 1, 0, self._on_timeline_change))
 
             # Playback buttons row
+            # Note: PiViz widgets don't support explicit positioning in this version.
+            # We rely on the layout manager.
+            
             self.ui_manager.add_widget("btn_start",
                                        Button("|<", self._goto_start))
             self.ui_manager.add_widget("btn_prev",
@@ -736,6 +757,7 @@ class DEMLATVisualizer(PiVizFX):
                                        Slider("Step", 1, 50, 1, self._on_step_change))
         # ================================================
 
+        # Toggles
         if self.data.n_hinges > 0:
             self.ui_manager.add_widget("chk_hinges",
                                        Checkbox("Show Hinges", self.config['show_hinges'],
@@ -744,7 +766,7 @@ class DEMLATVisualizer(PiVizFX):
         self.ui_manager.add_widget("chk_hinge_rest",
                                    Checkbox("Show Rest Angle", self.config['show_hinge_rest_angle'],
                                             lambda v: self.config.update({'show_hinge_rest_angle': v})))
-        # Visualization toggles
+        
         self.ui_manager.add_widget("chk_nodes",
                                    Checkbox("Show Nodes", self.config['show_nodes'],
                                             lambda v: self.config.update({'show_nodes': v})))
@@ -757,11 +779,6 @@ class DEMLATVisualizer(PiVizFX):
             self.ui_manager.add_widget("chk_faces",
                                        Checkbox("Show Faces", self.config['show_faces'],
                                                 lambda v: self.config.update({'show_faces': v})))
-
-        if self.data.n_hinges > 0:
-            self.ui_manager.add_widget("chk_hinges",
-                                       Checkbox("Show Hinges", self.config['show_hinges'],
-                                                lambda v: self.config.update({'show_hinges': v})))
 
         if 'bar_strain' in self.data.time_series:
             self.ui_manager.add_widget("chk_strain",
@@ -1370,8 +1387,16 @@ def visualize_experiment(experiment_path: str, config: Optional[Dict] = None):
     viz = DEMLATVisualizer(data, config)
 
     # Launch studio
-    studio = PiVizStudio(scene_fx=viz)
-    studio.run()
+    # PiVizStudio (via moderngl_window) parses sys.argv, so we need to clear it
+    # to avoid "unrecognized arguments" errors for our custom args.
+    argv_backup = sys.argv
+    sys.argv = [sys.argv[0]]
+    
+    try:
+        studio = PiVizStudio(scene_fx=viz)
+        studio.run()
+    finally:
+        sys.argv = argv_backup
 
 
 # =============================================================================
