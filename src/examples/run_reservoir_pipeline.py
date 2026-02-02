@@ -59,12 +59,12 @@ def run_pipeline(experiment_subpath, task, benchmark, benchmark_args=None, visua
     
     # [OPTIONAL] Print metrics as you desired, feel free to modify to suit your need
     print("\n[Processing] Printing Benchmark Results:")
-    def print_metrics_recursively(metrics_dict, indent=""):
+    def print_metrics(metrics_dict, indent=""):
         for key, value in metrics_dict.items():
             print_prefix = f"{indent}>> {key}: "
             if isinstance(value, dict):
                 print(f"{indent}>> {key}:")
-                print_metrics_recursively(value, indent + "  ")
+                print_metrics(value, indent + "  ")
             elif isinstance(value, (int, float, np.number)):
                 print(f"{print_prefix}{value:.5f}")
             elif isinstance(value, np.ndarray):
@@ -75,7 +75,7 @@ def run_pipeline(experiment_subpath, task, benchmark, benchmark_args=None, visua
                 # Fallback for other types
                 print(f"{print_prefix}{value}")
 
-    print_metrics_recursively(score.metrics, indent="  ")
+    print_metrics(score.metrics, indent="  ")
     
     # 5. Visualize (if provided)
     if visualizer:
