@@ -3,10 +3,8 @@ Yoshimura-Ori Geometry Test
 ===========================
 Generates Yoshimura origami geometry in folded configuration.
 """
-from examples.yoshimura_ori_geometry import *
-from pathlib import Path
-from demlat.io.experiment_setup import ExperimentSetup
 
+from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from demlat.utils.plot_timeseries import SimulationPlotter
@@ -16,22 +14,41 @@ trapezoid = getattr(np, 'trapezoid', getattr(np, 'trapz', None))
 DEMO_DIR = Path("experiments/yoshimura_test")
 
 
-def create_yoshimura_geometry(setup: ExperimentSetup,
-                              n=4,
-                              beta=np.pi / 6,
-                              d=None,
-                              gamma=0.0,
-                              psi=0.0,
-                              k_axial=100.0,
-                              k_fold=0.0,
-                              k_facet=0.0,
-                              mass=0.01,
-                              damping=2.0):
+def setup(beta, drivers):
+    from demlat.io.experiment_setup import ExperimentSetup
+    from examples.yoshimura_ori_geometry import generate_yoshimura_geometry
+
+    """Setup the Yoshimura experiment"""
+    print("\n[Setup] Creating Yoshimura Experiment...")
+
+    # Initialize Setup
+    setup = ExperimentSetup(DEMO_DIR, overwrite=True)
+
+    # Simulation parameters
+    duration = 5.0
+    dt = 0.0005
+    save_interval = 0.01
+    setup.set_simulation_params(duration=duration, dt=dt, save_interval=save_interval)
+    setup.set_physics(gravity=0.0, damping=0.2)
+
+    beta = np.deg2rad(beta)
+
+    # Build Geometry
+    n = 3
+    gamma = 0.0
+    d = np.tan(beta)
+    psi = 0.0
+    k_axial = 2000.0
+    k_fold = 0.01
+    k_facet = 5.0
+    mass = 0.01
+    damping = 2.0
+
     print(f"\nYoshimura Parameters:")
     print(f"  n={n}, beta={np.rad2deg(beta):.2f}°")
 
     # Generate geometry
-    nodes, bars, hinges, faces, params = generate_yoshimura_geometry(n, beta, d=d, gamma=gamma, psi=psi)
+    nodes, bars, hinges, faces, params = generate_yoshimura_geometry(n, beta, d=None, gamma=gamma, psi=psi)
 
     print(f"\nGenerated Geometry:")
     print(f"  Nodes: {len(nodes)}")
@@ -57,37 +74,30 @@ def create_yoshimura_geometry(setup: ExperimentSetup,
 
     # Add bars to setup
     for bar in bars:
-        i = bar[0]
-        j = bar[1]
-        length = bar[2]
-        if len(bar) > 3:
-            stiffness = bar[3]
-        else:
-            stiffness = 1.0
-        setup.add_bar(i, j, stiffness=stiffness * k_axial, rest_length=length, damping=damping)
+        setup.add_bar(bar[0], bar[1], stiffness=k_axial, rest_length=bar[2], damping=damping)
 
     # Add hinges to setup
     for hinge in hinges:
-        i = hinge[0]
-        j = hinge[1]
-        k = hinge[2]
-        l = hinge[3]
-        rest_angle = hinge[4]
-        edge_type = hinge[5]
-        if edge_type == 'fold' and k_fold >= 0.0:
-            setup.add_hinge(nodes=[i, j, k, l], stiffness=k_fold, rest_angle=rest_angle)
-        elif edge_type == 'facet' and k_facet >= 0.0:
-            setup.add_hinge(nodes=[i, j, k, l], stiffness=k_facet, rest_angle=rest_angle)
+        if hinge[5] == 'fold':
+            k = k_fold
+        elif hinge[5] == 'facet':
+            k = k_facet
+        else:
+            k = 0.0
+
+        if k > 0.0:
+            setup.add_hinge(nodes=[hinge[0], hinge[1], hinge[2], hinge[3]], stiffness=k, rest_angle=hinge[4])
 
     for face in faces:
         setup.add_face(face)
 
-    return faces, node_info, params
+    # Setup Actuation
+    min_pos = 0.0
+    max_pos = d
+    frequency = 0.2
+    duration = duration
+    drivers = drivers
 
-
-def setup_actuation(setup: ExperimentSetup, node_info: dict, min_pos=0.0, max_pos=1.0, frequency=0.5, duration=10.0,
-                    drivers=3):
-    # Get initial positions
     positions = setup.nodes['positions']
 
     # Signal parameters
@@ -134,58 +144,11 @@ def setup_actuation(setup: ExperimentSetup, node_info: dict, min_pos=0.0, max_po
             setup.add_signal(sig_name, sig, dt=dt_sig)
             setup.add_actuator(idx, sig_name, type='position')
 
-
-def setup_experiment(beta, drivers=3):
-    """Setup the Yoshimura experiment"""
-    print("\n[Setup] Creating Yoshimura Experiment...")
-
-    # Initialize Setup
-    setup = ExperimentSetup(DEMO_DIR, overwrite=True)
-
-    # Simulation parameters
-    duration = 20.0
-    dt = 0.0005
-    save_interval = 0.01
-
-    # Configure Simulation
-    setup.set_simulation_params(duration=duration, dt=dt, save_interval=save_interval)
-    setup.set_physics(gravity=0.0, damping=0.2)
-
-    beta = np.deg2rad(beta)
-    d = np.tan(beta)
-
-    # Build Geometry
-    faces, node_info, params = create_yoshimura_geometry(
-        setup,
-        n=3,
-        beta=beta,
-        d=d,
-        k_axial=1000.0,
-        k_fold=5.0,
-        k_facet=10.0,
-        mass=0.01,
-        damping=3.0
-    )
-
-    n, beta, d, gamma, psi = params
-    d = np.tan(beta)
-
-    # Setup Actuation
-    setup_actuation(
-        setup,
-        node_info,
-        min_pos=0.0,
-        max_pos=d,
-        frequency=0.2,
-        duration=duration,
-        drivers=drivers
-    )
-
     # Save Everything
     setup.save()
 
 
-def run_simulation():
+def run():
     """Run the simulation"""
     print("\n[Step 2] Running Simulation...")
     import demlat
@@ -253,10 +216,14 @@ def show_pe(demo_dir):
     plt.show()
 
 
-if __name__ == "__main__":
-    setup_experiment(beta=35.0, drivers=3)
-    run_simulation()
+def show(pe):
     from demlat.utils.viz_player import visualize_experiment
-
+    # if pe:
+    #     show_pe(DEMO_DIR)
     visualize_experiment(DEMO_DIR)
-    # show_pe(DEMO_DIR)
+
+
+if __name__ == "__main__":
+    setup(beta=35.0, drivers=0)
+    run()
+    show(1)

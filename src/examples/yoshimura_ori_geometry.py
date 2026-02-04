@@ -44,6 +44,8 @@ def find_circumcenter(A, B, C, D):
 def generate_yoshimura_geometry(n, beta, d=None, gamma=0.0, psi=0.0):
     r = 1 / (2 * np.sin(np.pi / n))
     w = 0.5 * np.tan(beta)
+    l = 0.5
+    b = 0.5 / np.cos(beta)
     if d is None:
         d = (np.tan(beta) ** 2 - np.tan(np.pi / (2 * n)) ** 2) ** 0.5
 
@@ -94,7 +96,6 @@ def generate_yoshimura_geometry(n, beta, d=None, gamma=0.0, psi=0.0):
 
             centers[i] = ct + x * q_hat / np.linalg.norm(q_hat)
         else:
-            # Non-planar quadrilateral
             ct = find_circumcenter(A, B, C, D)
             centers[i] = ct - p / np.linalg.norm(p) * np.abs(a ** 2 - np.linalg.norm(A - ct) ** 2) ** 0.5
 
@@ -112,47 +113,18 @@ def generate_yoshimura_geometry(n, beta, d=None, gamma=0.0, psi=0.0):
 
         mid[3, :] = 1.0
 
-    # Create three sets of 2n nodes each: base_nodes, mid_nodes, top_nodes
-    # Each set contains: [vertex, edge_midpoint, vertex, edge_midpoint, ...]
-    # base_nodes = np.zeros((2 * n, 3))
-    # mid_nodes = np.zeros((2 * n, 3))
-    # top_nodes = np.zeros((2 * n, 3))
+    base_nodes = np.zeros((2 * n, 3))
+    mid_nodes = np.zeros((2 * n, 3))
+    top_nodes = np.zeros((2 * n, 3))
 
-    base_nodes = np.array([
-        [r * np.sin(np.pi / (n) * i),
-         -r * np.cos(np.pi / n * i),
-         0]
-        for i in range(2 * n)
-    ])
+    for i in range(n):
+        base_nodes[2 * i] = base[:3, i]
+        base_nodes[2 * i + 1] = (base[:3, i] + base[:3, (i + 1) % n]) / 2
+        mid_nodes[2 * i] = mid[:3, 2 * i - 1]
+        mid_nodes[2 * i + 1] = mid[:3, 2 * i]
+        top_nodes[2 * i] = top[:3, i]
+        top_nodes[2 * i + 1] = (top[:3, i] + top[:3, (i + 1) % n]) / 2
 
-    mid_nodes = np.array([
-        [r * np.sin(np.pi / n * i),
-         -r * np.cos(np.pi / n * i),
-         w]
-        for i in range(2 * n)
-    ])
-
-    top_nodes = np.array([
-        [r * np.sin(np.pi / n * i),
-         -r * np.cos(np.pi / n * i),
-         2 * w]
-        for i in range(2 * n)
-    ])
-
-    # for i in range(n):
-    #     # Base layer: vertex at 2*i, edge midpoint at 2*i+1
-    #     base_nodes[2 * i] = base[:3, i]
-    #     base_nodes[2 * i + 1] = (base[:3, i] + base[:3, (i + 1) % n]) / 2
-    #
-    #     # Mid layer: interior vertices (from centers and edge mids)
-    #     mid_nodes[2 * i] = mid[:3, 2 * i - 1]
-    #     mid_nodes[2 * i + 1] = mid[:3, 2 * i]
-    #
-    #     # Top layer: vertex at 2*i, edge midpoint at 2*i+1
-    #     top_nodes[2 * i] = top[:3, i]
-    #     top_nodes[2 * i + 1] = (top[:3, i] + top[:3, (i + 1) % n]) / 2
-
-    # Assemble node list: [base_nodes, mid_nodes, top_nodes]
     nodes = []
     nodes.extend(base_nodes)  # indices 0 to 2n-1
     nodes.extend(mid_nodes)  # indices 2n to 4n-1
@@ -172,7 +144,6 @@ def generate_yoshimura_geometry(n, beta, d=None, gamma=0.0, psi=0.0):
         """Get index in top layer (4n to 6n-1)"""
         return 4 * n + i % (2 * n)
 
-    # Generate bars and faces
     bars = []
     hinges = []
     faces = []
@@ -181,55 +152,22 @@ def generate_yoshimura_geometry(n, beta, d=None, gamma=0.0, psi=0.0):
         j = i + 1
         k = i - 1
 
-        # edges
-        i1, i2 = base_idx(i), base_idx(j)
-        length = np.linalg.norm(nodes[i1] - nodes[i2])
-        bars.append((i1, i2, length))
-
-        i1, i2 = mid_idx(i), mid_idx(j)
-        length = np.linalg.norm(nodes[i1] - nodes[i2])
-        bars.append((i1, i2, length))
-
-        i1, i2 = top_idx(i), top_idx(j)
-        length = np.linalg.norm(nodes[i1] - nodes[i2])
-        bars.append((i1, i2, length))
-
-        # base to mid
-        i1, i2 = base_idx(i), mid_idx(i)
-        length = np.linalg.norm(nodes[i1] - nodes[i2])
-        bars.append((i1, i2, length))
-
-        # mid to top
-        i1, i2 = mid_idx(i), top_idx(i)
-        length = np.linalg.norm(nodes[i1] - nodes[i2])
-        bars.append((i1, i2, length))
+        bars.append((base_idx(i), base_idx(j), l))
+        bars.append((mid_idx(i), mid_idx(j), l))
+        bars.append((top_idx(i), top_idx(j), l))
+        bars.append((base_idx(i), mid_idx(i), w))
+        bars.append((mid_idx(i), top_idx(i), w))
 
         if i % 2 == 0:
-            # mid to base
-            i1, i2 = base_idx(i), mid_idx(j)
-            length = np.linalg.norm(nodes[i1] - nodes[i2])
-            bars.append((i1, i2, length))
+            bars.append((base_idx(i), mid_idx(j), b))
+            bars.append((base_idx(i), mid_idx(k), b))
+            bars.append((top_idx(i), mid_idx(j), b))
+            bars.append((top_idx(i), mid_idx(k), b))
 
-            i1, i2 = base_idx(i), mid_idx(k)
-            length = np.linalg.norm(nodes[i1] - nodes[i2])
-            bars.append((i1, i2, length))
-
-            # faces
             faces.append((base_idx(i), mid_idx(i), mid_idx(j)))
             faces.append((base_idx(i), mid_idx(i), mid_idx(k)))
             faces.append((base_idx(i), base_idx(j), mid_idx(j)))
             faces.append((base_idx(i), base_idx(k), mid_idx(k)))
-
-            # mid to top
-            i1, i2 = top_idx(i), mid_idx(j)
-            length = np.linalg.norm(nodes[i1] - nodes[i2])
-            bars.append((i1, i2, length))
-
-            i1, i2 = top_idx(i), mid_idx(k)
-            length = np.linalg.norm(nodes[i1] - nodes[i2])
-            bars.append((i1, i2, length))
-
-            # faces
             faces.append((top_idx(i), mid_idx(i), mid_idx(j)))
             faces.append((top_idx(i), mid_idx(i), mid_idx(k)))
             faces.append((top_idx(i), top_idx(j), mid_idx(j)))
@@ -241,20 +179,10 @@ def generate_yoshimura_geometry(n, beta, d=None, gamma=0.0, psi=0.0):
             hinges.append((mid_idx(i), mid_idx(k), top_idx(i), base_idx(i), np.pi, 'fold'))
             hinges.append((mid_idx(i), base_idx(k), base_idx(i), mid_idx(k), np.pi, 'fold'))
             hinges.append((mid_idx(i), top_idx(k), top_idx(i), mid_idx(k), np.pi, 'fold'))
-
-        hinges.append((base_idx(i), mid_idx(i), base_idx(j), base_idx(k), np.pi - np.pi / n, 'facet'))
-        hinges.append((top_idx(i), mid_idx(i), top_idx(j), top_idx(k), np.pi + np.pi / n, 'facet'))
-
-    edge_faces = defaultdict(list)
-
-    for face_idx, face in enumerate(faces):
-        # Get all three edges of this triangular face
-        edges = [
-            tuple(sorted([face[0], face[1]])),
-            tuple(sorted([face[1], face[2]])),
-            tuple(sorted([face[2], face[0]]))
-        ]
-        for edge in edges:
-            edge_faces[edge].append(face_idx)
+            hinges.append((top_idx(i), mid_idx(i), mid_idx(j), mid_idx(k), np.pi, 'facet'))
+            hinges.append((base_idx(i), mid_idx(i), mid_idx(j), mid_idx(k), np.pi, 'facet'))
+        else:
+            hinges.append((base_idx(i), mid_idx(i), base_idx(j), base_idx(k), np.pi, 'facet'))
+            hinges.append((top_idx(i), mid_idx(i), top_idx(j), top_idx(k), np.pi, 'facet'))
 
     return nodes, bars, hinges, faces, params

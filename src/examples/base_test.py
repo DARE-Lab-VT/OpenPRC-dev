@@ -33,7 +33,7 @@ def setup():
     setup.add_bar(3, 0, stiffness=10.0, rest_length=1.0, damping=0.1)
 
     # hinges
-    setup.add_hinge(nodes=[0, 1, 2, 3], stiffness=1.0, rest_angle=np.pi / 4)
+    setup.add_hinge(nodes=[0, 1, 2, 3], stiffness=1.0, rest_angle=np.pi)
 
     # faces
     setup.add_face([0, 1, 2])
@@ -92,7 +92,7 @@ def show_stats():
 
 
 if __name__ == "__main__":
-    # setup()
-    # run()
-    # show()
-    show_stats()
+    setup()
+    run()
+    show()
+    # show_stats()
