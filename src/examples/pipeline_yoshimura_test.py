@@ -7,14 +7,13 @@ Generates Yoshimura origami geometry in folded configuration.
 from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
-from demlat.utils.plot_timeseries import SimulationPlotter
 
 trapezoid = getattr(np, 'trapezoid', getattr(np, 'trapz', None))
 
 DEMO_DIR = Path("experiments/yoshimura_test")
 
 
-def setup(beta, drivers):
+def setup(beta, drivers, force=False):
     from demlat.io.experiment_setup import ExperimentSetup
     from examples.yoshimura_ori_geometry import generate_yoshimura_geometry
 
@@ -25,9 +24,9 @@ def setup(beta, drivers):
     setup = ExperimentSetup(DEMO_DIR, overwrite=True)
 
     # Simulation parameters
-    duration = 5.0
-    dt = 0.0005
-    save_interval = 0.01
+    duration = 2.0
+    dt = 0.0001
+    save_interval = 0.005
     setup.set_simulation_params(duration=duration, dt=dt, save_interval=save_interval)
     setup.set_physics(gravity=0.0, damping=0.2)
 
@@ -39,8 +38,8 @@ def setup(beta, drivers):
     d = np.tan(beta)
     psi = 0.0
     k_axial = 2000.0
-    k_fold = 0.01
-    k_facet = 5.0
+    k_fold = 0.00
+    k_facet = 10.0
     mass = 0.01
     damping = 2.0
 
@@ -48,7 +47,7 @@ def setup(beta, drivers):
     print(f"  n={n}, beta={np.rad2deg(beta):.2f}°")
 
     # Generate geometry
-    nodes, bars, hinges, faces, params = generate_yoshimura_geometry(n, beta, d=None, gamma=gamma, psi=psi)
+    nodes, bars, hinges, faces, params = generate_yoshimura_geometry(n, beta, d=d, gamma=gamma, psi=psi)
 
     print(f"\nGenerated Geometry:")
     print(f"  Nodes: {len(nodes)}")
@@ -114,11 +113,10 @@ def setup(beta, drivers):
     print(f"\nSetting up actuation:")
     print(f"  Fixed base corners: {base_corners}")
     print(f"  Actuated top corners: {top_corners}")
-    use_force_actuators = True
 
-    if use_force_actuators:
+    if force:
         # Force actuation: constant force for first half, then zero
-        force_magnitude = 300.0  # Adjust this value as needed
+        force_magnitude = 100.0  # Adjust this value as needed
 
         # Create force signal (force on for first half, off for second half)
         force_signal = np.zeros((len(t), 3), dtype=np.float32)
@@ -128,7 +126,7 @@ def setup(beta, drivers):
         for i, idx in enumerate(top_corners):
             if i < drivers:
                 sig = force_signal.copy()
-                sig[mask, 2] = force_magnitude  # Upward force
+                sig[mask, 2] = -force_magnitude  # Upward force
 
                 sig_name = f"sig_force_top_{i}"
                 setup.add_signal(sig_name, sig, dt=dt_sig)
@@ -138,7 +136,7 @@ def setup(beta, drivers):
         for i, idx in enumerate(base_corners):
             if i < drivers:
                 sig = force_signal.copy()
-                sig[mask, 2] = -force_magnitude  # Downward force
+                sig[mask, 2] = force_magnitude  # Downward force
 
                 sig_name = f"sig_force_base_{i}"
                 setup.add_signal(sig_name, sig, dt=dt_sig)
@@ -189,14 +187,14 @@ def run():
     from demlat.models.barhinge import BarHingeModel
 
     exp = demlat.Experiment(DEMO_DIR)
-    eng = demlat.Engine(BarHingeModel, backend='cpu')
+    eng = demlat.Engine(BarHingeModel, backend='cuda')
     eng.run(exp)
 
     print("\nSimulation complete!")
 
 
 def show_pe(demo_dir):
-    # Plot displacement vs potential energy with hysteresis
+    from demlat.utils.plot_timeseries import SimulationPlotter
 
     plotter = SimulationPlotter(demo_dir / "output" / "simulation.h5")
 
@@ -258,6 +256,6 @@ def show(pe):
 
 
 if __name__ == "__main__":
-    setup(beta=35.0, drivers=3)
+    setup(beta=35.0, drivers=0, force=True)
     run()
     show(1)

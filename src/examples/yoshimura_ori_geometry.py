@@ -42,88 +42,112 @@ def find_circumcenter(A, B, C, D):
 
 
 def generate_yoshimura_geometry(n, beta, d=None, gamma=0.0, psi=0.0):
-    r = 1 / (2 * np.sin(np.pi / n))
     w = 0.5 * np.tan(beta)
     l = 0.5
     b = 0.5 / np.cos(beta)
+
     if d is None:
         d = (np.tan(beta) ** 2 - np.tan(np.pi / (2 * n)) ** 2) ** 0.5
 
-    # Generate base polygon vertices
-    base = np.array([
-        [r * np.sin(2 * np.pi / n * i),
-         -r * np.cos(2 * np.pi / n * i),
-         0, 1]
-        for i in range(n)
-    ]).T
-
-    # Transform to get top polygon
-    T = general_transform_matrix(psi, gamma, d)
-    top = T @ base
-
     params = [n, beta, d, gamma, psi]
 
-    # Calculate midpoint positions
-    mid = np.zeros((4, 2 * n))
-    centers = np.zeros((2 * n, 3))
+    if np.linalg.norm(d - np.tan(beta)) < 1e-6:
+        d = np.tan(beta)
+        r = l / (2 * np.sin(np.pi / (2 * n)))
+        base_nodes = np.array([
+            [r * np.sin(np.pi / n * i),
+             -r * np.cos(np.pi / n * i),
+             0]
+            for i in range(2 * n)
+        ])
+        mid_nodes = np.array([
+            [r * np.sin(np.pi / n * i),
+             -r * np.cos(np.pi / n * i),
+             d / 2]
+            for i in range(2 * n)
+        ])
 
-    for i in range(n):
-        A = base[:3, i]
-        B = base[:3, (i + 1) % n]
-        C = top[:3, i]
-        D = top[:3, (i + 1) % n]
+        top_nodes = np.array([
+            [r * np.sin(np.pi / n * i),
+             -r * np.cos(np.pi / n * i),
+             d]
+            for i in range(2 * n)
+        ])
+    else:
+        base_nodes = np.zeros((2 * n, 3))
+        mid_nodes = np.zeros((2 * n, 3))
+        top_nodes = np.zeros((2 * n, 3))
 
-        p = np.cross(C - B, D - A)
-        s = np.linalg.norm((A + B) / 2 - (C + D) / 2)
-        a = 1 / (2 * np.cos(beta))
+        r = 1 / (2 * np.sin(np.pi / n))
+        # Generate base polygon vertices
+        base = np.array([
+            [r * np.sin(2 * np.pi / n * i),
+             -r * np.cos(2 * np.pi / n * i),
+             0, 1]
+            for i in range(n)
+        ]).T
 
-        x_ = w ** 2 - (s / 2) ** 2 + 1e-20
-        x = np.abs(x_) ** 0.5 if x_ >= -1e-2 else 0.0
+        # Transform to get top polygon
+        T = general_transform_matrix(psi, gamma, d)
+        top = T @ base
 
-        if np.linalg.norm(p) < 1e-10:
-            # Degenerate case - planar quadrilateral
-            A_ = base[:3, (i + n // 2) % n]
-            B_ = base[:3, (i + 1 + n // 2) % n]
-            C_ = top[:3, (i + n // 2) % n]
-            D_ = top[:3, (i + 1 + n // 2) % n]
+        # Calculate midpoint positions
+        mid = np.zeros((4, 2 * n))
+        centers = np.zeros((2 * n, 3))
 
-            ct = (A + B + C + D) / 4
+        for i in range(n):
+            A = base[:3, i]
+            B = base[:3, (i + 1) % n]
+            C = top[:3, i]
+            D = top[:3, (i + 1) % n]
 
-            if n % 2 == 0:
-                q_hat = ct - (A_ + B_ + C_ + D_) / 4
+            p = np.cross(C - B, D - A)
+            s = np.linalg.norm((A + B) / 2 - (C + D) / 2)
+            a = 1 / (2 * np.cos(beta))
+
+            x_ = w ** 2 - (s / 2) ** 2 + 1e-20
+            x = np.abs(x_) ** 0.5 if x_ >= -1e-2 else 0.0
+
+            if np.linalg.norm(p) < 1e-10:
+                # Degenerate case - planar quadrilateral
+                A_ = base[:3, (i + n // 2) % n]
+                B_ = base[:3, (i + 1 + n // 2) % n]
+                C_ = top[:3, (i + n // 2) % n]
+                D_ = top[:3, (i + 1 + n // 2) % n]
+
+                ct = (A + B + C + D) / 4
+
+                if n % 2 == 0:
+                    q_hat = ct - (A_ + B_ + C_ + D_) / 4
+                else:
+                    q_hat = ct - (B_ + D_) / 2
+
+                centers[i] = ct + x * q_hat / np.linalg.norm(q_hat)
             else:
-                q_hat = ct - (B_ + D_) / 2
+                ct = find_circumcenter(A, B, C, D)
+                centers[i] = ct - p / np.linalg.norm(p) * np.abs(a ** 2 - np.linalg.norm(A - ct) ** 2) ** 0.5
 
-            centers[i] = ct + x * q_hat / np.linalg.norm(q_hat)
-        else:
-            ct = find_circumcenter(A, B, C, D)
-            centers[i] = ct - p / np.linalg.norm(p) * np.abs(a ** 2 - np.linalg.norm(A - ct) ** 2) ** 0.5
+        # Assign mid-edge vertices
+        for i in range(n):
+            B = base[:3, (i + 1) % n]
+            D = top[:3, (i + 1) % n]
 
-    # Assign mid-edge vertices
-    for i in range(n):
-        B = base[:3, (i + 1) % n]
-        D = top[:3, (i + 1) % n]
+            mid[:3, 2 * i] = centers[i]
 
-        mid[:3, 2 * i] = centers[i]
+            if np.linalg.norm(B - D) < 1.95 * w:
+                mid[:3, 2 * i + 1] = (centers[i] + centers[(i + 1) % n]) / 2
+            else:
+                mid[:3, 2 * i + 1] = (B + D) / 2
 
-        if np.linalg.norm(B - D) < 1.95 * w:
-            mid[:3, 2 * i + 1] = (centers[i] + centers[(i + 1) % n]) / 2
-        else:
-            mid[:3, 2 * i + 1] = (B + D) / 2
+            mid[3, :] = 1.0
 
-        mid[3, :] = 1.0
-
-    base_nodes = np.zeros((2 * n, 3))
-    mid_nodes = np.zeros((2 * n, 3))
-    top_nodes = np.zeros((2 * n, 3))
-
-    for i in range(n):
-        base_nodes[2 * i] = base[:3, i]
-        base_nodes[2 * i + 1] = (base[:3, i] + base[:3, (i + 1) % n]) / 2
-        mid_nodes[2 * i] = mid[:3, 2 * i - 1]
-        mid_nodes[2 * i + 1] = mid[:3, 2 * i]
-        top_nodes[2 * i] = top[:3, i]
-        top_nodes[2 * i + 1] = (top[:3, i] + top[:3, (i + 1) % n]) / 2
+        for i in range(n):
+            base_nodes[2 * i] = base[:3, i]
+            base_nodes[2 * i + 1] = (base[:3, i] + base[:3, (i + 1) % n]) / 2
+            mid_nodes[2 * i] = mid[:3, 2 * i - 1]
+            mid_nodes[2 * i + 1] = mid[:3, 2 * i]
+            top_nodes[2 * i] = top[:3, i]
+            top_nodes[2 * i + 1] = (top[:3, i] + top[:3, (i + 1) % n]) / 2
 
     nodes = []
     nodes.extend(base_nodes)  # indices 0 to 2n-1
@@ -182,7 +206,7 @@ def generate_yoshimura_geometry(n, beta, d=None, gamma=0.0, psi=0.0):
             hinges.append((top_idx(i), mid_idx(i), mid_idx(j), mid_idx(k), np.pi, 'facet'))
             hinges.append((base_idx(i), mid_idx(i), mid_idx(j), mid_idx(k), np.pi, 'facet'))
         else:
-            hinges.append((base_idx(i), mid_idx(i), base_idx(j), base_idx(k), np.pi, 'facet'))
-            hinges.append((top_idx(i), mid_idx(i), top_idx(j), top_idx(k), np.pi, 'facet'))
+            hinges.append((base_idx(i), mid_idx(i), base_idx(j), base_idx(k), -np.pi, 'facet'))
+            hinges.append((top_idx(i), mid_idx(i), top_idx(j), top_idx(k), -np.pi, 'facet'))
 
     return nodes, bars, hinges, faces, params
