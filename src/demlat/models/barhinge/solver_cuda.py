@@ -41,6 +41,7 @@ class CudaSolver:
         # Kernels
         self.k_zero = self.mod.get_function("zero_forces")
         self.k_act_pos = self.mod.get_function("apply_position_actuation")
+        self.k_act_force = self.mod.get_function("apply_force_actuation")
         self.k_bars = self.mod.get_function("compute_bar_forces")
         self.k_hinges = self.mod.get_function("compute_hinge_forces")
         self.k_glob = self.mod.get_function("apply_global_forces")
@@ -153,14 +154,23 @@ class CudaSolver:
         self.d_xt = cuda.mem_alloc(sz)
         self.d_vt = cuda.mem_alloc(sz)
 
-        # 5. Actuation
-        self.actuator_indices = np.where(attributes.astype(np.uint8) & 2)[0].astype(np.int32)
-        self.n_actuators = len(self.actuator_indices)
-        if self.n_actuators > 0:
-            self.d_act_idx = cuda.mem_alloc(self.actuator_indices.nbytes)
-            cuda.memcpy_htod(self.d_act_idx, self.actuator_indices)
-            self.d_act_vals = cuda.mem_alloc(self.n_actuators * 3 * 8)
-            self.h_act_vals = np.zeros(self.n_actuators * 3, dtype=np.float64)
+        # 5. Actuation (Position)
+        self.pos_actuator_indices = np.where(attributes.astype(np.uint8) & 2)[0].astype(np.int32)
+        self.n_pos_actuators = len(self.pos_actuator_indices)
+        if self.n_pos_actuators > 0:
+            self.d_pos_act_idx = cuda.mem_alloc(self.pos_actuator_indices.nbytes)
+            cuda.memcpy_htod(self.d_pos_act_idx, self.pos_actuator_indices)
+            self.d_pos_act_vals = cuda.mem_alloc(self.n_pos_actuators * 3 * 8)
+            self.h_pos_act_vals = np.zeros(self.n_pos_actuators * 3, dtype=np.float64)
+
+        # 6. Actuation (Force)
+        self.force_actuator_indices = np.where(attributes.astype(np.uint8) & 4)[0].astype(np.int32)
+        self.n_force_actuators = len(self.force_actuator_indices)
+        if self.n_force_actuators > 0:
+            self.d_force_act_idx = cuda.mem_alloc(self.force_actuator_indices.nbytes)
+            cuda.memcpy_htod(self.d_force_act_idx, self.force_actuator_indices)
+            self.d_force_act_vals = cuda.mem_alloc(self.n_force_actuators * 3 * 8)
+            self.h_force_act_vals = np.zeros(self.n_force_actuators * 3, dtype=np.float64)
 
     def upload_state(self, x, v):
         """
@@ -200,16 +210,31 @@ class CudaSolver:
             dt (float): Time step size.
             actuation_map (dict): Dictionary of actuation commands.
         """
-        # 1. Update Actuation
-        if self.n_actuators > 0 and actuation_map:
-            for i, node_idx in enumerate(self.actuator_indices):
+        # 1. Update Position Actuation
+        if self.n_pos_actuators > 0 and actuation_map:
+            for i, node_idx in enumerate(self.pos_actuator_indices):
                 if node_idx in actuation_map and actuation_map[node_idx]['type'] == 'position':
                     val = actuation_map[node_idx]['value']
-                    self.h_act_vals[i * 3:i * 3 + 3] = val
-            cuda.memcpy_htod(self.d_act_vals, self.h_act_vals)
-            self.k_act_pos(np.int32(self.n_actuators), self.d_act_idx, self.d_act_vals, self.d_x, self.d_v,
-                           np.float64(dt), block=self.block,
-                           grid=((self.n_actuators + 255) // 256, 1))
+                    self.h_pos_act_vals[i * 3:i * 3 + 3] = val
+            cuda.memcpy_htod(self.d_pos_act_vals, self.h_pos_act_vals)
+            self.k_act_pos(
+                np.int32(self.n_pos_actuators),
+                self.d_pos_act_idx,
+                self.d_pos_act_vals,
+                self.d_x,
+                self.d_v,
+                np.float64(dt),
+                block=self.block,
+                grid=((self.n_pos_actuators + 255) // 256, 1)
+            )
+
+        # 2. Prepare Force Actuation (will be applied during force computation)
+        if self.n_force_actuators > 0 and actuation_map:
+            for i, node_idx in enumerate(self.force_actuator_indices):
+                if node_idx in actuation_map and actuation_map[node_idx]['type'] == 'force':
+                    val = actuation_map[node_idx]['value']
+                    self.h_force_act_vals[i * 3:i * 3 + 3] = val
+            cuda.memcpy_htod(self.d_force_act_vals, self.h_force_act_vals)
 
         # 2. Physics Params
         grav = self.options.get('gravity', -9.81)
@@ -217,12 +242,27 @@ class CudaSolver:
 
         def compute_forces(x_ptr, v_ptr, f_ptr):
             self.k_zero(np.int32(self.n_nodes), f_ptr, block=self.block, grid=self.grid_nodes)
+
             if self.n_bars > 0:
                 self.k_bars(np.int32(self.n_bars), self.d_bar_idx, self.d_bar_params, x_ptr, v_ptr, self.d_attrs, f_ptr,
                             block=self.block, grid=self.grid_bars)
+
             if self.n_hinges > 0:
                 self.k_hinges(np.int32(self.n_hinges), self.d_hinge_idx, self.d_hinge_params, x_ptr, v_ptr,
                               self.d_attrs, f_ptr, block=self.block, grid=self.grid_hinges)
+
+            # Apply force actuation
+            if self.n_force_actuators > 0:
+                self.k_act_force(
+                    np.int32(self.n_force_actuators),
+                    self.d_force_act_idx,
+                    self.d_force_act_vals,
+                    self.d_attrs,
+                    f_ptr,
+                    block=self.block,
+                    grid=((self.n_force_actuators + 255) // 256, 1)
+                )
+
             self.k_glob(np.int32(self.n_nodes), v_ptr, self.d_mass, self.d_attrs, np.float64(damp), np.float64(grav),
                         f_ptr, block=self.block, grid=self.grid_nodes)
 

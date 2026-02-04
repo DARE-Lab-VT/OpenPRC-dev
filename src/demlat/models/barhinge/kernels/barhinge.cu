@@ -110,6 +110,30 @@ __global__ void apply_position_actuation(int n_actuators, const int* act_indices
     }
 }
 
+__global__ void apply_force_actuation(
+    int n_actuators,
+    const int* act_indices,
+    const double* act_values,
+    const unsigned char* attrs,
+    double* force_buf
+) {
+    int k = blockIdx.x * blockDim.x + threadIdx.x;
+    if (k >= n_actuators) return;
+
+    int node_idx = act_indices[k];
+
+    // Only apply force if node is physics-active
+    if (!is_physics_active(node_idx, attrs)) return;
+
+    double fx = act_values[k*3];
+    double fy = act_values[k*3 + 1];
+    double fz = act_values[k*3 + 2];
+
+    atomicAdd(&force_buf[node_idx*3], fx);
+    atomicAdd(&force_buf[node_idx*3 + 1], fy);
+    atomicAdd(&force_buf[node_idx*3 + 2], fz);
+}
+
 // --- 2. Force Computation (Bars) ---
 
 /**

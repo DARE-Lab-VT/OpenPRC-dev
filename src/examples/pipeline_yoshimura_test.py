@@ -104,6 +104,7 @@ def setup(beta, drivers):
     dt_sig = 0.001
     t = np.arange(0, duration, dt_sig)
     omega = 2 * np.pi * frequency
+    half_duration = duration / 2.0
 
     # Create signals for each top corner
     base_corners = node_info['base_corners']
@@ -113,36 +114,69 @@ def setup(beta, drivers):
     print(f"\nSetting up actuation:")
     print(f"  Fixed base corners: {base_corners}")
     print(f"  Actuated top corners: {top_corners}")
+    use_force_actuators = True
 
-    # Create sinusoidal signals for top corners
-    for i, idx in enumerate(top_corners):
-        if i < drivers:
-            p0 = positions[idx]
+    if use_force_actuators:
+        # Force actuation: constant force for first half, then zero
+        force_magnitude = 300.0  # Adjust this value as needed
 
-            # generate a signal to go from min_pos to max_pos from p0[2] with given frequency
-            sig = np.zeros((len(t), 3), dtype=np.float32)
-            sig[:, 0] = p0[0]
-            sig[:, 1] = p0[1]
-            sig[:, 2] = np.tan(beta) - (max_pos - min_pos) * (1 - np.cos(omega * t)) / 4
+        # Create force signal (force on for first half, off for second half)
+        force_signal = np.zeros((len(t), 3), dtype=np.float32)
+        mask = t <= half_duration
 
-            sig_name = f"sig_top_corner_{i}"
-            setup.add_signal(sig_name, sig, dt=dt_sig)
-            setup.add_actuator(idx, sig_name, type='position')
+        # Top corners: apply upward force (+z)
+        for i, idx in enumerate(top_corners):
+            if i < drivers:
+                sig = force_signal.copy()
+                sig[mask, 2] = force_magnitude  # Upward force
 
-    # add zero actuation to base corners
-    for i, idx in enumerate(base_corners):
-        if i < drivers:
-            p0 = positions[idx]
+                sig_name = f"sig_force_top_{i}"
+                setup.add_signal(sig_name, sig, dt=dt_sig)
+                setup.add_actuator(idx, sig_name, type='force')
 
-            # generate a signal to go from min_pos to max_pos from p0[2] with given frequency
-            sig = np.zeros((len(t), 3), dtype=np.float32)
-            sig[:, 0] = p0[0]
-            sig[:, 1] = p0[1]
-            sig[:, 2] = 0 + (max_pos - min_pos) * (1 - np.cos(omega * t)) / 4
+        # Base corners: apply downward force (-z)
+        for i, idx in enumerate(base_corners):
+            if i < drivers:
+                sig = force_signal.copy()
+                sig[mask, 2] = -force_magnitude  # Downward force
 
-            sig_name = f"sig_base_corner_{i}"
-            setup.add_signal(sig_name, sig, dt=dt_sig)
-            setup.add_actuator(idx, sig_name, type='position')
+                sig_name = f"sig_force_base_{i}"
+                setup.add_signal(sig_name, sig, dt=dt_sig)
+                setup.add_actuator(idx, sig_name, type='force')
+
+    else:
+        # Original position actuation
+        min_pos = 0.0
+        max_pos = d
+        omega = 2 * np.pi * frequency
+
+        # Create sinusoidal signals for top corners
+        for i, idx in enumerate(top_corners):
+            if i < drivers:
+                p0 = positions[idx]
+
+                sig = np.zeros((len(t), 3), dtype=np.float32)
+                sig[:, 0] = p0[0]
+                sig[:, 1] = p0[1]
+                sig[:, 2] = np.tan(beta) - (max_pos - min_pos) * (1 - np.cos(omega * t)) / 4
+
+                sig_name = f"sig_top_corner_{i}"
+                setup.add_signal(sig_name, sig, dt=dt_sig)
+                setup.add_actuator(idx, sig_name, type='position')
+
+        # Add zero actuation to base corners
+        for i, idx in enumerate(base_corners):
+            if i < drivers:
+                p0 = positions[idx]
+
+                sig = np.zeros((len(t), 3), dtype=np.float32)
+                sig[:, 0] = p0[0]
+                sig[:, 1] = p0[1]
+                sig[:, 2] = 0 + (max_pos - min_pos) * (1 - np.cos(omega * t)) / 4
+
+                sig_name = f"sig_base_corner_{i}"
+                setup.add_signal(sig_name, sig, dt=dt_sig)
+                setup.add_actuator(idx, sig_name, type='position')
 
     # Save Everything
     setup.save()
@@ -155,7 +189,7 @@ def run():
     from demlat.models.barhinge import BarHingeModel
 
     exp = demlat.Experiment(DEMO_DIR)
-    eng = demlat.Engine(BarHingeModel, backend='cuda')
+    eng = demlat.Engine(BarHingeModel, backend='cpu')
     eng.run(exp)
 
     print("\nSimulation complete!")
@@ -224,6 +258,6 @@ def show(pe):
 
 
 if __name__ == "__main__":
-    setup(beta=35.0, drivers=0)
+    setup(beta=35.0, drivers=3)
     run()
     show(1)
