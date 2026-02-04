@@ -52,7 +52,6 @@ class TrainingResult:
             vg.create_dataset('input', data=self.cache['test'][0])
             vg.create_dataset('target', data=self.cache['test'][1])
             vg.create_dataset('prediction', data=self.cache['test'][2])
-            vg.create_group('metrics')
             
         return self.output_path
 
@@ -61,25 +60,24 @@ class Trainer:
     Standardizes data GLOBALLY before splitting into fixed train/test lengths.
     Structure: [1, X_standardized]
     """
-    def __init__(self, features, readout, experiment_dir, washout=5.0, train_duration=20.0, test_duration=5.0, actuator_idx=0, dof=0):
+    def __init__(self, features, readout, experiment_dir, loader, washout=5.0, train_duration=20.0, test_duration=5.0):
+        self.loader = loader
         self.features = features
         self.readout = readout
         self.experiment_dir = Path(experiment_dir)
         self.washout = washout
         self.train_duration = train_duration
         self.test_duration = test_duration
-        self.actuator_idx = actuator_idx
-        self.dof = dof
 
-    def fit(self, state_loader, task):
+    def train(self, y_full, task_name="Custom"):
         # 1. Convert time-based lengths to frame-based lengths
-        dt = state_loader.dt
+        dt = self.loader.dt
         washout_len_frames = int(self.washout / dt)
         train_len_frames = int(self.train_duration / dt)
         test_len_frames = int(self.test_duration / dt)
 
         # 2. Extract Full Features [T, N]
-        X_full = self.features.transform(state_loader)
+        X_full = self.features.transform(self.loader)
         
         # 3. Check Lengths
         required_len = washout_len_frames + train_len_frames + test_len_frames
@@ -89,56 +87,42 @@ class Trainer:
                 f"but simulation only has {len(X_full)} frames ({len(X_full)*dt:.2f}s)."
             )
 
-        # 4. Handle task type for metadata and full target array
-        if isinstance(task, np.ndarray):
-            task_name = "Custom"
-            y_full = task
-        else:
-            task_name = task.__class__.__name__
-            y_full = task.generate(state_loader.get_actuation_signal(actuator_idx=self.actuator_idx, dof=self.dof)).flatten()
-
-        # 5. GLOBAL STANDARDIZATION
-        # Standardize X
+        # 4. Standardize X and y
         scaler_X = StandardScaler()
         X_std = scaler_X.fit_transform(X_full)
         
-        # Standardize y
         scaler_y = StandardScaler()
         y_std = scaler_y.fit_transform(y_full.reshape(-1, 1)).flatten()
 
-        # 6. Construct Design Matrix L = [1, X_std]
+        # 5. Construct Design Matrix L = [1, X_std]
         ones = np.ones((X_std.shape[0], 1))
         L_full = np.hstack((ones, X_std))
 
-        # 7. Slicing (Fixed Integers)
+        # 6. Slicing
         start_train = washout_len_frames
         end_train   = washout_len_frames + train_len_frames
         start_test  = end_train
         end_test    = end_train + test_len_frames
 
-        # Train Slice
         L_train = L_full[start_train:end_train]
         y_train = y_std[start_train:end_train]
 
-        # Test Slice
         L_test  = L_full[start_test:end_test]
         y_test  = y_std[start_test:end_test]
 
         print(f"Training with {train_len_frames} frames ({self.train_duration:.2f}s) | "
               f"Testing with {test_len_frames} frames ({self.test_duration:.2f}s)")
 
-
-        # 8. Fit Readout
-        # fit_intercept=False is required in Readout because we added the bias column
+        # 7. Fit Readout
         self.readout.fit(L_train, y_train)
         
-        # 9. Store Results
+        # 8. Store Results
         cache = {
             "train": (L_train, y_train, self.readout.predict(L_train)),
             "test":  (L_test, y_test, self.readout.predict(L_test))
         }
         
-        meta = {'sim': state_loader.sim_path, 'task': task_name}
+        meta = {'sim': str(self.loader.sim_path), 'task': task_name}
         feature_config = {
             "type": self.features.__class__.__name__, 
             "washout_duration": self.washout,
@@ -146,7 +130,6 @@ class Trainer:
             "test_duration": self.test_duration
         }
         
-        # Store both scalers for full reproducibility
         scaler_params = {
             'X_mean': scaler_X.mean_, 'X_scale': scaler_X.scale_,
             'y_mean': scaler_y.mean_, 'y_scale': scaler_y.scale_

@@ -84,10 +84,11 @@ class StateComputer:
 
             # 2. Bar Analytics
             if self.geometry.get('bars') and self._bar_rest_lengths is not None:
-                strain, stress, bar_pe = self._compute_bar_quantities(positions)
+                strain, stress, bar_pe, lengths = self._compute_bar_quantities(positions)
                 state['time_series/elements/bars/strain'] = strain
                 state['time_series/elements/bars/stress'] = stress
                 state['time_series/elements/bars/potential_energy'] = bar_pe
+                state['time_series/elements/bars/lengths'] = lengths
 
             # 3. Hinge Analytics
             if self.geometry.get('hinges') and self._hinge_rest_angles is not None:
@@ -187,7 +188,7 @@ class StateComputer:
             self.logger.error(f"Error in node energy calculation: {e}", exc_info=True)
             raise
 
-    def _compute_bar_quantities(self, pos: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _compute_bar_quantities(self, pos: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         try:
             indices = self.geometry['bars']['indices']
             p0 = pos[indices[:, 0]]
@@ -213,7 +214,7 @@ class StateComputer:
             # Uses effective length (including prestress) to match physics model
             pe = 0.5 * k * (dist - l_eff) ** 2
 
-            return strain.astype(np.float32), stress.astype(np.float32), pe.astype(np.float32)
+            return strain.astype(np.float32), stress.astype(np.float32), pe.astype(np.float32), dist.astype(np.float32)
         except Exception as e:
             self.logger.error(f"Error in bar quantity calculation: {e}", exc_info=True)
             raise

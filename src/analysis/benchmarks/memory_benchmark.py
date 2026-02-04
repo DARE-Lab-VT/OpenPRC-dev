@@ -2,49 +2,64 @@ import numpy as np
 import h5py
 from pathlib import Path
 from .base import BaseBenchmark
+from analysis.tasks.memory import NARMA
+
 
 class NARMABenchmark(BaseBenchmark):
     """
     Calculates the Normalized Root Mean Square Error (NRMSE) for a NARMA task.
+    This benchmark now handles the training process internally.
     """
     def __init__(self, group_name: str = "narma_benchmark"):
         super().__init__(group_name)
 
-    def run(self, experiment_dir: Path, order: int = 10) -> 'NARMABenchmark':
+    @staticmethod
+    def _generate_narma_task(u_input, order=2, a=0.3, b=0.05, c=1.5, d=0.1):
+        """Generates the NARMA target signal."""
+        return NARMA(u_input, order, a, b, c, d)
+
+    def run(self, trainer, u_input: np.ndarray, **benchmark_args) -> 'NARMABenchmark':
         """
-        Runs the NARMA benchmark calculation.
+        Runs the NARMA benchmark, including training and evaluation.
         
         Args:
-            experiment_dir (Path): The path to the experiment directory.
-            order (int): The order of the NARMA task.
+            trainer (Trainer): The trainer object, pre-configured with a loader.
+            u_input (np.ndarray): The input signal for the NARMA task.
+            benchmark_args (dict): Keyword arguments for the benchmark.
+                                   For NARMA, this should contain 'order'.
         
         Returns:
             The benchmark instance with populated metrics.
         """
-        # Step 1: Initialize paths.
-        self._setup(experiment_dir)
+        order = benchmark_args.get('order', 10)
+
+        # Step 1: Initialize paths and setup from the trainer.
+        self._setup(trainer.experiment_dir)
         
-        # Step 2: Get data.
-        readout_path = self.readout_path
+        # Step 2: Generate the task using the provided u_input.
+        y_full = self._generate_narma_task(u_input, order=order)
         
-        # Step 3: Perform calculation.
-        with h5py.File(readout_path, 'r') as f:
-            group = 'validation' if 'validation' in f else 'training'
-            target = f[f'{group}/target'][:]
-            prediction = f[f'{group}/prediction'][:]
+        # Step 3: Train the readout.
+        task_name = f"NARMA{order}"
+        training_result = trainer.train(y_full, task_name=task_name)
+        training_result.save()
+        
+        # Step 4: Calculate NRMSE from the training result's test cache.
+        _, target, prediction = training_result.cache['test']
 
         rmse = np.sqrt(np.mean((target - prediction)**2))
         std_dev = np.std(target)
         nrmse = rmse / (std_dev if std_dev > 1e-9 else 1.0)
 
-        # Step 4: Populate metrics.
+        # Step 5: Populate metrics and metadata.
         self.metrics = {
             f'narma{order}_nrmse': nrmse
         }
         self.metadata = {
             'source_readout': str(self.readout_path),
-            'narma_order': order
+            'narma_order': order,
+            'training_feature_config': training_result.feature_config
         }
         
-        # Step 5: Return self.
+        # Step 6: Return self.
         return self

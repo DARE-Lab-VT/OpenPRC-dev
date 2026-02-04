@@ -42,6 +42,23 @@ class StateLoader:
                 return data[:].reshape(self.total_frames, -1)
             return data[:, node_ids, :].reshape(self.total_frames, -1)
 
+    def get_bar_lengths(self, bar_ids="all"):
+        with h5py.File(self.sim_path, 'r') as f:
+            data = f['time_series/elements/bars/lengths']
+            if bar_ids == "all":
+                return data[:].reshape(self.total_frames, -1)
+            return data[:, bar_ids].reshape(self.total_frames, -1)
+
+    def get_bar_extensions(self, bar_ids="all"):
+        with h5py.File(self.sim_path, 'r') as f:
+            lengths_t = f['time_series/elements/bars/lengths'][:]
+            initial_lengths = lengths_t[0] # Lengths at t=0
+            extensions = lengths_t - initial_lengths
+            
+            if bar_ids == "all":
+                return extensions.reshape(self.total_frames, -1)
+            return extensions[:, bar_ids].reshape(self.total_frames, -1)
+
     def get_actuation_signal(self, actuator_idx=0, dof=None):
         """
         Loads a specific actuation signal from simulation.h5 based on the new
