@@ -15,7 +15,7 @@ DEMO_DIR = Path("experiments/yoshimura_test")
 
 def setup(beta, drivers, force=False):
     from demlat.io.experiment_setup import ExperimentSetup
-    from examples.yoshimura_ori_geometry import generate_yoshimura_geometry
+    from examples.Yoshimura import Yoshimura
 
     """Setup the Yoshimura experiment"""
     print("\n[Setup] Creating Yoshimura Experiment...")
@@ -30,13 +30,10 @@ def setup(beta, drivers, force=False):
     setup.set_simulation_params(duration=duration, dt=dt, save_interval=save_interval)
     setup.set_physics(gravity=0.0, damping=0.2)
 
-    beta = np.deg2rad(beta)
-
     # Build Geometry
+    beta = np.deg2rad(beta)
     n = 3
-    gamma = 0.0
-    d = None
-    psi = 0.0
+    d = np.tan(beta)
     k_axial = 2000.0
     k_fold = 0.1
     k_facet = 10.0
@@ -47,7 +44,8 @@ def setup(beta, drivers, force=False):
     print(f"  n={n}, beta={np.rad2deg(beta):.2f}°")
 
     # Generate geometry
-    nodes, bars, hinges, faces, params = generate_yoshimura_geometry(n, beta, d=d, gamma=gamma, psi=psi)
+    module = Yoshimura(n, beta)
+    nodes, bars, hinges, faces, params = module.get_geometry()
 
     print(f"\nGenerated Geometry:")
     print(f"  Nodes: {len(nodes)}")
@@ -55,19 +53,10 @@ def setup(beta, drivers, force=False):
     print(f"  Hinges: {len(hinges)}")
     print(f"  Faces: {len(faces)}")
 
-    node_info = {
-        'base_corners': [2 * i for i in range(n)],
-        'top_corners': [4 * n + 2 * i for i in range(n)],
-        'n': n,
-        'total_nodes': len(nodes),
-        'beta': beta,
-        'd': d,
-    }
-
     # Add nodes to setup
     for i, node_pos in enumerate(nodes):
         if i == 0:
-            setup.add_node(node_pos, mass=mass, fixed=True)
+            setup.add_node(node_pos, mass=mass, fixed=False)
         else:
             setup.add_node(node_pos, mass=mass, fixed=False)
 
@@ -105,18 +94,9 @@ def setup(beta, drivers, force=False):
     omega = 2 * np.pi * frequency
     half_duration = duration / 2.0
 
-    # Create signals for each top corner
-    base_corners = node_info['base_corners']
-    top_corners = node_info['top_corners']
-    beta = node_info['beta']
-
-    print(f"\nSetting up actuation:")
-    print(f"  Fixed base corners: {base_corners}")
-    print(f"  Actuated top corners: {top_corners}")
-
     if force:
         # Force actuation: smooth ramp from 0 to force_magnitude
-        force_magnitude = 20.0  # Adjust this value as needed
+        force_magnitude = 150.0  # Adjust this value as needed
         ramp_duration = 1.5  # Time to reach full force (seconds)
 
         # Create force signal
@@ -135,23 +115,27 @@ def setup(beta, drivers, force=False):
                 force_signal[i, 2] = 0.0
 
         # Top corners: apply upward force (+z)
-        for i, idx in enumerate(top_corners):
-            if i < drivers:
-                sig = force_signal.copy()
-                sig[:, 2] *= -1  # Flip to negative for upward force
-
-                sig_name = f"sig_force_top_{i}"
-                setup.add_signal(sig_name, sig, dt=dt_sig)
-                setup.add_actuator(idx, sig_name, type='force')
+        for i in range(drivers):
+            sig = force_signal.copy()
+            sig_name = f"sig_force_top_{i}"
+            setup.add_signal(sig_name, sig, dt=dt_sig)
+            setup.add_actuator(module.top_idx(2 * i), sig_name, type='force')
 
         # Base corners: apply downward force (-z)
-        for i, idx in enumerate(base_corners):
-            if i < drivers:
-                sig = force_signal.copy()  # Positive = downward
+        for i in range(drivers):
+            sig = -force_signal.copy()  # Positive = downward
+            sig_name = f"sig_force_base_{i}"
+            setup.add_signal(sig_name, sig, dt=dt_sig)
+            setup.add_actuator(module.base_idx(2 * i), sig_name, type='force')
 
-                sig_name = f"sig_force_base_{i}"
-                setup.add_signal(sig_name, sig, dt=dt_sig)
-                setup.add_actuator(idx, sig_name, type='force')
+        # Mid centers force outward
+        for i in range(drivers):
+            sig = np.zeros((len(t), 3), dtype=np.float32)
+            sig[:, 0] = force_signal.copy()[:, 2] * np.cos(2 * np.pi / n * (i - 1))
+            sig[:, 1] = force_signal.copy()[:, 2] * np.sin(2 * np.pi / n * (i - 1))
+            sig_name = f"sig_force_mid_{i}"
+            setup.add_signal(sig_name, sig, dt=dt_sig)
+            setup.add_actuator(module.mid_idx(2 * i), sig_name, type='force')
 
     else:
         # Original position actuation
@@ -160,32 +144,30 @@ def setup(beta, drivers, force=False):
         omega = 2 * np.pi * frequency
 
         # Create sinusoidal signals for top corners
-        for i, idx in enumerate(top_corners):
-            if i < drivers:
-                p0 = positions[idx]
+        for i in range(drivers):
+            p0 = positions[module.top_idx(2 * i)]
 
-                sig = np.zeros((len(t), 3), dtype=np.float32)
-                sig[:, 0] = p0[0]
-                sig[:, 1] = p0[1]
-                sig[:, 2] = np.tan(beta) - (max_pos - min_pos) * (1 - np.cos(omega * t)) / 4
+            sig = np.zeros((len(t), 3), dtype=np.float32)
+            sig[:, 0] = p0[0]
+            sig[:, 1] = p0[1]
+            sig[:, 2] = np.tan(beta) - (max_pos - min_pos) * (1 - np.cos(omega * t)) / 4
 
-                sig_name = f"sig_top_corner_{i}"
-                setup.add_signal(sig_name, sig, dt=dt_sig)
-                setup.add_actuator(idx, sig_name, type='position')
+            sig_name = f"sig_top_corner_{i}"
+            setup.add_signal(sig_name, sig, dt=dt_sig)
+            setup.add_actuator(module.top_idx(2 * i), sig_name, type='position')
 
         # Add zero actuation to base corners
-        for i, idx in enumerate(base_corners):
-            if i < drivers:
-                p0 = positions[idx]
+        for i in range(drivers):
+            p0 = positions[module.base_idx(2 * i)]
 
-                sig = np.zeros((len(t), 3), dtype=np.float32)
-                sig[:, 0] = p0[0]
-                sig[:, 1] = p0[1]
-                sig[:, 2] = 0 + (max_pos - min_pos) * (1 - np.cos(omega * t)) / 4
+            sig = np.zeros((len(t), 3), dtype=np.float32)
+            sig[:, 0] = p0[0]
+            sig[:, 1] = p0[1]
+            sig[:, 2] = 0 + (max_pos - min_pos) * (1 - np.cos(omega * t)) / 4
 
-                sig_name = f"sig_base_corner_{i}"
-                setup.add_signal(sig_name, sig, dt=dt_sig)
-                setup.add_actuator(idx, sig_name, type='position')
+            sig_name = f"sig_base_corner_{i}"
+            setup.add_signal(sig_name, sig, dt=dt_sig)
+            setup.add_actuator(module.base_idx(2 * i), sig_name, type='position')
 
     # Save Everything
     setup.save()
@@ -261,12 +243,12 @@ def show_pe(demo_dir):
 
 def show(pe):
     from demlat.utils.viz_player import visualize_experiment
-    # if pe:
-    #     show_pe(DEMO_DIR)
+    if pe:
+        show_pe(DEMO_DIR)
     visualize_experiment(DEMO_DIR)
 
 
 if __name__ == "__main__":
-    setup(beta=35, drivers=1, force=True)
+    setup(beta=30, drivers=1, force=True)
     run()
-    show(1)
+    show(0)
