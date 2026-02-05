@@ -24,7 +24,7 @@ def setup(beta, drivers, force=False):
     setup = ExperimentSetup(DEMO_DIR, overwrite=True)
 
     # Simulation parameters
-    duration = 2.0
+    duration = 4.0
     dt = 0.0001
     save_interval = 0.005
     setup.set_simulation_params(duration=duration, dt=dt, save_interval=save_interval)
@@ -35,10 +35,10 @@ def setup(beta, drivers, force=False):
     # Build Geometry
     n = 3
     gamma = 0.0
-    d = np.tan(beta)
+    d = None
     psi = 0.0
     k_axial = 2000.0
-    k_fold = 0.00
+    k_fold = 0.1
     k_facet = 10.0
     mass = 0.01
     damping = 2.0
@@ -66,8 +66,8 @@ def setup(beta, drivers, force=False):
 
     # Add nodes to setup
     for i, node_pos in enumerate(nodes):
-        if i in node_info['base_corners']:
-            setup.add_node(node_pos, mass=mass, fixed=False)
+        if i == 0:
+            setup.add_node(node_pos, mass=mass, fixed=True)
         else:
             setup.add_node(node_pos, mass=mass, fixed=False)
 
@@ -115,18 +115,30 @@ def setup(beta, drivers, force=False):
     print(f"  Actuated top corners: {top_corners}")
 
     if force:
-        # Force actuation: constant force for first half, then zero
-        force_magnitude = 100.0  # Adjust this value as needed
+        # Force actuation: smooth ramp from 0 to force_magnitude
+        force_magnitude = 20.0  # Adjust this value as needed
+        ramp_duration = 1.5  # Time to reach full force (seconds)
 
-        # Create force signal (force on for first half, off for second half)
+        # Create force signal
         force_signal = np.zeros((len(t), 3), dtype=np.float32)
-        mask = t <= half_duration
+
+        # Create smooth ramp: 0 → force_magnitude over ramp_duration, then hold
+        for i, time in enumerate(t):
+            if time <= ramp_duration:
+                # Linear ramp from 0 to force_magnitude
+                force_signal[i, 2] = force_magnitude * (time / ramp_duration)
+            elif time <= half_duration:
+                # Hold at maximum
+                force_signal[i, 2] = force_magnitude
+            else:
+                # Zero after half_duration
+                force_signal[i, 2] = 0.0
 
         # Top corners: apply upward force (+z)
         for i, idx in enumerate(top_corners):
             if i < drivers:
                 sig = force_signal.copy()
-                sig[mask, 2] = -force_magnitude  # Upward force
+                sig[:, 2] *= -1  # Flip to negative for upward force
 
                 sig_name = f"sig_force_top_{i}"
                 setup.add_signal(sig_name, sig, dt=dt_sig)
@@ -135,8 +147,7 @@ def setup(beta, drivers, force=False):
         # Base corners: apply downward force (-z)
         for i, idx in enumerate(base_corners):
             if i < drivers:
-                sig = force_signal.copy()
-                sig[mask, 2] = force_magnitude  # Downward force
+                sig = force_signal.copy()  # Positive = downward
 
                 sig_name = f"sig_force_base_{i}"
                 setup.add_signal(sig_name, sig, dt=dt_sig)
@@ -256,6 +267,6 @@ def show(pe):
 
 
 if __name__ == "__main__":
-    setup(beta=35.0, drivers=0, force=True)
+    setup(beta=35, drivers=1, force=True)
     run()
     show(1)

@@ -51,8 +51,7 @@ def generate_yoshimura_geometry(n, beta, d=None, gamma=0.0, psi=0.0):
 
     params = [n, beta, d, gamma, psi]
 
-    if np.linalg.norm(d - np.tan(beta)) < 1e-6:
-        d = np.tan(beta)
+    if d >= np.tan(beta):
         r = l / (2 * np.sin(np.pi / (2 * n)))
         base_nodes = np.array([
             [r * np.sin(np.pi / n * i),
@@ -154,6 +153,8 @@ def generate_yoshimura_geometry(n, beta, d=None, gamma=0.0, psi=0.0):
     nodes.extend(mid_nodes)  # indices 2n to 4n-1
     nodes.extend(top_nodes)  # indices 4n to 6n-1
     nodes = np.array(nodes)
+
+    nodes = nodes + np.random.rand(len(nodes), 3) * 0.0
 
     # Index helper functions for the new structure
     def base_idx(i):
