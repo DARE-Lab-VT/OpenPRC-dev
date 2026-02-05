@@ -3,6 +3,7 @@ import h5py
 from pathlib import Path
 from .base import BaseBenchmark
 from analysis.tasks.memory import NARMA
+from reservoir.training.trainer import Trainer
 
 
 class NARMABenchmark(BaseBenchmark):
@@ -18,7 +19,7 @@ class NARMABenchmark(BaseBenchmark):
         """Generates the NARMA target signal."""
         return NARMA(u_input, order, a, b, c, d)
 
-    def run(self, trainer, u_input: np.ndarray, **benchmark_args) -> 'NARMABenchmark':
+    def run(self, trainer: Trainer, u_input: np.ndarray, **benchmark_args) -> 'NARMABenchmark':
         """
         Runs the NARMA benchmark, including training and evaluation.
         

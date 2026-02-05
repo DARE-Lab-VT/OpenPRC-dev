@@ -2,7 +2,7 @@ import numpy as np
 from pathlib import Path
 from typing import Callable, Dict, Any, Tuple
 from .base import BaseBenchmark
-from reservoir.utils.trainer import Trainer
+from reservoir.training.trainer import Trainer
 
 
 class CustomBenchmark(BaseBenchmark):

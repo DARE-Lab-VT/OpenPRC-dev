@@ -12,7 +12,7 @@ from reservoir.io.state_loader import StateLoader
 from reservoir.features.node_features import NodePositions
 from reservoir.features.bar_features import BarExtensions, BarLengths
 from reservoir.readout.ridge import Ridge
-from reservoir.utils.trainer import Trainer
+from reservoir.training.trainer import Trainer
 from analysis.visualization.time_series import TimeSeriesComparison
 from analysis.tasks.memory import NARMA
 from analysis.benchmarks.memory_benchmark import NARMABenchmark

@@ -14,7 +14,7 @@
 
 ## Development Status
 
-> **Note:** This is the development repository (`OpenPRC-dev`) where individual modules are being implemented and tested. The `demlat` subpackage (Discrete Element Modeling) is feature-complete and production-ready.
+> **Note:** This is the development repository (`OpenPRC-dev`). This README is updated to reflect the latest usage patterns found in the `src/examples` scripts. Some features described here may be planned or in progress.
 
 **Module Implementation Progress:**
 
@@ -413,21 +413,38 @@ The heavy-lifter output file. To save space, it does not duplicate static data f
 
 ```python
 from openprc import demlat
+from openprc.demlat.models.barhinge import BarHingeModel
+from openprc.demlat.io.experiment_setup import ExperimentSetup
+import numpy as np
 
-# Fluent experiment creation
-experiment = (
-    demlat.ExperimentSetup("./experiments/lattice_01")
-    .load_geometry("lattice_10x10.h5")
-    .add_signal("chirp", demlat.signals.chirp(f0=0.1, f1=10, duration=5.0))
-    .wire_actuator(node_idx=0, signal="chirp", type="force", direction=[0, 0, 1])
-    .set_duration(10.0)
-    .set_integrator("rk4_hybrid", dt=1e-4)
-    .build()
-)
+# 1. Initialize the setup helper for a new experiment
+output_dir = "./experiments/spring_mass_3x3_test/generation_0"
+setup = ExperimentSetup(output_dir, overwrite=True)
 
-# Execute simulation
-engine = demlat.Engine(backend="cuda")
-result = engine.run(experiment)  # Returns path to simulation.h5
+# 2. Configure simulation and physics
+setup.set_simulation_params(duration=30.0, dt=0.001, save_interval=0.01)
+setup.set_physics(gravity=-9.8, damping=0.5)
+
+# 3. Add nodes and bars to define the geometry
+setup.add_node(position=[0.0, 0.0, 0.0], mass=0.01)
+setup.add_node(position=[0.0, 0.1, 0.0], mass=0.01)
+setup.add_bar(node1_idx=0, node2_idx=1, stiffness=100.0, damping=0.4)
+
+# 4. Define a signal and wire it to an actuator
+duration = setup.config['simulation']['duration']
+dt = setup.config['simulation']['dt_base']
+t = np.arange(0, duration, dt)
+sig = np.sin(2 * np.pi * 1.0 * t) # 1 Hz sine wave
+setup.add_signal("sine_wave", sig, dt=dt)
+setup.add_actuator(node_idx=0, signal_name="sine_wave", type='force', dof=[0, 1, 0])
+
+# 5. Save the experiment files (config.json, geometry.h5, etc.)
+setup.save()
+
+# 6. Load the experiment and run the simulation
+exp = demlat.Experiment(output_dir)
+engine = demlat.Engine(BarHingeModel, backend="cuda") # Or "cpu"
+engine.run(exp)
 
 ```
 
@@ -484,12 +501,11 @@ reservoir/
 │   ├── output_placement.py       # Optimal readout node selection
 │   └── topology_synthesis.py     # Task-driven structure generation
 │
-└── utils/
+└── training/
     ├── trainer.py                # Readout training and evaluation
     ├── washout.py                # Transient removal utilities
     ├── normalization.py          # Feature scaling strategies
     └── validation.py             # Cross-validation schemes
-
 ```
 
 ### 3.2.3 Data Schema — Readout Artifact
@@ -535,27 +551,38 @@ readout.h5
 ### 3.2.4 Key Interfaces
 
 ```python
-from openprc import reservoir
+from openprc import reservoir, analysis
+import numpy as np
 
-# Load simulation and define features
-loader = reservoir.io.StateLoader("./experiments/lattice_01/output/simulation.h5")
+# 1. Load simulation data
+sim_path = "./experiments/lattice_01/output/simulation.h5"
+loader = reservoir.io.StateLoader(sim_path)
+
+# 2. Define features to be extracted from the simulation
 features = reservoir.features.node_features.NodePositions()
-task = reservoir.tasks.memory.NARMA(order=10)
 
-# Configure and run the Trainer
-trainer = reservoir.utils.Trainer(
+# 3. Generate the target task data
+# Note: In the current version, tasks are located in the 'analysis' module
+actuator_signal = loader.get_actuation_signal(actuator_idx=0, dof=0)
+task_order = 2
+y_full = analysis.tasks.memory.NARMA(actuator_signal, order=task_order)
+
+# 4. Configure and run the Trainer
+trainer = reservoir.training.Trainer(
+    loader=loader, 
     features=features,
     readout=reservoir.readout.ridge.Ridge(alpha=1e-5),
     experiment_dir="./experiments/lattice_01",
-    washout=500,
-    train_len=2000,
-    test_len=500
+    washout=5.0,        # in seconds
+    train_duration=20.0,# in seconds
+    test_duration=5.0,  # in seconds
 )
-result = trainer.fit(loader, task)
-readout_path = result.save() # Saves to <experiment_dir>/readout/readout_narma.h5
+
+# 5. Train the readout model
+result = trainer.train(y_full, task_name=f"NARMA{task_order}")
+readout_path = result.save() # Saves to <experiment_dir>/readout/readout_NARMA2.h5
 
 print(f"Readout artifact saved to: {readout_path}")
-
 ```
 
 ---
@@ -647,40 +674,70 @@ metrics.h5
 ### 3.3.4 Key Interfaces
 
 ```python
-from openprc import analysis
+from openprc import reservoir, analysis
+from openprc.analysis.benchmarks.memory_benchmark import NARMABenchmark
+from openprc.analysis.benchmarks.custom_benchmark import CustomBenchmark
 from pathlib import Path
+import numpy as np
 
-# Example 1: Run a standard benchmark
-# Assumes a readout has already been trained for a NARMA task
-narma_benchmark = analysis.benchmarks.NARMABenchmark(group_name="narma_10_performance")
-score = narma_benchmark.run(
-    experiment_dir=Path("./experiments/lattice_01/"),
-    order=10
+# --- Setup is similar to the reservoir training example ---
+exp_dir = Path("./experiments/lattice_01/")
+sim_path = exp_dir / "output" / "simulation.h5"
+loader = reservoir.io.StateLoader(sim_path)
+features = reservoir.features.node_features.NodePositions()
+u_input = loader.get_actuation_signal(actuator_idx=0, dof=0)
+
+# The Trainer provides the context for running the benchmark
+trainer = reservoir.training.Trainer(
+    loader=loader,
+    features=features,
+    readout=reservoir.readout.ridge.Ridge(alpha=1e-5),
+    experiment_dir=exp_dir,
+    washout=5.0,
+    train_duration=20.0,
+    test_duration=5.0,
 )
-metrics_path = score.save() # Saves to <experiment_dir>/metrics/metrics.h5
+
+# --- Example 1: Run a standard benchmark ---
+narma_benchmark = NARMABenchmark(group_name="narma_10_performance")
+score = narma_benchmark.run(trainer, u_input, order=10)
+metrics_path = score.save() # Saves to <exp_dir>/metrics/metrics.h5
 
 print(f"NARMA-10 NRMSE: {score.metrics['narma10_nrmse']:.4f}")
 print(f"Metrics saved to: {metrics_path}")
 
 
-# Example 2: Run a custom benchmark
-def my_logic(benchmark, **kwargs):
-    # ... your logic here ...
-    metrics = {"my_metric": 0.99}
-    metadata = {"info": "this is my custom metric"}
+# --- Example 2: Run a custom benchmark ---
+def custom_logic(benchmark, trainer, u_input, **kwargs):
+    # This function defines the benchmark's execution logic
+    order = kwargs.get('order', 2)
+    y_full = analysis.tasks.memory.NARMA(u_input, order=order)
+    result = trainer.train(y_full, task_name=f"CustomNARMA{order}")
+    result.save()
+    
+    # Calculate metrics
+    _, target, prediction = result.cache['test']
+    rmse = np.sqrt(np.mean((target - prediction)**2))
+    nrmse = rmse / np.std(target)
+    
+    metrics = {f'custom_narma{order}_nrmse': nrmse}
+    metadata = {'narma_order': order}
     return metrics, metadata
 
-custom_benchmark = analysis.benchmarks.CustomBenchmark(
+custom_benchmark = CustomBenchmark(
     group_name="my_analysis",
-    benchmark_logic=my_logic
+    benchmark_logic=custom_logic
 )
-custom_score = custom_benchmark.run(experiment_dir=Path("./experiments/lattice_01/"))
+custom_score = custom_benchmark.run(trainer, u_input, order=2)
 custom_score.save()
 
-# Example 3: Visualization
-# (Assuming visualization objects are used as in the Quick Start example)
+print(f"Custom benchmark metrics saved.")
+
+# --- Example 3: Visualization ---
 visualizer = analysis.visualization.time_series.TimeSeriesComparison()
-plot = visualizer.plot(narma_benchmark.readout_path).save()
+# The benchmark score object contains the path to the readout file
+plot_path = visualizer.plot(score.readout_path).save()
+print(f"Plot saved to: {plot_path}")
 
 ```
 
@@ -970,92 +1027,117 @@ The pipeline is designed to be modular, allowing you to easily swap components l
 
 ### 8.1 The Core Pipeline
 
-The main components of the pipeline are:
-
-1.  **Data Loading**: Load the physical reservoir's state trajectories from a `simulation.h5` file generated by the `demlat` module.
-2.  **Training**: Train a readout model (e.g., Ridge regression) to perform a specific task (e.g., NARMA) using the reservoir's states as features.
-3.  **Benchmarking**: Evaluate the trained readout model's performance on the task using a standardized benchmark.
-4.  **Visualization**: Plot the results to inspect the model's behavior.
-
-Here is a conceptual overview of the pipeline:
+The following example shows the main workflows for training and evaluating a reservoir, based on `src/examples/run_reservoir_pipeline.py`.
 
 ```python
+from pathlib import Path
 from openprc import reservoir, analysis
+from openprc.reservoir.features.node_features import NodePositions
+from openprc.reservoir.readout.ridge import Ridge
+from openprc.analysis.tasks.memory import NARMA
+from openprc.analysis.benchmarks.memory_benchmark import NARMABenchmark
 
-# 1. Define the experiment path and load data
-exp_path = "spring_mass_3x3_test/generation_0"
-loader = reservoir.io.StateLoader(f"src/experiments/{exp_path}/output/simulation.h5")
+# 1. Define Paths and Load Data
+# The pipeline starts with a simulation generated by the demlat module.
+exp_dir = Path("src/experiments/spring_mass_3x3_test/generation_0")
+sim_path = exp_dir / "output" / "simulation.h5"
 
-# 2. Define the Task and Features
-task = reservoir.tasks.memory.NARMA(order=2)
-features = reservoir.features.node_features.NodePositions()
+if not sim_path.exists():
+    raise FileNotFoundError(f"Simulation missing at {sim_path}!")
 
-# 3. Configure and run the Trainer
-trainer = reservoir.utils.Trainer(
+loader = reservoir.io.StateLoader(sim_path)
+features = NodePositions()
+u_input = loader.get_actuation_signal(actuator_idx=0, dof=0)
+
+# 2. Define a Shared Trainer
+# The Trainer orchestrates the training process for both direct training and benchmarks.
+trainer = reservoir.training.Trainer(
+    loader=loader,
     features=features,
-    readout=reservoir.readout.ridge.Ridge(alpha=1e-5),
-    washout=500,
-    train_len=2000,
-    test_len=500,
+    readout=Ridge(alpha=1e-5),
+    experiment_dir=exp_dir,
+    washout=5.0,        # Duration (seconds) to discard from the start
+    train_duration=20.0,# Duration (seconds) of the training set
+    test_duration=5.0,  # Duration (seconds) of the test set
 )
-result = trainer.fit(loader, task)
-result.save() # Saves readout.h5
 
-# 4. Run a Benchmark
-benchmark = analysis.benchmarks.memory_benchmark.NARMABenchmark()
-score = benchmark.run(result.experiment_dir, order=2)
-score.save() # Saves metrics.h5
+# --- Workflow 1: Direct Training ---
+print("[Workflow: Train]")
+task_order = 2
+y_full = NARMA(u_input, order=task_order)
+result = trainer.train(y_full, task_name=f"NARMA{task_order}")
+readout_path = result.save()
+print(f"Readout saved to {readout_path}")
 
-# 5. Visualize the results
+# --- Workflow 2: Standard Benchmark ---
+print("\n[Workflow: Benchmark]")
+benchmark = NARMABenchmark(group_name="narma_benchmark")
+score = benchmark.run(trainer, u_input, order=task_order)
+metrics_path = score.save()
+print(f"Metrics saved to {metrics_path}")
+print(f"NRMSE: {score.metrics[f'narma{task_order}_nrmse']:.5f}")
+
+# 3. Visualize Results
+# Both training and benchmarking produce a readout file that can be visualized.
 visualizer = analysis.visualization.time_series.TimeSeriesComparison()
-plot_path = visualizer.plot(score.readout_path).save()
+plot_path = visualizer.plot(score.readout_path, end_frame=500).save()
+print(f"\nPlot saved to: {plot_path}")
 
-print(f"Plot saved to: {plot_path}")
 ```
 
 ### 8.2 Customizing the Pipeline
 
-The true power of the framework lies in its flexibility. You can create custom benchmarks and tasks to suit your research needs.
+The true power of the framework lies in its flexibility. You can create custom benchmarks to suit your research needs by providing your own evaluation logic.
 
 #### Custom Benchmarks
 
-The `analysis` module includes a `CustomBenchmark` class that lets you define your own evaluation logic. This is useful when standard benchmarks are not sufficient.
+The `analysis` module includes a `CustomBenchmark` class that runs a Python function you provide. This is useful for tasks or metrics not covered by standard benchmarks.
 
-To create a custom benchmark, you define a function that takes a benchmark instance as input and returns a dictionary of metrics and metadata.
+To create a custom benchmark, you define a function that performs training and evaluation, then returns dictionaries for metrics and metadata. This function will receive the `trainer`, input signal `u_input`, and any other keyword arguments you pass to `benchmark.run()`.
 
 ```python
-from analysis.benchmarks.custom_benchmark import CustomBenchmark
-import h5py
+from openprc.analysis.benchmarks.custom_benchmark import CustomBenchmark
 import numpy as np
 
-def custom_nrmse_logic(benchmark_instance, **kwargs):
-    """
-    A custom function that calculates NRMSE and returns metrics.
-    """
-    readout_path = benchmark_instance.readout_path
-    
-    with h5py.File(readout_path, 'r') as f:
-        target = f['validation/target'][:]
-        prediction = f['validation/prediction'][:]
+# (Assume trainer, u_input, and exp_dir are defined as in the previous example)
 
+# 1. Define the benchmark logic function
+# This function contains the full logic for the custom benchmark.
+def custom_narma_logic(benchmark, trainer, u_input, **kwargs):
+    # Get task-specific parameters from keyword arguments
+    order = kwargs.get('order', 2)
+
+    # Generate the NARMA task data
+    y_full = analysis.tasks.memory.NARMA(u_input, order=order)
+
+    # Use the provided trainer to run the training process
+    task_name = f"CustomNARMA{order}"
+    training_result = trainer.train(y_full, task_name=task_name)
+    training_result.save()
+
+    # Calculate the NRMSE metric from the test results
+    _, target, prediction = training_result.cache['test']
     rmse = np.sqrt(np.mean((target - prediction)**2))
     std_dev = np.std(target)
     nrmse = rmse / (std_dev if std_dev > 1e-9 else 1.0)
     
-    metrics = {
-        'nrmse': nrmse,
-        'components': {'rmse': rmse, 'std_dev': std_dev}
-    }
-    metadata = {'calculation_type': 'custom_nrmse'}
+    # Define the metrics and metadata dictionaries to be returned
+    metrics = {f'custom_narma{order}_nrmse': nrmse}
+    metadata = {'source_readout': str(benchmark.readout_path)}
     
     return metrics, metadata
 
-# Use the custom benchmark in the pipeline
-custom_benchmark = CustomBenchmark(benchmark_logic=custom_nrmse_logic)
+# 2. Instantiate and run the CustomBenchmark
+custom_benchmark = CustomBenchmark(
+    group_name="custom_narma_run",
+    benchmark_logic=custom_narma_logic
+)
 
-# Then, run it just like a standard benchmark
-score = custom_benchmark.run(result.experiment_dir)
+score = custom_benchmark.run(trainer, u_input, order=2)
 score.save()
+
+print("Custom benchmark complete.")
+print(f"Metrics: {score.metrics}")
 ```
 
 This modular approach allows you to focus on the novel aspects of your research while leveraging the framework's robust components for simulation, training, and analysis. For a complete, runnable example, see `src/examples/run_reservoir_pipeline.py`.
