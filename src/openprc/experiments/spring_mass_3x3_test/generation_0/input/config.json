@@ -1,0 +1,56 @@
+{
+    "simulation": {
+        "duration": 30.0,
+        "dt_base": 0.001,
+        "dt_save": 0.01
+    },
+    "global_physics": {
+        "gravity": -9.8,
+        "global_damping": 0.5
+    },
+    "material": {
+        "damping_coefficient": 0.5
+    },
+    "actuators": [
+        {
+            "node_idx": 0,
+            "signal_name": "sig_actuator_0",
+            "type": "position",
+            "dof": [
+                1,
+                1,
+                1
+            ]
+        },
+        {
+            "node_idx": 2,
+            "signal_name": "sig_actuator_1",
+            "type": "position",
+            "dof": [
+                1,
+                1,
+                1
+            ]
+        },
+        {
+            "node_idx": 6,
+            "signal_name": "sig_actuator_2",
+            "type": "position",
+            "dof": [
+                1,
+                1,
+                1
+            ]
+        },
+        {
+            "node_idx": 8,
+            "signal_name": "sig_actuator_3",
+            "type": "position",
+            "dof": [
+                1,
+                1,
+                1
+            ]
+        }
+    ]
+}

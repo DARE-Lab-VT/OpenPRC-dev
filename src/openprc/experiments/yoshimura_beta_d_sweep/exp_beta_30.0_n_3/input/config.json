@@ -1,0 +1,76 @@
+{
+    "simulation": {
+        "duration": 20.0,
+        "dt_base": 0.0005,
+        "dt_save": 0.01
+    },
+    "global_physics": {
+        "gravity": 0.0,
+        "global_damping": 0.2
+    },
+    "material": {
+        "damping_coefficient": 0.2
+    },
+    "actuators": [
+        {
+            "node_idx": 12,
+            "signal_name": "sig_top_corner_0",
+            "type": "position",
+            "dof": [
+                1,
+                1,
+                1
+            ]
+        },
+        {
+            "node_idx": 14,
+            "signal_name": "sig_top_corner_1",
+            "type": "position",
+            "dof": [
+                1,
+                1,
+                1
+            ]
+        },
+        {
+            "node_idx": 16,
+            "signal_name": "sig_top_corner_2",
+            "type": "position",
+            "dof": [
+                1,
+                1,
+                1
+            ]
+        },
+        {
+            "node_idx": 0,
+            "signal_name": "sig_base_corner_0",
+            "type": "position",
+            "dof": [
+                1,
+                1,
+                1
+            ]
+        },
+        {
+            "node_idx": 2,
+            "signal_name": "sig_base_corner_1",
+            "type": "position",
+            "dof": [
+                1,
+                1,
+                1
+            ]
+        },
+        {
+            "node_idx": 4,
+            "signal_name": "sig_base_corner_2",
+            "type": "position",
+            "dof": [
+                1,
+                1,
+                1
+            ]
+        }
+    ]
+}
