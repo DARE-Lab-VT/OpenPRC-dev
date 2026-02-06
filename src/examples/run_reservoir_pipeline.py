@@ -14,8 +14,8 @@ from reservoir.features.bar_features import BarExtensions, BarLengths
 from reservoir.readout.ridge import Ridge
 from reservoir.training.trainer import Trainer
 from analysis.visualization.time_series import TimeSeriesComparison
-from analysis.tasks.memory import NARMA
-from analysis.benchmarks.memory_benchmark import NARMABenchmark
+from analysis.tasks.imitation import NARMA_task
+from analysis.benchmarks.narma_benchmark import NARMABenchmark
 from analysis.benchmarks.custom_benchmark import CustomBenchmark
 
 
@@ -52,7 +52,7 @@ def main():
         # 3. Define the Task
         task_order = 2
         task_name = f"NARMA{task_order}"
-        y_full = NARMA(u_input, order=task_order)
+        y_full = NARMA_task(u_input, order=task_order)
 
         # 4. Define Trainer and Train
         trainer = Trainer(
@@ -140,7 +140,7 @@ def main():
             order = kwargs.get('order', 2)
 
             # Generate the NARMA task data, same as in the standard benchmark
-            y_full = NARMA(u_input, order=order)
+            y_full = NARMA_task(u_input, order=order)
 
             # Use the provided trainer to run the training process
             task_name = f"CustomNARMA{order}"

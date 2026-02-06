@@ -565,7 +565,7 @@ features = reservoir.features.node_features.NodePositions()
 # Note: In the current version, tasks are located in the 'analysis' module
 actuator_signal = loader.get_actuation_signal(actuator_idx=0, dof=0)
 task_order = 2
-y_full = analysis.tasks.memory.NARMA(actuator_signal, order=task_order)
+y_full = analysis.tasks.memory.NARMA_task(actuator_signal, order=task_order)
 
 # 4. Configure and run the Trainer
 trainer = reservoir.training.Trainer(
@@ -1034,7 +1034,7 @@ from pathlib import Path
 from openprc import reservoir, analysis
 from openprc.reservoir.features.node_features import NodePositions
 from openprc.reservoir.readout.ridge import Ridge
-from openprc.analysis.tasks.memory import NARMA
+from openprc.analysis.tasks.memory import NARMA_task
 from openprc.analysis.benchmarks.memory_benchmark import NARMABenchmark
 
 # 1. Define Paths and Load Data
@@ -1064,7 +1064,7 @@ trainer = reservoir.training.Trainer(
 # --- Workflow 1: Direct Training ---
 print("[Workflow: Train]")
 task_order = 2
-y_full = NARMA(u_input, order=task_order)
+y_full = NARMA_task(u_input, order=task_order)
 result = trainer.train(y_full, task_name=f"NARMA{task_order}")
 readout_path = result.save()
 print(f"Readout saved to {readout_path}")
@@ -1107,8 +1107,7 @@ def custom_narma_logic(benchmark, trainer, u_input, **kwargs):
     # Get task-specific parameters from keyword arguments
     order = kwargs.get('order', 2)
 
-    # Generate the NARMA task data
-    y_full = analysis.tasks.memory.NARMA(u_input, order=order)
+    y_full = analysis.tasks.memory.NARMA_task(u_input, order=order)
 
     # Use the provided trainer to run the training process
     task_name = f"CustomNARMA{order}"

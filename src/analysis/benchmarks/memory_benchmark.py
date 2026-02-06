@@ -1,66 +1,94 @@
 import numpy as np
 import h5py
 from pathlib import Path
+
 from .base import BaseBenchmark
-from analysis.tasks.memory import NARMA
+from analysis.tasks.imitation import memory_task
 from reservoir.training.trainer import Trainer
 
-
-class NARMABenchmark(BaseBenchmark):
+class MemoryBenchmark(BaseBenchmark):
     """
-    Calculates the Normalized Root Mean Square Error (NRMSE) for a NARMA task.
-    This benchmark now handles the training process internally.
+    Computes the memory capacity and R2 score of predicting nonlinear combinations of past inputs.
     """
-    def __init__(self, group_name: str = "narma_benchmark"):
+    def __init__(self, group_name: str = "memory_benchmark"):
         super().__init__(group_name)
 
-    @staticmethod
-    def _generate_narma_task(u_input, order=2, a=0.3, b=0.05, c=1.5, d=0.1):
-        """Generates the NARMA target signal."""
-        return NARMA(u_input, order, a, b, c, d)
-
-    def run(self, trainer: Trainer, u_input: np.ndarray, **benchmark_args) -> 'NARMABenchmark':
+    def run(self, trainer: Trainer, u_input: np.ndarray, **benchmark_args) -> 'MemoryBenchmark':
         """
-        Runs the NARMA benchmark, including training and evaluation.
-        
+        Runs the memory benchmark.
+
         Args:
-            trainer (Trainer): The trainer object, pre-configured with a loader.
-            u_input (np.ndarray): The input signal for the NARMA task.
+            trainer (Trainer): The trainer object, pre-configured with a loader and features.
+            u_input (np.ndarray): The input signal for the memory task.
             benchmark_args (dict): Keyword arguments for the benchmark.
-                                   For NARMA, this should contain 'order'.
-        
+                Required:
+                    - tau_s: max lag for inputs
+                    - n_s: max degree of polynomial
+                    - k_delay: delay step
+                Optional:
+                    - ridge (float): Ridge regression regularization. Default: 1e-6.
+
         Returns:
             The benchmark instance with populated metrics.
         """
-        order = benchmark_args.get('order', 10)
-
-        # Step 1: Initialize paths and setup from the trainer.
         self._setup(trainer.experiment_dir)
-        
-        # Step 2: Generate the task using the provided u_input.
-        y_full = self._generate_narma_task(u_input, order=order)
-        
-        # Step 3: Train the readout.
-        task_name = f"NARMA{order}"
-        training_result = trainer.train(y_full, task_name=task_name)
-        training_result.save()
-        
-        # Step 4: Calculate NRMSE from the training result's test cache.
-        _, target, prediction = training_result.cache['test']
 
-        rmse = np.sqrt(np.mean((target - prediction)**2))
-        std_dev = np.std(target)
-        nrmse = rmse / (std_dev if std_dev > 1e-9 else 1.0)
+        # 1. Get X_full from trainer
+        X_full = trainer.features.transform(trainer.loader)
 
-        # Step 5: Populate metrics and metadata.
+        # 2. Get params for memory_task from trainer and benchmark_args
+        dt = trainer.loader.dt
+        washout_duration = trainer.washout
+        train_duration = trainer.train_duration
+        test_duration = trainer.test_duration
+
+        washout_frames = int(washout_duration / dt)
+        train_frames = int(train_duration / dt)
+        test_frames = int(test_duration / dt)
+        
+        train_stop = washout_frames + train_frames
+        
+        required_len = washout_frames + train_frames + test_frames
+        if len(X_full) < required_len:
+            raise ValueError(
+                f"Simulation too short! Need {required_len} frames "
+                f"({washout_duration + train_duration + test_duration:.2f}s), "
+                f"but simulation only has {len(X_full)} frames ({len(X_full) * dt:.2f}s)."
+            )
+
+        # 3. Run memory task
+        results = memory_task(
+            X=X_full,
+            u_input=u_input,
+            washout=washout_frames,
+            train_stop=train_stop,
+            test_duration=test_frames,
+            tau_s=benchmark_args['tau_s'],
+            n_s=benchmark_args['n_s'],
+            k_delay=benchmark_args['k_delay'],
+            ridge=benchmark_args.get('ridge', 1e-6)
+        )
+        
+        # 4. Populate metrics and metadata
         self.metrics = {
-            f'narma{order}_nrmse': nrmse
-        }
-        self.metadata = {
-            'source_readout': str(self.readout_path),
-            'narma_order': order,
-            'training_feature_config': training_result.feature_config
+            'linear_memory_capacity': results['linear_memory_capacity'],
+            'nonlinear_memory_capacity': results['nonlinear_memory_capacity'],
+            'total_capacity': results['total_capacity'],
+            'capacities': results['capacities'],
+            'basis_names': np.array(results['basis_names'], dtype='S'), # HDF5 compatible
+            'exponents': results['exponents'],
+            'degrees': results['degrees']
         }
         
-        # Step 6: Return self.
+        self.metadata = {
+            'tau_s': benchmark_args['tau_s'],
+            'n_s': benchmark_args['n_s'],
+            'k_delay': benchmark_args['k_delay'],
+            'ridge': benchmark_args.get('ridge', 1e-6),
+            'washout': washout_duration,
+            'train_duration': train_duration,
+            'test_duration': test_duration,
+            'feature_type': trainer.features.__class__.__name__
+        }
+
         return self
