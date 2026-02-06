@@ -24,8 +24,8 @@ def setup(beta, drivers, force=False):
     setup = ExperimentSetup(DEMO_DIR, overwrite=True)
 
     # Simulation parameters
-    duration = 4.0
-    dt = 0.0001
+    duration = 1.0
+    dt = 0.00005
     save_interval = 0.005
     setup.set_simulation_params(duration=duration, dt=dt, save_interval=save_interval)
     setup.set_physics(gravity=0.0, damping=0.2)
@@ -34,17 +34,17 @@ def setup(beta, drivers, force=False):
     beta = np.deg2rad(beta)
     n = 3
     d = np.tan(beta)
-    k_axial = 2000.0
-    k_fold = 0.1
-    k_facet = 10.0
+    k_axial = 1000.0
+    k_fold = 10.0
+    k_facet = 0.01
     mass = 0.01
-    damping = 2.0
+    damping = 3.0
 
     print(f"\nYoshimura Parameters:")
     print(f"  n={n}, beta={np.rad2deg(beta):.2f}°")
 
     # Generate geometry
-    module = Yoshimura(n, beta)
+    module = Yoshimura(n, beta, randomize=False)
     nodes, bars, hinges, faces, params = module.get_geometry()
 
     print(f"\nGenerated Geometry:")
@@ -62,7 +62,7 @@ def setup(beta, drivers, force=False):
 
     # Add bars to setup
     for bar in bars:
-        setup.add_bar(bar[0], bar[1], stiffness=k_axial, rest_length=bar[2], damping=damping)
+        setup.add_bar(bar[0], bar[1], stiffness=k_axial * bar[2], rest_length=bar[2], damping=damping)
 
     # Add hinges to setup
     for hinge in hinges:
@@ -97,7 +97,7 @@ def setup(beta, drivers, force=False):
     if force:
         # Force actuation: smooth ramp from 0 to force_magnitude
         force_magnitude = 150.0  # Adjust this value as needed
-        ramp_duration = 1.5  # Time to reach full force (seconds)
+        ramp_duration = 0.5  # Time to reach full force (seconds)
 
         # Create force signal
         force_signal = np.zeros((len(t), 3), dtype=np.float32)
@@ -116,14 +116,14 @@ def setup(beta, drivers, force=False):
 
         # Top corners: apply upward force (+z)
         for i in range(drivers):
-            sig = force_signal.copy()
+            sig = -force_signal.copy()
             sig_name = f"sig_force_top_{i}"
             setup.add_signal(sig_name, sig, dt=dt_sig)
             setup.add_actuator(module.top_idx(2 * i), sig_name, type='force')
 
         # Base corners: apply downward force (-z)
         for i in range(drivers):
-            sig = -force_signal.copy()  # Positive = downward
+            sig = force_signal.copy()  # Positive = downward
             sig_name = f"sig_force_base_{i}"
             setup.add_signal(sig_name, sig, dt=dt_sig)
             setup.add_actuator(module.base_idx(2 * i), sig_name, type='force')
@@ -131,8 +131,8 @@ def setup(beta, drivers, force=False):
         # Mid centers force outward
         for i in range(drivers):
             sig = np.zeros((len(t), 3), dtype=np.float32)
-            sig[:, 0] = force_signal.copy()[:, 2] * np.cos(2 * np.pi / n * (i - 1))
-            sig[:, 1] = force_signal.copy()[:, 2] * np.sin(2 * np.pi / n * (i - 1))
+            sig[:, 0] = -force_signal.copy()[:, 2] * np.cos(2 * np.pi / n * (i - 1)) / 5.0
+            sig[:, 1] = -force_signal.copy()[:, 2] * np.sin(2 * np.pi / n * (i - 1)) / 5.0
             sig_name = f"sig_force_mid_{i}"
             setup.add_signal(sig_name, sig, dt=dt_sig)
             setup.add_actuator(module.mid_idx(2 * i), sig_name, type='force')
@@ -193,52 +193,64 @@ def show_pe(demo_dir):
 
     # Get data
     time, _ = plotter.get_dataset("time")
-    positions, _ = plotter.get_dataset("nodes/positions")
+    # positions, _ = plotter.get_dataset("nodes/positions")
     potential_energy, _ = plotter.get_dataset("system/potential_energy")
-    strain_energy, _ = plotter.get_dataset("elements/bars/potential_energy")
+    kinetic_energy, _ = plotter.get_dataset("system/kinetic_energy")
+    # strain_energy, _ = plotter.get_dataset("elements/bars/potential_energy")
     # potential_energy = np.sum(strain_energy, axis=1)
-    print(np.array(potential_energy).shape, np.array(strain_energy).shape)
+    # print(np.array(potential_energy).shape, np.array(strain_energy).shape)
 
     # Flatten arrays if needed
     time = np.asarray(time).flatten()
     potential_energy = np.asarray(potential_energy).flatten()
+    kinetic_energy = np.asarray(kinetic_energy).flatten()
 
-    # Skip first 5 seconds (transient)
-    t_start = 10.0
-    t_end = 20.0
-    mask = time >= t_start
-    mask &= time <= t_end
-    time = time[mask]
-    positions = positions[mask]
-    potential_energy = potential_energy[mask]
+    # # Skip first 5 seconds (transient)
+    # t_start = 10.0
+    # t_end = 20.0
+    # mask = time >= t_start
+    # mask &= time <= t_end
+    # time = time[mask]
+    # # positions = positions[mask]
+    # potential_energy = potential_energy[mask]
 
-    # Get driven node displacement
-    n = 0
-    driven_node_idx = 4 * n
-    z0 = positions[0, driven_node_idx, 2]
-    displacement = z0 - positions[:, driven_node_idx, 2]
-    displacement = np.asarray(displacement).flatten()
-
+    # Plot potential energy
     plt.figure()
-    plt.plot(time, displacement)
+    plt.plot(time, potential_energy, '-r', label='pe')
+    plt.plot(time, kinetic_energy, '-b', label='ke')
+    plt.plot(time, potential_energy + kinetic_energy, '-g', label='pe+ke')
     plt.xlabel('Time (s)')
-    plt.ylabel('Displacement (m)')
-    plt.title('Yoshimura Origami: Displacement vs Time')
-
-    plt.figure()
-    plt.plot(displacement, potential_energy)
-    plt.xlabel('displacement (m)')
-    plt.ylabel('potential energy (J)')
-    plt.title('Yoshimura Origami: Potential Energy vs Displacement')
-
-    plt.figure()
-    # derivative of pe vs displacement
-    dPE_ddisp = np.gradient(potential_energy, displacement)
-    plt.plot(displacement, dPE_ddisp)
-    plt.xlabel('displacement (m)')
-    plt.ylabel('dPE/ddisp (N)')
-    plt.title('Yoshimura Origami: dPE/ddisp vs Displacement')
+    plt.ylabel('Potential Energy (J)')
+    plt.legend()
     plt.show()
+
+    # # Get driven node displacement
+    # n = 0
+    # driven_node_idx = 4 * n
+    # z0 = positions[0, driven_node_idx, 2]
+    # displacement = z0 - positions[:, driven_node_idx, 2]
+    # displacement = np.asarray(displacement).flatten()
+    #
+    # plt.figure()
+    # plt.plot(time, displacement)
+    # plt.xlabel('Time (s)')
+    # plt.ylabel('Displacement (m)')
+    # plt.title('Yoshimura Origami: Displacement vs Time')
+    #
+    # plt.figure()
+    # plt.plot(displacement, potential_energy)
+    # plt.xlabel('displacement (m)')
+    # plt.ylabel('potential energy (J)')
+    # plt.title('Yoshimura Origami: Potential Energy vs Displacement')
+    #
+    # plt.figure()
+    # # derivative of pe vs displacement
+    # dPE_ddisp = np.gradient(potential_energy, displacement)
+    # plt.plot(displacement, dPE_ddisp)
+    # plt.xlabel('displacement (m)')
+    # plt.ylabel('dPE/ddisp (N)')
+    # plt.title('Yoshimura Origami: dPE/ddisp vs Displacement')
+    # plt.show()
 
 
 def show(pe):
@@ -249,6 +261,6 @@ def show(pe):
 
 
 if __name__ == "__main__":
-    setup(beta=30, drivers=1, force=True)
+    setup(beta=35, drivers=3, force=True)
     run()
-    show(0)
+    show(1)

@@ -8,12 +8,22 @@ import numpy as np
 from typing import Dict, Any, Tuple
 from ..utils.logging import get_logger
 
+# Try to import JAX for accelerated analytics
+try:
+    import jax
+    import jax.numpy as jnp
+    from jax import jit
+    JAX_AVAILABLE = True
+except ImportError:
+    JAX_AVAILABLE = False
+
 logger = get_logger("demlat.state_computer")
 
 
 class StateComputer:
     """
     Computes derived quantities (Energy, Stress, Strain) from raw simulation state.
+    Supports JAX acceleration if available.
     """
 
     def __init__(self, geometry: Dict[str, Any], material: Dict[str, Any]):
@@ -23,6 +33,14 @@ class StateComputer:
         self._bar_rest_lengths = None
         self._bar_rest_lengths_effective = None
         self._hinge_rest_angles = None
+        
+        # JAX Acceleration
+        self.use_jax = JAX_AVAILABLE
+        if self.use_jax:
+            self.logger.info("JAX available. Using accelerated analytics.")
+            self._init_jax_functions()
+        else:
+            self.logger.info("JAX not available. Using NumPy analytics.")
 
         try:
             self._init_caches()
@@ -39,7 +57,6 @@ class StateComputer:
                 self._bar_rest_lengths = np.asarray(bars['rest_length'], dtype=np.float32)
 
                 # Handle Prestress for PE calculation
-                # If prestress is missing, effective length is just rest length
                 prestress = bars.get('prestress')
                 if prestress is not None:
                     prestress = np.asarray(prestress, dtype=np.float32)
@@ -52,10 +69,10 @@ class StateComputer:
             # --- Hinges ---
             hinges = self.geometry.get('hinges')
             if hinges:
-                # Priority 1: Explicit 'angle' (matches geometry file structure)
+                # Priority 1: Explicit 'angle'
                 if 'angle' in hinges:
                     self._hinge_rest_angles = np.asarray(hinges['angle'], dtype=np.float32)
-                # Priority 2: 'phi0' or 'rest_angle' (legacy/alternative names)
+                # Priority 2: 'phi0' or 'rest_angle'
                 elif 'phi0' in hinges:
                     self._hinge_rest_angles = np.asarray(hinges['phi0'], dtype=np.float32)
                 elif 'angle' in hinges:
@@ -72,6 +89,84 @@ class StateComputer:
             self.logger.error(f"Error in _init_caches: {e}", exc_info=True)
             raise
 
+    def _init_jax_functions(self):
+        """Compile JAX functions for analytics."""
+        if not self.use_jax: return
+
+        # --- JAX: Bar Quantities ---
+        @jit
+        def jax_bar_quantities(pos, indices, l0, l_eff, k):
+            i = indices[:, 0]
+            j = indices[:, 1]
+            
+            p0 = pos[i]
+            p1 = pos[j]
+            
+            dist = jnp.linalg.norm(p1 - p0, axis=1)
+            
+            # Strain
+            strain = jnp.where(l0 > 0, (dist - l0) / l0, 0.0)
+            
+            # Stress
+            stress = k * strain
+            
+            # Potential Energy
+            pe = 0.5 * k * (dist - l_eff)**2
+            
+            return strain, stress, pe
+        
+        self._jax_bar_quantities = jax_bar_quantities
+
+        # --- JAX: Hinge Quantities ---
+        @jit
+        def jax_hinge_quantities(pos, indices, phi0, k):
+            j_idx = indices[:, 0]
+            k_idx = indices[:, 1]
+            i_idx = indices[:, 2]
+            l_idx = indices[:, 3]
+
+            xj = pos[j_idx]
+            xk = pos[k_idx]
+            xi = pos[i_idx]
+            xl = pos[l_idx]
+
+            r_ij = xi - xj
+            r_kj = xk - xj
+            r_kl = xk - xl
+
+            m = jnp.cross(r_ij, r_kj)
+            n = jnp.cross(r_kj, r_kl)
+
+            len_m = jnp.linalg.norm(m, axis=1) + 1e-12
+            len_n = jnp.linalg.norm(n, axis=1) + 1e-12
+            
+            m_hat = m / len_m[:, None]
+            n_hat = n / len_n[:, None]
+
+            cos_phi = jnp.sum(m_hat * n_hat, axis=1)
+            cos_phi = jnp.clip(cos_phi, -1.0, 1.0)
+            phi = jnp.arccos(cos_phi)
+
+            # Sign check
+            sign_check = jnp.sum(m * r_kl, axis=1)
+            phi = jnp.where(sign_check < 0, -phi, phi)
+
+            # Delta
+            delta = phi - phi0
+            delta = jnp.where(delta > jnp.pi, delta - 2*jnp.pi, delta)
+            delta = jnp.where(delta < -jnp.pi, delta + 2*jnp.pi, delta)
+
+            # Energy
+            pe = 0.5 * k * delta**2
+            
+            # Torsional Strain (normalized deviation)
+            # Avoid div by zero if phi0 is 0 (unlikely for folds but possible)
+            t_strain = jnp.where(jnp.abs(phi0) > 1e-6, delta / phi0, delta)
+
+            return phi, t_strain, pe
+
+        self._jax_hinge_quantities = jax_hinge_quantities
+
     def compute_frame(self, positions: np.ndarray, velocities: np.ndarray) -> Dict[str, np.ndarray]:
         """Compute all derived data for a single frame."""
         state = {}
@@ -84,14 +179,47 @@ class StateComputer:
 
             # 2. Bar Analytics
             if self.geometry.get('bars') and self._bar_rest_lengths is not None:
-                strain, stress, bar_pe = self._compute_bar_quantities(positions)
+                if self.use_jax:
+                    # JAX Path
+                    indices = self.geometry['bars']['indices']
+                    k = self.geometry['bars'].get('stiffness', 1000.0)
+                    if np.ndim(k) == 0: k = np.full(len(indices), k)
+                    
+                    # Convert to JAX arrays if needed (though JAX handles numpy inputs)
+                    strain, stress, bar_pe = self._jax_bar_quantities(
+                        positions, indices, self._bar_rest_lengths, self._bar_rest_lengths_effective, k
+                    )
+                    # Convert back to numpy
+                    strain = np.array(strain)
+                    stress = np.array(stress)
+                    bar_pe = np.array(bar_pe)
+                else:
+                    # NumPy Path
+                    strain, stress, bar_pe = self._compute_bar_quantities(positions)
+                
                 state['time_series/elements/bars/strain'] = strain
                 state['time_series/elements/bars/stress'] = stress
                 state['time_series/elements/bars/potential_energy'] = bar_pe
 
             # 3. Hinge Analytics
             if self.geometry.get('hinges') and self._hinge_rest_angles is not None:
-                angle, t_strain, hinge_pe = self._compute_hinge_quantities(positions)
+                if self.use_jax:
+                    # JAX Path
+                    indices = self.geometry['hinges']['indices']
+                    k = self.geometry['hinges'].get('stiffness', 1.0)
+                    if np.ndim(k) == 0: k = np.full(len(indices), k)
+                    
+                    angle, t_strain, hinge_pe = self._jax_hinge_quantities(
+                        positions, indices, self._hinge_rest_angles, k
+                    )
+                    # Convert back to numpy
+                    angle = np.array(angle)
+                    t_strain = np.array(t_strain)
+                    hinge_pe = np.array(hinge_pe)
+                else:
+                    # NumPy Path
+                    angle, t_strain, hinge_pe = self._compute_hinge_quantities(positions)
+                
                 state['time_series/elements/hinges/angle'] = angle
                 state['time_series/elements/hinges/torsional_strain'] = t_strain
                 state['time_series/elements/hinges/potential_energy'] = hinge_pe
@@ -108,14 +236,11 @@ class StateComputer:
             state['time_series/system/potential_energy'] = np.array([total_pe], dtype=np.float32)
 
             # [NEW] Calculate Instantaneous Damping Power (Watts)
-            # We return this to the Engine, which will integrate it over time
             damping_power = self._compute_damping_power(velocities)
-            state['system_damping_power'] = damping_power  # Temporary key for Engine
+            state['system_damping_power'] = damping_power
 
         except Exception as e:
             self.logger.error(f"Error computing frame state: {e}", exc_info=True)
-            # Depending on severity, we might want to re-raise or return partial state
-            # For scientific data, partial state is dangerous, so we raise.
             raise
 
         return state
@@ -149,7 +274,7 @@ class StateComputer:
             self.logger.warning(f"Failed to compute damping power: {e}", exc_info=True)
             return 0.0
 
-    # --- Math Implementations ---
+    # --- Math Implementations (NumPy Fallback) ---
 
     def _compute_node_energies(self, pos: np.ndarray, vel: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         try:

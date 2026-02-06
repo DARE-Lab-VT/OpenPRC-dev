@@ -648,4 +648,269 @@ __global__ void project_rigid_hinges(
     // For now, we skip it. The position projection should be sufficient.
 }
 
+// ============================================================================
+// ANGLE-RESTRICTED HINGE CONSTRAINTS (Prevent Sign Flip)
+// ============================================================================
+
+/**
+ * Project Angle-Restricted Hinges
+ *
+ * This kernel prevents hinges from "flipping through" zero angle.
+ * If a hinge starts on one side of zero (positive or negative), it cannot
+ * cross to the other side. This is useful for origami folds that should not
+ * invert.
+ *
+ * Usage: Mark hinges with negative damping coefficient as angle-restricted.
+ * The restriction enforces: sign(phi) == sign(phi0) OR phi == 0
+ *
+ * @param n_restricted Number of angle-restricted hinges
+ * @param indices Hinge node indices [j, k, i, l]
+ * @param phi0s Rest angles (determines which side of zero is allowed)
+ * @param mass Node masses
+ * @param attrs Node attributes
+ * @param x Positions (modified in-place)
+ * @param omega Relaxation parameter (typically 0.5-1.0)
+ */
+__global__ void project_angle_restricted_hinges(
+    int n_restricted,
+    const int* indices,
+    const double* phi0s,
+    const float* mass,
+    const unsigned char* attrs,
+    double* x,
+    double omega
+) {
+    int h = blockIdx.x * blockDim.x + threadIdx.x;
+    if (h >= n_restricted) return;
+
+    int j = indices[h*4];
+    int k = indices[h*4+1];
+    int i = indices[h*4+2];
+    int l = indices[h*4+3];
+    double phi0 = phi0s[h];
+
+    // Fetch positions
+    double xj[3] = {x[j*3], x[j*3+1], x[j*3+2]};
+    double xk[3] = {x[k*3], x[k*3+1], x[k*3+2]};
+    double xi[3] = {x[i*3], x[i*3+1], x[i*3+2]};
+    double xl[3] = {x[l*3], x[l*3+1], x[l*3+2]};
+
+    // Vectors
+    double r_ij[3] = {xi[0]-xj[0], xi[1]-xj[1], xi[2]-xj[2]};
+    double r_kj[3] = {xk[0]-xj[0], xk[1]-xj[1], xk[2]-xj[2]};
+    double r_kl[3] = {xk[0]-xl[0], xk[1]-xl[1], xk[2]-xl[2]};
+
+    // Normals
+    double m[3], n[3];
+    cross3(r_ij[0], r_ij[1], r_ij[2], r_kj[0], r_kj[1], r_kj[2], &m[0], &m[1], &m[2]);
+    cross3(r_kj[0], r_kj[1], r_kj[2], r_kl[0], r_kl[1], r_kl[2], &n[0], &n[1], &n[2]);
+
+    double len_m = len3(m[0], m[1], m[2]);
+    double len_n = len3(n[0], n[1], n[2]);
+    double len_rkj = len3(r_kj[0], r_kj[1], r_kj[2]);
+
+    if (len_m < MIN_AREA || len_n < MIN_AREA) return;
+
+    // Current Angle
+    double cos_phi = clamp_d(dot3(m[0],m[1],m[2], n[0],n[1],n[2]) / (len_m * len_n), -1.0, 1.0);
+    double phi_current = acos(cos_phi);
+    if (dot3(m[0],m[1],m[2], r_kl[0],r_kl[1],r_kl[2]) < 0) phi_current = -phi_current;
+
+    // Check for sign flip violation
+    // Rule: If phi0 is positive, phi must be >= 0
+    //       If phi0 is negative, phi must be <= 0
+    //       If phi0 is zero, no restriction (degenerate case)
+
+    bool violation = false;
+    double phi_target = 0.0;  // Target to project to
+
+    if (phi0 > 1e-6) {
+        // Rest angle is positive - don't allow negative angles
+        if (phi_current < 0.0) {
+            violation = true;
+            phi_target = 0.0;  // Clamp to zero
+        }
+    } else if (phi0 < -1e-6) {
+        // Rest angle is negative - don't allow positive angles
+        if (phi_current > 0.0) {
+            violation = true;
+            phi_target = 0.0;  // Clamp to zero
+        }
+    }
+
+    if (!violation) return;  // No violation, nothing to do
+
+    // Compute constraint: C = phi_current - phi_target
+    double C = phi_current - phi_target;
+
+    if (fabs(C) < 1e-6) return;  // Already at target
+
+    // Gradients (same as regular hinge projection)
+    double len_m_sq = len_m * len_m;
+    double len_n_sq = len_n * len_n;
+    double len_rkj_sq = len_rkj * len_rkj;
+
+    double coeff_i = len_rkj / len_m_sq;
+    double q_i[3] = {coeff_i * m[0], coeff_i * m[1], coeff_i * m[2]};
+
+    double coeff_l = -len_rkj / len_n_sq;
+    double q_l[3] = {coeff_l * n[0], coeff_l * n[1], coeff_l * n[2]};
+
+    double rij_dot_rkj = dot3(r_ij[0],r_ij[1],r_ij[2], r_kj[0],r_kj[1],r_kj[2]);
+    double rkl_dot_rkj = dot3(r_kl[0],r_kl[1],r_kl[2], r_kj[0],r_kj[1],r_kj[2]);
+    double c_ij = rij_dot_rkj / len_rkj_sq;
+    double c_kl = rkl_dot_rkj / len_rkj_sq;
+
+    double q_j[3], q_k[3];
+    for(int d=0; d<3; d++) {
+        q_j[d] = (c_ij - 1.0) * q_i[d] - c_kl * q_l[d];
+        q_k[d] = (c_kl - 1.0) * q_l[d] - c_ij * q_i[d];
+    }
+
+    // Inverse Masses
+    bool active_i = is_physics_active(i, attrs);
+    bool active_j = is_physics_active(j, attrs);
+    bool active_k = is_physics_active(k, attrs);
+    bool active_l = is_physics_active(l, attrs);
+
+    double wi = active_i ? (mass[i]>0 ? 1.0/mass[i] : 0.0) : 0.0;
+    double wj = active_j ? (mass[j]>0 ? 1.0/mass[j] : 0.0) : 0.0;
+    double wk = active_k ? (mass[k]>0 ? 1.0/mass[k] : 0.0) : 0.0;
+    double wl = active_l ? (mass[l]>0 ? 1.0/mass[l] : 0.0) : 0.0;
+
+    double sum_w_q2 = wi * dot3(q_i[0],q_i[1],q_i[2], q_i[0],q_i[1],q_i[2]) +
+                      wj * dot3(q_j[0],q_j[1],q_j[2], q_j[0],q_j[1],q_j[2]) +
+                      wk * dot3(q_k[0],q_k[1],q_k[2], q_k[0],q_k[1],q_k[2]) +
+                      wl * dot3(q_l[0],q_l[1],q_l[2], q_l[0],q_l[1],q_l[2]);
+
+    if (sum_w_q2 < 1e-12) return;
+
+    // Lagrange Multiplier
+    double lambda = -omega * C / sum_w_q2;
+
+    // Apply correction
+    if (active_i) atomicAdd3(x, i, wi*lambda*q_i[0], wi*lambda*q_i[1], wi*lambda*q_i[2], attrs);
+    if (active_j) atomicAdd3(x, j, wj*lambda*q_j[0], wj*lambda*q_j[1], wj*lambda*q_j[2], attrs);
+    if (active_k) atomicAdd3(x, k, wk*lambda*q_k[0], wk*lambda*q_k[1], wk*lambda*q_k[2], attrs);
+    if (active_l) atomicAdd3(x, l, wl*lambda*q_l[0], wl*lambda*q_l[1], wl*lambda*q_l[2], attrs);
+}
+
+// ============================================================================
+// COLLISION DETECTION AND RESOLUTION KERNELS
+// ============================================================================
+
+/**
+ * Collision Detection Kernel
+ *
+ * Detects all pairs of collidable nodes that are within collision distance.
+ * Uses attribute bit 3 to identify collidable nodes.
+ */
+__global__ void detect_collisions(
+    int n_nodes,
+    const double* x,
+    const unsigned char* attrs,
+    double radius,
+    int* collision_pairs,
+    int* collision_count
+) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n_nodes) return;
+
+    // Skip if not collidable (bit 3)
+    if (!(attrs[i] & 8)) return;
+
+    double xi = x[i*3], yi = x[i*3+1], zi = x[i*3+2];
+    double r2 = 4.0 * radius * radius;  // (2*radius)^2
+
+    // Check against all subsequent nodes (avoid double-counting)
+    for (int j = i + 1; j < n_nodes; j++) {
+        if (!(attrs[j] & 8)) continue;  // Skip non-collidable
+
+        double xj = x[j*3], yj = x[j*3+1], zj = x[j*3+2];
+        double dx = xj - xi, dy = yj - yi, dz = zj - zi;
+        double dist2 = dx*dx + dy*dy + dz*dz;
+
+        if (dist2 < r2) {  // Within 2*radius
+            int idx = atomicAdd(collision_count, 1);
+            collision_pairs[idx * 2] = i;
+            collision_pairs[idx * 2 + 1] = j;
+        }
+    }
+}
+
+/**
+ * Collision Resolution Kernel
+ *
+ * Resolves detected collisions using PBD-style position correction
+ * and impulse-based velocity correction.
+ */
+__global__ void resolve_collisions(
+    const int* collision_count,
+    const int* collision_pairs,
+    double* x,
+    double* v,
+    const float* mass,
+    const unsigned char* attrs,
+    double radius,
+    double restitution
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int n_collisions = *collision_count;
+    if (idx >= n_collisions) return;
+
+    int i = collision_pairs[idx * 2];
+    int j = collision_pairs[idx * 2 + 1];
+
+    // Skip if both nodes are fixed
+    if ((attrs[i] & 1) && (attrs[j] & 1)) return;
+
+    double xi = x[i*3], yi = x[i*3+1], zi = x[i*3+2];
+    double xj = x[j*3], yj = x[j*3+1], zj = x[j*3+2];
+
+    double dx = xj - xi, dy = yj - yi, dz = zj - zi;
+    double dist = sqrt(dx*dx + dy*dy + dz*dz);
+
+    if (dist < 1e-8) return;  // Avoid division by zero
+
+    double nx = dx / dist, ny = dy / dist, nz = dz / dist;
+    double overlap = 2.0 * radius - dist;
+
+    if (overlap > 0) {
+        // Position correction (PBD style)
+        double mi = (double)mass[i], mj = (double)mass[j];
+        double wi = (attrs[i] & 1) ? 0.0 : 1.0 / mi;
+        double wj = (attrs[j] & 1) ? 0.0 : 1.0 / mj;
+        double w_sum = wi + wj;
+
+        if (w_sum > 1e-8) {
+            double corr = overlap / w_sum;
+
+            atomicAdd(&x[i*3],     -nx * corr * wi);
+            atomicAdd(&x[i*3 + 1], -ny * corr * wi);
+            atomicAdd(&x[i*3 + 2], -nz * corr * wi);
+
+            atomicAdd(&x[j*3],     nx * corr * wj);
+            atomicAdd(&x[j*3 + 1], ny * corr * wj);
+            atomicAdd(&x[j*3 + 2], nz * corr * wj);
+        }
+
+        // Velocity correction (impulse-based with restitution)
+        double vi_n = v[i*3]*nx + v[i*3+1]*ny + v[i*3+2]*nz;
+        double vj_n = v[j*3]*nx + v[j*3+1]*ny + v[j*3+2]*nz;
+        double v_rel = vi_n - vj_n;
+
+        if (v_rel < 0) {  // Approaching
+            double impulse = -(1.0 + restitution) * v_rel / w_sum;
+
+            atomicAdd(&v[i*3],     -nx * impulse * wi);
+            atomicAdd(&v[i*3 + 1], -ny * impulse * wi);
+            atomicAdd(&v[i*3 + 2], -nz * impulse * wi);
+
+            atomicAdd(&v[j*3],     nx * impulse * wj);
+            atomicAdd(&v[j*3 + 1], ny * impulse * wj);
+            atomicAdd(&v[j*3 + 2], nz * impulse * wj);
+        }
+    }
+}
+
 } // extern "C"

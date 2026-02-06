@@ -3,7 +3,7 @@ import numpy as np
 
 class Yoshimura:
 
-    def __init__(self, n, beta):
+    def __init__(self, n, beta, randomize=False):
         self.n = n
         self.beta = beta
         self.d = np.tan(self.beta)
@@ -36,6 +36,10 @@ class Yoshimura:
         self.nodes.extend(self.base_nodes)  # indices 0 to 2n-1
         self.nodes.extend(self.mid_nodes)  # indices 2n to 4n-1
         self.nodes.extend(self.top_nodes)  # indices 4n to 6n-1
+
+        if randomize:
+            # start nodes with random coordinates of size (6*n, 3) uniformly distributed along origin
+            self.nodes += (1 - 2 * np.random.random((6 * self.n, 3))) * 0.2
 
         self.bars = []
         self.hinges = []

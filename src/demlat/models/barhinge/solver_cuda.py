@@ -9,11 +9,14 @@ from ...utils.logging import get_logger
 
 class CudaSolver:
     """
-    CUDA-accelerated solver for the Bar-Hinge model.
+    CUDA-accelerated solver for the Bar-Hinge model with collision detection.
 
     This solver uses PyCUDA to execute physics calculations on the GPU. It implements
     an RK4 integration scheme for time-stepping and supports both soft (spring-damper)
     and rigid (Position Based Dynamics - PBD) constraints for bars and hinges.
+
+    Collision detection is available as an optional addon that can be enabled per-node
+    using the collidable attribute (bit 3).
     """
 
     def __init__(self, n_nodes, mass, attributes, bars, hinges=None, options=None):
@@ -23,10 +26,10 @@ class CudaSolver:
         Args:
             n_nodes (int): Number of particles.
             mass (np.ndarray): Array of particle masses.
-            attributes (np.ndarray): Array of particle attributes (e.g., fixed/free).
+            attributes (np.ndarray): Array of particle attributes (e.g., fixed/free/collidable).
             bars (dict): Dictionary containing bar element data.
             hinges (dict, optional): Dictionary containing hinge element data.
-            options (dict, optional): Physics options (gravity, damping, etc.).
+            options (dict, optional): Physics options (gravity, damping, collision, etc.).
         """
         self.logger = get_logger("demlat.model.cuda")
         self.n_nodes = n_nodes
@@ -38,7 +41,7 @@ class CudaSolver:
             src = f.read()
         self.mod = SourceModule(src, no_extern_c=True)
 
-        # Kernels
+        # Kernels - Base Physics
         self.k_zero = self.mod.get_function("zero_forces")
         self.k_act_pos = self.mod.get_function("apply_position_actuation")
         self.k_act_force = self.mod.get_function("apply_force_actuation")
@@ -47,9 +50,11 @@ class CudaSolver:
         self.k_glob = self.mod.get_function("apply_global_forces")
         self.k_rk4_step = self.mod.get_function("rk4_step_integrate")
         self.k_rk4_final = self.mod.get_function("rk4_final_update")
-        # PBD
+
+        # Kernels - PBD Constraints
         self.k_proj_bars = self.mod.get_function("project_rigid_bars")
-        self.k_proj_hinges = self.mod.get_function("project_rigid_hinges")  # NEW
+        self.k_proj_hinges = self.mod.get_function("project_rigid_hinges")
+        self.k_proj_angle_restricted = self.mod.get_function("project_angle_restricted_hinges")
         self.k_vel_rigid = self.mod.get_function("correct_rigid_velocity")
         self.k_vel_correction = self.mod.get_function("correct_all_rigid_velocities")
 
@@ -141,6 +146,24 @@ class CudaSolver:
                 cuda.memcpy_htod(self.d_rhinge_phi, rh_phi0)
                 self.grid_rhinges = ((int(self.n_rigid_hinges) + 255) // 256, 1)
 
+            # Angle-Restricted Hinges (prevent sign flip)
+            # Identified by negative damping coefficient
+            is_angle_restricted = hinges['damping'] < 0
+            self.n_angle_restricted_hinges = np.sum(is_angle_restricted)
+            if self.n_angle_restricted_hinges > 0:
+                ar_idx = hinges['indices'][is_angle_restricted].flatten().astype(np.int32)
+                ar_phi0 = hinges['angle'][is_angle_restricted].astype(np.float64)
+
+                self.d_ar_hinge_idx = cuda.mem_alloc(ar_idx.nbytes)
+                cuda.memcpy_htod(self.d_ar_hinge_idx, ar_idx)
+                self.d_ar_hinge_phi = cuda.mem_alloc(ar_phi0.nbytes)
+                cuda.memcpy_htod(self.d_ar_hinge_phi, ar_phi0)
+                self.grid_ar_hinges = ((int(self.n_angle_restricted_hinges) + 255) // 256, 1)
+
+                self.logger.info(f"Angle-restricted hinges: {self.n_angle_restricted_hinges}")
+            else:
+                self.n_angle_restricted_hinges = 0
+
         # 4. RK4 Buffers
         sz = n_nodes * 3 * 8
         self.d_k1x = cuda.mem_alloc(sz)
@@ -171,6 +194,33 @@ class CudaSolver:
             cuda.memcpy_htod(self.d_force_act_idx, self.force_actuator_indices)
             self.d_force_act_vals = cuda.mem_alloc(self.n_force_actuators * 3 * 8)
             self.h_force_act_vals = np.zeros(self.n_force_actuators * 3, dtype=np.float64)
+
+        # 7. Collision Detection (ADDON - only if enabled)
+        self.collision_enabled = self.options.get('enable_collision', False)
+        self.collision_radius = self.options.get('collision_radius', 0.01)
+        self.collision_restitution = self.options.get('collision_restitution', 0.5)
+
+        if self.collision_enabled:
+            # Find collidable nodes (bit 3 set)
+            self.collidable_mask = (attributes.astype(np.uint8) & 8) > 0
+            self.n_collidable = np.sum(self.collidable_mask)
+
+            self.logger.info(f"Collision detection enabled: {self.n_collidable} collidable nodes, radius={self.collision_radius}m")
+
+            if self.n_collidable > 1:  # Need at least 2 nodes to collide
+                # Load collision kernels
+                self.k_detect_collisions = self.mod.get_function("detect_collisions")
+                self.k_resolve_collisions = self.mod.get_function("resolve_collisions")
+
+                # Pre-allocate collision pair buffer (worst case: all pairs)
+                max_pairs = int((self.n_collidable * (self.n_collidable - 1)) // 2)
+                self.d_collision_pairs = cuda.mem_alloc(int(max_pairs * 2 * 4))  # int pairs
+                self.d_collision_count = cuda.mem_alloc(int(4))  # single int counter
+
+                self.logger.info(f"Allocated collision buffers for max {max_pairs} pairs")
+            else:
+                self.collision_enabled = False
+                self.logger.warning("Collision disabled: need at least 2 collidable nodes")
 
     def upload_state(self, x, v):
         """
@@ -204,6 +254,7 @@ class CudaSolver:
         1. Updating actuation values on the GPU.
         2. Performing RK4 integration (4 stages of force computation).
         3. Applying PBD constraints for rigid elements.
+        4. Resolving collisions (if enabled).
 
         Args:
             t (float): Current simulation time.
@@ -236,7 +287,7 @@ class CudaSolver:
                     self.h_force_act_vals[i * 3:i * 3 + 3] = val
             cuda.memcpy_htod(self.d_force_act_vals, self.h_force_act_vals)
 
-        # 2. Physics Params
+        # 3. Physics Params
         grav = self.options.get('gravity', -9.81)
         damp = self.options.get('global_damping', 0.1)
 
@@ -266,7 +317,7 @@ class CudaSolver:
             self.k_glob(np.int32(self.n_nodes), v_ptr, self.d_mass, self.d_attrs, np.float64(damp), np.float64(grav),
                         f_ptr, block=self.block, grid=self.grid_nodes)
 
-        # 3. RK4 Loop (K1-K4)
+        # 4. RK4 Loop (K1-K4)
         for stage, kx, kv, frac in [(1, self.d_k1x, self.d_k1v, 0.5), (2, self.d_k2x, self.d_k2v, 0.5),
                                     (3, self.d_k3x, self.d_k3v, 1.0), (4, self.d_k4x, self.d_k4v, 1.0)]:
             x_in = self.d_x if stage == 1 else self.d_xt
@@ -280,8 +331,8 @@ class CudaSolver:
                          self.d_k2v, self.d_k3x, self.d_k3v, self.d_k4x, self.d_k4v, self.d_attrs, block=self.block,
                          grid=self.grid_nodes)
 
-        # 4. PBD Loop (Rigid Constraints)
-        if self.n_rigid_bars > 0 or self.n_rigid_hinges > 0:
+        # 5. PBD Loop (Rigid Constraints)
+        if self.n_rigid_bars > 0 or self.n_rigid_hinges > 0 or self.n_angle_restricted_hinges > 0:
             for _ in range(5):
                 if self.n_rigid_bars > 0:
                     self.k_proj_bars(
@@ -309,6 +360,19 @@ class CudaSolver:
                         grid=self.grid_rhinges
                     )
 
+                if self.n_angle_restricted_hinges > 0:
+                    self.k_proj_angle_restricted(
+                        np.int32(self.n_angle_restricted_hinges),
+                        self.d_ar_hinge_idx,
+                        self.d_ar_hinge_phi,
+                        self.d_mass,
+                        self.d_attrs,
+                        self.d_x,
+                        np.float64(0.8),
+                        block=self.block,
+                        grid=self.grid_ar_hinges
+                    )
+
             # Velocity Correction (only for rigid bars)
             if self.n_rigid_bars > 0:
                 self.k_vel_rigid(
@@ -320,4 +384,37 @@ class CudaSolver:
                     self.d_v,
                     block=self.block,
                     grid=self.grid_rbars
+                )
+
+        # 6. Collision Resolution (ADDON - only if enabled)
+        if self.collision_enabled and self.n_collidable > 1:
+            # Reset collision counter
+            cuda.memset_d32(self.d_collision_count, 0, 1)
+
+            # Detect collisions (broad + narrow phase)
+            self.k_detect_collisions(
+                np.int32(self.n_nodes),
+                self.d_x,
+                self.d_attrs,
+                np.float64(self.collision_radius),
+                self.d_collision_pairs,
+                self.d_collision_count,
+                block=self.block,
+                grid=self.grid_nodes
+            )
+
+            # Resolve detected collisions (position + velocity)
+            # Run multiple iterations like PBD
+            for _ in range(3):
+                self.k_resolve_collisions(
+                    self.d_collision_count,
+                    self.d_collision_pairs,
+                    self.d_x,
+                    self.d_v,
+                    self.d_mass,
+                    self.d_attrs,
+                    np.float64(self.collision_radius),
+                    np.float64(self.collision_restitution),
+                    block=(256, 1, 1),
+                    grid=(int((self.n_collidable * self.n_collidable + 255) // 256), 1)
                 )
