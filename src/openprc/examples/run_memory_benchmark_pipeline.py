@@ -19,11 +19,11 @@ from openprc.reservoir.readout.ridge import Ridge
 def main():
     """
     A pipeline to run the memory benchmark on a given experiment.
+    This script will first run the benchmark to calculate all memory capacities,
+    then prompt the user to select which readout to train and save permanently.
     """
     
     # 1. Define the Experiment Path
-    # This example uses a standard test experiment.
-    # Make sure you have run a simulation for this experiment first.
     experiment_subpath = "spring_mass_3x3_test/generation_0"
     experiments_dir = src_dir / "experiments"
     experiment_dir = experiments_dir / experiment_subpath
@@ -43,98 +43,118 @@ def main():
     print(f"Loaded {loader.total_frames} frames from {sim_path.name}")
     
     # 3. Define Benchmark and its arguments
-    # The group_name determines where the results are saved in the metrics file.
     benchmark = MemoryBenchmark(group_name="memory_benchmark")
-    
-    # These arguments control the memory task calculation.
     benchmark_args = {
-        "tau_s": 5,         # Maximum lag to test for memory
-        "n_s": 2,            # Polynomial degree of inputs (1 for linear memory)
-        "k_delay": 100,        # Step size for lags
-        "ridge": 1e-6        # Regularization for the regression
+        "tau_s": 5,
+        "n_s": 2,
+        "k_delay": 100,
+        "ridge": 1e-6
     }
 
-    # The memory benchmark uses parameters from the trainer for washout, train and test durations
     trainer = Trainer(
         loader=loader,
         features=features,
-        readout=Ridge(benchmark_args.get("ridge")), # Readout is not used by memory benchmark, but trainer needs it
+        readout=Ridge(benchmark_args.get("ridge")),
         experiment_dir=experiment_dir,
         washout=5.0,
         train_duration=20.0,
         test_duration=5.0,
     )
     
-    # 4. Run the benchmark
-    print(f"Running benchmark: {benchmark.__class__.__name__}")
-    print(f"Experiment: {experiment_dir.name}")
+    # 4. First Run: Calculate all capacities
+    print(f"\n--- Running Initial Benchmark to Calculate All Capacities ---")
     score = benchmark.run(trainer, u_input, **benchmark_args)
     score.save()
-    
-    print(f"--- Benchmark complete for: {experiment_dir.name} ---")
+    print("--- Initial run complete. ---")
 
-    # 5. Print the key metrics
-    if score.metrics:
-        print("\n[Benchmark Results]")
+    # 5. Print key metrics and prepare for interactive selection
+    if not score.metrics:
+        print("Benchmark did not produce any metrics. Exiting.")
+        return
+
+    print("\n[Benchmark Results]")
+    print(f"  >> Total Capacity: {score.metrics.get('total_capacity', 0):.4f}")
+    print(f"  >> Linear Memory Capacity: {score.metrics.get('linear_memory_capacity', 0):.4f}")
+    print(f"  >> Nonlinear Memory Capacity: {score.metrics.get('nonlinear_memory_capacity', 0):.4f}")
+
+    capacities = score.metrics.get('capacities')
+    basis_names_bytes = score.metrics.get('basis_names', [])
+    basis_names = [name.decode('utf-8') for name in basis_names_bytes]
+
+    if capacities is None or not basis_names:
+        print("No capacities or basis names found in metrics. Exiting.")
+        return
+
+    # 6. Interactive Readout Selection
+    valid_indices = ~np.isnan(capacities)
+    sorted_indices = np.argsort(capacities[valid_indices])[::-1]
+    sorted_capacities = capacities[valid_indices][sorted_indices]
+    sorted_names = [basis_names[i] for i in np.where(valid_indices)[0][sorted_indices]]
+
+    print("\n--- Interactive Readout Selection ---")
+    print("The following memory tasks are available to be saved:")
+    for i, (name, cap) in enumerate(zip(sorted_names, sorted_capacities)):
+        if cap > 1e-9: # Only show tasks with non-trivial capacity
+            print(f"  Index {i}: Capacity = {cap:.4f}, Basis = '{name}'")
+
+    try:
+        user_input = input("\nEnter the index of the readout to save (or press Enter to skip): ")
+        if user_input.strip() == "":
+            print("Skipping readout saving.")
+        else:
+            try:
+                selected_index = int(user_input)
+                if 0 <= selected_index < len(sorted_names):
+                    selected_basis = sorted_names[selected_index]
+                    print(f"\nYou selected index {selected_index}: '{selected_basis}'")
+                    
+                    # Add the selected basis to benchmark_args and re-run
+                    benchmark_args['save_readouts_for'] = [selected_basis]
+                    
+                    print(f"\n--- Re-running benchmark to train and save readout for '{selected_basis}' ---")
+                    benchmark.run(trainer, u_input, **benchmark_args)
+                    print("--- Readout saved successfully. ---")
+                    
+                else:
+                    print("Invalid index. No readout will be saved.")
+            except ValueError:
+                print("Invalid input. Please enter a number. No readout will be saved.")
+    except EOFError:
+        print("\nNon-interactive mode detected (e.g., CI/CD). Skipping readout saving.")
+
+    # 7. Visualize the capacities
+    print("\n[Visualizing Benchmark Results]")
+    # ... (Visualization code remains the same, but let's uncomment it)
+    if capacities is not None and basis_names is not None:
+        threshold = 1e-9
+        filtered_indices = [i for i, c in enumerate(capacities) if c > threshold]
         
-        total_cap = score.metrics.get('total_capacity')
-        linear_cap = score.metrics.get('linear_memory_capacity')
-        nonlinear_cap = score.metrics.get('nonlinear_memory_capacity')
+        if not filtered_indices:
+            print("No capacities above threshold to plot.")
+            return
 
-        if total_cap is not None:
-            print(f"  >> Total Capacity: {total_cap:.4f}")
-        if linear_cap is not None:
-            print(f"  >> Linear Memory Capacity: {linear_cap:.4f}")
-        if nonlinear_cap is not None:
-            print(f"  >> Nonlinear Memory Capacity: {nonlinear_cap:.4f}")
+        filtered_scores = capacities[filtered_indices]
+        filtered_names = [basis_names[i] for i in filtered_indices]
 
-        print("\nDetailed metrics saved to HDF5 file in the experiment's 'metrics' directory.")
+        # Sort for better visualization
+        vis_sorted_indices = np.argsort(filtered_scores)[::-1]
+        vis_sorted_scores = filtered_scores[vis_sorted_indices]
+        vis_sorted_names = [filtered_names[i] for i in vis_sorted_indices]
 
-    # 6. Visualize the capacities
-    if score.metrics:
-        print("\n[Visualizing Benchmark Results]")
-        
-        capacities = score.metrics.get('capacities')
-        # basis_names are saved as bytes, need to decode
-        basis_names = [name.decode('utf-8') for name in score.metrics.get('basis_names')]
-        
-        if capacities is not None and basis_names is not None:
-            
-            # Filter for scores above a threshold to make the plot readable
-            threshold = 0.00
-            
-            filtered_indices = [i for i, score in enumerate(capacities) if score > threshold]
-            
-            if not filtered_indices:
-                print("No capacities above threshold to plot.")
-                return
+        plt.figure(figsize=(12, 8))
+        plt.bar(range(len(vis_sorted_scores)), vis_sorted_scores, tick_label=vis_sorted_names)
+        plt.xticks(rotation=90)
+        plt.ylabel("Capacity (R^2 Score)")
+        plt.title("Information Processing Capacity - Individual Tasks")
+        plt.ylim(0, 1)
+        plt.tight_layout()
 
-            filtered_scores = capacities[filtered_indices]
-            filtered_names = [basis_names[i] for i in filtered_indices]
-
-            # Sort for better visualization
-            sorted_indices = np.argsort(filtered_scores)[::-1]
-            sorted_scores = filtered_scores[sorted_indices]
-            sorted_names = [filtered_names[i] for i in sorted_indices]
-
-            # plt.figure(figsize=(12, 6))
-            # plt.bar(range(len(sorted_scores)), sorted_scores, tick_label=sorted_names)
-            # plt.xticks(rotation=90)
-            # plt.ylabel("Capacity")
-            # plt.title("Information Processing Capacity - Individual Capacities of Basis Functions")
-            # plt.ylim(0, 1)
-            # plt.tight_layout()
-
-            # # Save the plot
-            # plot_dir = experiment_dir / "plots"
-            # plot_dir.mkdir(exist_ok=True)
-            # plot_path = plot_dir / "information_processing_capacity.svg"
-            # plt.savefig(plot_path)
-            # plt.close()
-            # print(f"  >> Plot saved to: {plot_path}")
-        
-        print(f"Min Capacity = {np.nanmin(capacities):.4f}")
-
+        plot_dir = experiment_dir / "plots"
+        plot_dir.mkdir(exist_ok=True)
+        plot_path = plot_dir / "information_processing_capacity.svg"
+        plt.savefig(plot_path)
+        plt.close()
+        print(f"  >> Plot saved to: {plot_path}")
 
 if __name__ == "__main__":
     main()

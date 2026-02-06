@@ -46,36 +46,36 @@ def main():
 
     # --- Workflow 1: Train readout weights only ---
     # Comment out this block to run Workflow 2
-    if True:
-        print("\n[Workflow: Train]")
+    # if True:
+    #     print("\n[Workflow: Train]")
         
-        # 3. Define the Task
-        task_order = 2
-        task_name = f"NARMA{task_order}"
-        y_full = NARMA_task(u_input, order=task_order)
+    #     # 3. Define the Task
+    #     task_order = 2
+    #     task_name = f"NARMA{task_order}"
+    #     y_full = NARMA_task(u_input, order=task_order)
 
-        # 4. Define Trainer and Train
-        trainer = Trainer(
-            loader=loader, 
-            features=features,
-            readout=Ridge(1e-5),
-            experiment_dir=experiment_dir,
-            washout=5.0,
-            train_duration=20.0,
-            test_duration=5.0,
-        )
+    #     # 4. Define Trainer and Train
+    #     trainer = Trainer(
+    #         loader=loader, 
+    #         features=features,
+    #         readout=Ridge(1e-5),
+    #         experiment_dir=experiment_dir,
+    #         washout=5.0,
+    #         train_duration=20.0,
+    #         test_duration=5.0,
+    #     )
         
-        result = trainer.train(y_full, task_name=task_name) 
-        readout_path = result.save()
+    #     result = trainer.train(y_full, task_name=task_name) 
+    #     readout_path = result.save()
         
-        print(f"--- Training complete for: {experiment_dir.name} ---")
+    #     print(f"--- Training complete for: {experiment_dir.name} ---")
 
-        # 5. Visualize
-        visualizer = TimeSeriesComparison()
-        if readout_path and visualizer:
-            print("\n[Processing] Visualizing results")
-            plot_path = visualizer.plot(readout_path, start_frame=0, end_frame=500).save()
-            print(f" >> Plot saved to: {plot_path}")
+    #     # 5. Visualize
+    #     visualizer = TimeSeriesComparison()
+    #     if readout_path and visualizer:
+    #         print("\n[Processing] Visualizing results")
+    #         plot_path = visualizer.plot(readout_path, start_frame=0, end_frame=500).save()
+    #         print(f" >> Plot saved to: {plot_path}")
 
 
     # --- Workflow 2: Run Benchmark (handles training automatically) ---
@@ -130,80 +130,80 @@ def main():
     # This workflow shows how to use the CustomBenchmark by defining the logic
     # directly within the pipeline. It replicates the NARMA benchmark for demonstration.
     # To run, uncomment this block and comment out other workflows.
-    if True:
-        print("\n[Workflow: Custom Benchmark]")
+    # if True:
+    #     print("\n[Workflow: Custom Benchmark]")
 
-        # 3. Define the benchmark logic function
-        def custom_narma_logic(benchmark, trainer, u_input, **kwargs):
-            """This function contains the full logic for the custom benchmark."""
-            # Get task-specific parameters from keyword arguments
-            order = kwargs.get('order', 2)
+    #     # 3. Define the benchmark logic function
+    #     def custom_narma_logic(benchmark, trainer, u_input, **kwargs):
+    #         """This function contains the full logic for the custom benchmark."""
+    #         # Get task-specific parameters from keyword arguments
+    #         order = kwargs.get('order', 2)
 
-            # Generate the NARMA task data, same as in the standard benchmark
-            y_full = NARMA_task(u_input, order=order)
+    #         # Generate the NARMA task data, same as in the standard benchmark
+    #         y_full = NARMA_task(u_input, order=order)
 
-            # Use the provided trainer to run the training process
-            task_name = f"CustomNARMA{order}"
-            training_result = trainer.train(y_full, task_name=task_name)
-            training_result.save()
+    #         # Use the provided trainer to run the training process
+    #         task_name = f"CustomNARMA{order}"
+    #         training_result = trainer.train(y_full, task_name=task_name)
+    #         training_result.save()
 
-            # Calculate the NRMSE metric from the test results
-            _, target, prediction = training_result.cache['test']
-            rmse = np.sqrt(np.mean((target - prediction)**2))
-            std_dev = np.std(target)
-            nrmse = rmse / (std_dev if std_dev > 1e-9 else 1.0)
+    #         # Calculate the NRMSE metric from the test results
+    #         _, target, prediction = training_result.cache['test']
+    #         rmse = np.sqrt(np.mean((target - prediction)**2))
+    #         std_dev = np.std(target)
+    #         nrmse = rmse / (std_dev if std_dev > 1e-9 else 1.0)
             
-            # Define the metrics and metadata dictionaries to be returned
-            metrics = {f'custom_narma{order}_nrmse': nrmse}
-            metadata = {
-                'source_readout': str(benchmark.readout_path),
-                'narma_order': order,
-                'training_feature_config': training_result.feature_config,
-                'benchmark_class': benchmark.__class__.__name__
-            }
+    #         # Define the metrics and metadata dictionaries to be returned
+    #         metrics = {f'custom_narma{order}_nrmse': nrmse}
+    #         metadata = {
+    #             'source_readout': str(benchmark.readout_path),
+    #             'narma_order': order,
+    #             'training_feature_config': training_result.feature_config,
+    #             'benchmark_class': benchmark.__class__.__name__
+    #         }
             
-            return metrics, metadata
+    #         return metrics, metadata
 
-        # 4. Define the Trainer, which is shared context for the benchmark
-        trainer = Trainer(
-            loader=loader,
-            features=features,
-            readout=Ridge(1e-5),
-            experiment_dir=experiment_dir,
-            washout=5.0,
-            train_duration=20.0,
-            test_duration=5.0,
-        )
+    #     # 4. Define the Trainer, which is shared context for the benchmark
+    #     trainer = Trainer(
+    #         loader=loader,
+    #         features=features,
+    #         readout=Ridge(1e-5),
+    #         experiment_dir=experiment_dir,
+    #         washout=5.0,
+    #         train_duration=20.0,
+    #         test_duration=5.0,
+    #     )
 
-        # 5. Instantiate the CustomBenchmark, passing the logic function
-        benchmark = CustomBenchmark(
-            group_name="custom_narma_benchmark",
-            benchmark_logic=custom_narma_logic
-        )
-        benchmark_args = {"order": 2}
+    #     # 5. Instantiate the CustomBenchmark, passing the logic function
+    #     benchmark = CustomBenchmark(
+    #         group_name="custom_narma_benchmark",
+    #         benchmark_logic=custom_narma_logic
+    #     )
+    #     benchmark_args = {"order": 2}
 
-        # 6. Run the benchmark
-        print(f"Running benchmark: {benchmark.__class__.__name__}")
-        score = benchmark.run(trainer, u_input, **benchmark_args)
-        score.save()
+    #     # 6. Run the benchmark
+    #     print(f"Running benchmark: {benchmark.__class__.__name__}")
+    #     score = benchmark.run(trainer, u_input, **benchmark_args)
+    #     score.save()
         
-        print(f"--- Benchmark complete for: {experiment_dir.name} ---")
+    #     print(f"--- Benchmark complete for: {experiment_dir.name} ---")
 
-        # 7. Print Metrics
-        if score.metrics:
-            print("\n[Processing] Printing Benchmark Results:")
-            # This helper function is defined locally for clarity
-            def print_metrics(metrics_dict, indent=""):
-                for key, value in metrics_dict.items():
-                    print_prefix = f"{indent}>> {key}: "
-                    if isinstance(value, dict):
-                        print(f"{indent}>> {key}:")
-                        print_metrics(value, indent + "  ")
-                    elif isinstance(value, (int, float, np.number)):
-                        print(f"{print_prefix}{value:.5f}")
-                    else:
-                        print(f"{print_prefix}{value}")
-            print_metrics(score.metrics, indent="  ")
+    #     # 7. Print Metrics
+    #     if score.metrics:
+    #         print("\n[Processing] Printing Benchmark Results:")
+    #         # This helper function is defined locally for clarity
+    #         def print_metrics(metrics_dict, indent=""):
+    #             for key, value in metrics_dict.items():
+    #                 print_prefix = f"{indent}>> {key}: "
+    #                 if isinstance(value, dict):
+    #                     print(f"{indent}>> {key}:")
+    #                     print_metrics(value, indent + "  ")
+    #                 elif isinstance(value, (int, float, np.number)):
+    #                     print(f"{print_prefix}{value:.5f}")
+    #                 else:
+    #                     print(f"{print_prefix}{value}")
+    #         print_metrics(score.metrics, indent="  ")
 
 
 if __name__ == "__main__":

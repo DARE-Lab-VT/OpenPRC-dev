@@ -21,6 +21,7 @@ class BaseBenchmark(ABC):
         self.metrics: Dict[str, Any] = {}
         self.metadata: Dict[str, Any] = {}
         self.group_name = group_name
+        self._cached_readout_path: Path | None = None
 
     def _setup(self, experiment_dir: Path):
         """Initializes the experiment directory and validates it."""
@@ -67,11 +68,36 @@ class BaseBenchmark(ABC):
 
     @property
     def readout_path(self) -> Path:
+        if self._cached_readout_path:
+            return self._cached_readout_path
+
         files = list(self.readout_dir.glob("readout_*.h5"))
-        if not files: raise FileNotFoundError(f"No readout file found in {self.readout_dir}")
+        if not files:
+            raise FileNotFoundError(f"No readout file found in {self.readout_dir}")
+
+        selected_path = None
         if len(files) > 1:
-            warnings.warn(f"Multiple readouts found: {[f.name for f in files]}. Defaulting to {files[0].name}")
-        return files[0]
+            try:
+                print("Multiple readout files found. Please select one:")
+                for i, f in enumerate(files):
+                    print(f"  [{i}] {f.name}")
+                
+                user_input = input(f"Enter index [0-{len(files)-1}]: ")
+                selected_index = int(user_input)
+
+                if 0 <= selected_index < len(files):
+                    selected_path = files[selected_index]
+                else:
+                    warnings.warn(f"Invalid index. Defaulting to {files[0].name}")
+                    selected_path = files[0]
+            except (ValueError, EOFError):
+                warnings.warn(f"Invalid or no input. Defaulting to {files[0].name}")
+                selected_path = files[0]
+        else:
+            selected_path = files[0]
+
+        self._cached_readout_path = selected_path
+        return selected_path
 
     def get_metrics_path(self, filename: str = "metrics.h5") -> Path:
         self.metrics_dir.mkdir(parents=True, exist_ok=True)
