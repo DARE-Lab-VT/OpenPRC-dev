@@ -48,9 +48,9 @@ def main():
     
     # These arguments control the memory task calculation.
     benchmark_args = {
-        "tau_s": 200,         # Maximum lag to test for memory
+        "tau_s": 5,         # Maximum lag to test for memory
         "n_s": 2,            # Polynomial degree of inputs (1 for linear memory)
-        "k_delay": 1,        # Step size for lags
+        "k_delay": 100,        # Step size for lags
         "ridge": 1e-6        # Regularization for the regression
     }
 
@@ -117,21 +117,21 @@ def main():
             sorted_scores = filtered_scores[sorted_indices]
             sorted_names = [filtered_names[i] for i in sorted_indices]
 
-            plt.figure(figsize=(12, 6))
-            plt.bar(range(len(sorted_scores)), sorted_scores, tick_label=sorted_names)
-            plt.xticks(rotation=90)
-            plt.ylabel("Capacity")
-            plt.title("Information Processing Capacity - Individual Capacities of Basis Functions")
-            plt.ylim(0, 1)
-            plt.tight_layout()
+            # plt.figure(figsize=(12, 6))
+            # plt.bar(range(len(sorted_scores)), sorted_scores, tick_label=sorted_names)
+            # plt.xticks(rotation=90)
+            # plt.ylabel("Capacity")
+            # plt.title("Information Processing Capacity - Individual Capacities of Basis Functions")
+            # plt.ylim(0, 1)
+            # plt.tight_layout()
 
-            # Save the plot
-            plot_dir = experiment_dir / "plots"
-            plot_dir.mkdir(exist_ok=True)
-            plot_path = plot_dir / "information_processing_capacity.svg"
-            plt.savefig(plot_path)
-            plt.show()
-            print(f"  >> Plot saved to: {plot_path}")
+            # # Save the plot
+            # plot_dir = experiment_dir / "plots"
+            # plot_dir.mkdir(exist_ok=True)
+            # plot_path = plot_dir / "information_processing_capacity.svg"
+            # plt.savefig(plot_path)
+            # plt.close()
+            # print(f"  >> Plot saved to: {plot_path}")
         
         print(f"Min Capacity = {np.nanmin(capacities):.4f}")
 

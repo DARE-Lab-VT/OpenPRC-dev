@@ -57,7 +57,7 @@ def memory_task(X, u_input, washout: int, train_stop: int, test_duration: int,
         Delay step size. For standard Memory Capacity (Jaeger 2001/Dambre 2012), this must be 1.
     """
     
-    basis_names, capacities, exps = compute_ipc_components_gpu(
+    basis_names, capacities, exps = compute_ipc_components(
         X=X,
         u_input=u_input,
         tau_s=tau_s,
