@@ -13,7 +13,7 @@ loading_mean = data['loading_mean']
 unloading_mean = data['unloading_mean']
 
 # Filter: only beta < 42 degrees
-beta_mask = betas < 42
+beta_mask = betas < 45
 betas = betas[beta_mask]
 loading_mean = loading_mean[beta_mask]
 unloading_mean = unloading_mean[beta_mask]

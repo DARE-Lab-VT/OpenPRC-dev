@@ -1,5 +1,5 @@
 """
-Yoshimura-Ori Geometry Test
+Yoshimura-Ori beta d sweep
 ===========================
 Generates large number of experiments for analyzing beta and d relation
 """
@@ -40,7 +40,7 @@ def run_and_save_experiment(dir_name, n, beta):
     print(f"  n={n}, beta={np.rad2deg(beta):.2f}°")
 
     # Generate geometry
-    nodes, bars, faces, params = generate_yoshimura_geometry(n, beta, d=d, gamma=0.0, psi=0.0)
+    nodes, bars, hinges, faces, params = generate_yoshimura_geometry(n, beta, d=d, gamma=0.0, psi=0.0)
     mass = 0.01,
     damping = 1.0
     k_axial = 1000.0
@@ -65,38 +65,78 @@ def run_and_save_experiment(dir_name, n, beta):
     for i, j, length in bars:
         setup.add_bar(i, j, stiffness=k_axial, rest_length=length, damping=damping)
 
-    # Add hinges to setup
-    # add_yoshimura_hinges(
-    #     setup,
-    #     nodes,
-    #     faces,
-    #     n,
-    #     params,
-    #     k_fold=k_fold,
-    #     k_facet=k_facet
-    # )
+    k_fold = 1.0
+    k_facet = 0.0
+
+    for hinge in hinges:
+        i = hinge[0]
+        j = hinge[1]
+        k = hinge[2]
+        l = hinge[3]
+        rest_angle = hinge[4]
+        edge_type = hinge[5]
+        if edge_type == 'fold' and k_fold >= 0.0:
+            setup.add_hinge(nodes=[i, j, k, l], stiffness=k_fold, rest_angle=rest_angle)
+        elif edge_type == 'facet' and k_facet >= 0.0:
+            setup.add_hinge(nodes=[i, j, k, l], stiffness=k_facet, rest_angle=rest_angle)
+
+    for face in faces:
+        setup.add_face(face)
 
     n, beta, d, gamma, psi = params
     d = np.tan(beta)
 
     # Setup Actuation
-    setup_actuation(
-        setup,
-        node_info,
-        min_pos=0.0,
-        max_pos=d,
-        frequency=0.2,
-        duration=duration
-    )
+    min_pos=0.0,
+    max_pos=d,
+    frequency=0.2,
+
+    # Get initial positions
+    positions = setup.nodes['positions']
+
+    # Signal parameters
+    dt_sig = 0.001
+    t = np.arange(0, duration, dt_sig)
+    omega = 2 * np.pi * frequency
+
+    # Create signals for each top corner
+    base_corners = node_info['base_corners']
+    top_corners = node_info['top_corners']
+
+    print(f"\nSetting up actuation:")
+    print(f"  Fixed base corners: {base_corners}")
+    print(f"  Actuated top corners: {top_corners}")
+
+    # Create sinusoidal signals for top corners
+    for i, idx in enumerate(top_corners):
+        p0 = positions[idx]
+
+        # generate a signal to go from min_pos to max_pos from p0[2] with given frequency
+        sig = np.zeros((len(t), 3), dtype=np.float32)
+        sig[:, 0] = p0[0]
+        sig[:, 1] = p0[1]
+        sig[:, 2] = (max_pos - min_pos) * (1 + np.cos(omega * t)) / 2
+
+        sig_name = f"sig_top_corner_{i}"
+        setup.add_signal(sig_name, sig, dt=dt_sig)
+        setup.add_actuator(idx, sig_name, type='position')
+
+    # add zero actuation to base corners
+    for i, idx in enumerate(base_corners):
+        p0 = positions[idx]
+
+        # generate a signal to go from min_pos to max_pos from p0[2] with given frequency
+        sig = np.zeros((len(t), 3), dtype=np.float32)
+        sig[:, 0] = p0[0]
+        sig[:, 1] = p0[1]
+        sig[:, 2] = p0[2]
+
+        sig_name = f"sig_base_corner_{i}"
+        setup.add_signal(sig_name, sig, dt=dt_sig)
+        setup.add_actuator(idx, sig_name, type='position')
 
     # Save Everything
     setup.save()
-
-    # Save Visualization Faces
-    with h5py.File(path / "input" / "visualization.h5", 'w') as f:
-        f.create_dataset("faces", data=np.array(faces, dtype=np.int32))
-
-    print(f"\nSaved to: {path}")
 
     print("\n[Step 2] Running Simulation...")
 
@@ -109,13 +149,13 @@ def run_and_save_experiment(dir_name, n, beta):
 
 if __name__ == "__main__":
     n = 3
-    betas = np.linspace(30, 45, 500)
-    # for beta in betas:
-    #     dir_name = "exp_beta_" + str(beta) + "_n_" + str(n)
-    #     try:
-    #         run_and_save_experiment(dir_name, n, np.deg2rad(beta))
-    #     except Exception as e:
-    #         print(e)
+    betas = np.linspace(30, 45, 1000)
+    for beta in betas:
+        dir_name = "exp_beta_" + str(beta) + "_n_" + str(n)
+        try:
+            run_and_save_experiment(dir_name, n, np.deg2rad(beta))
+        except Exception as e:
+            print(e)
 
     beta = betas[499]
     dir_name = "exp_beta_" + str(beta) + "_n_" + str(n)

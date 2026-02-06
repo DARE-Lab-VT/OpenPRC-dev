@@ -10,6 +10,7 @@ MAX_FORCE = 1e6
 
 ATTR_FIXED = 1
 ATTR_POS_DRIVEN = 2
+ATTR_FORCE_DRIVEN = 4  # ADD THIS LINE
 
 
 @njit(fastmath=True)
@@ -168,6 +169,15 @@ def apply_global_forces_cpu(n_nodes, v, mass, attrs, damp, g, f):
             f[i] -= damp * m * v[i]
             # Gravity (Z-axis)
             f[i, 2] += m * g
+
+
+@njit(fastmath=True)
+def apply_force_actuation_cpu(n_actuators, indices, values, attrs, f):
+    """Apply external forces from force actuators."""
+    for k in range(n_actuators):
+        idx = indices[k]
+        if is_active(idx, attrs):
+            f[idx] += values[k]
 
 
 @njit(fastmath=True)
@@ -425,8 +435,15 @@ class CpuSolver:
         self.xt = np.zeros_like(self.x)
         self.vt = np.zeros_like(self.v)
 
-        # 5. Actuation
-        self.actuator_indices = np.where(self.attrs & 2)[0].astype(np.int32)
+        # 5. Actuation (Position)
+        self.pos_actuator_indices = np.where(self.attrs & ATTR_POS_DRIVEN)[0].astype(np.int32)
+        self.n_pos_actuators = len(self.pos_actuator_indices)
+
+        # 6. Actuation (Force)
+        self.force_actuator_indices = np.where(self.attrs & ATTR_FORCE_DRIVEN)[0].astype(np.int32)
+        self.n_force_actuators = len(self.force_actuator_indices)
+        if self.n_force_actuators > 0:
+            self.force_actuator_values = np.zeros((self.n_force_actuators, 3), dtype=np.float64)
 
     def upload_state(self, x, v):
         self.x[:] = x.astype(np.float64)
@@ -436,31 +453,47 @@ class CpuSolver:
         return self.x.astype(np.float32), self.v.astype(np.float32)
 
     def step(self, t, dt, actuation_map):
-        # 1. Actuation
-        if len(self.actuator_indices) > 0 and actuation_map:
-            # We can do this with numpy mask since we are on CPU
-            for idx in self.actuator_indices:
+        # 1. Position Actuation
+        if self.n_pos_actuators > 0 and actuation_map:
+            for idx in self.pos_actuator_indices:
                 if idx in actuation_map and actuation_map[idx]['type'] == 'position':
                     new_pos = actuation_map[idx]['value']
                     if dt > 1e-9:
                         self.v[idx] = (new_pos - self.x[idx]) / dt
                     self.x[idx] = new_pos
 
-        # 2. Physics Params
+        # 2. Prepare Force Actuation
+        if self.n_force_actuators > 0 and actuation_map:
+            self.force_actuator_values.fill(0.0)  # Reset to zero
+            for i, idx in enumerate(self.force_actuator_indices):
+                if idx in actuation_map and actuation_map[idx]['type'] == 'force':
+                    self.force_actuator_values[i] = actuation_map[idx]['value']
+
+        # 3. Physics Params
         grav = self.options.get('gravity', -9.81)
         damp = self.options.get('global_damping', 0.1)
 
         def compute_forces(x_in, v_in, f_out):
             f_out.fill(0.0)
+
             if self.n_bars > 0:
                 compute_bar_forces_cpu(self.n_bars, self.bar_indices, self.bar_params,
                                        x_in, v_in, self.attrs, f_out)
+
             if self.n_hinges > 0:
                 compute_hinge_forces_cpu(self.n_hinges, self.hinge_indices, self.hinge_params,
                                          x_in, self.attrs, f_out)
+
+            # Apply force actuation
+            if self.n_force_actuators > 0:
+                apply_force_actuation_cpu(self.n_force_actuators,
+                                          self.force_actuator_indices,
+                                          self.force_actuator_values,
+                                          self.attrs, f_out)
+
             apply_global_forces_cpu(self.n_nodes, v_in, self.mass, self.attrs, damp, grav, f_out)
 
-        # 3. RK4 Loop
+        # 4. RK4 Loop
         # Stage 1
         compute_forces(self.x, self.v, self.f)
         rk4_integration_step(self.n_nodes, dt, self.x, self.v, self.f, self.mass, self.attrs,
@@ -483,7 +516,7 @@ class CpuSolver:
                              self.k1x, self.k1v, self.k2x, self.k2v,
                              self.k3x, self.k3v, self.k4x, self.k4v, self.attrs)
 
-        # 4. PBD Loop (Rigid)
+        # 5. PBD Loop (Rigid)
         if self.n_rigid_bars > 0 or self.n_rigid_hinges > 0:
             for _ in range(5):
                 if self.n_rigid_bars > 0:

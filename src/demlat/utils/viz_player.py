@@ -466,6 +466,8 @@ class DEMLATVisualizer(PiVizFX):
         self.float_timestep = 0.0
         self.paused = False
         self.speed = 1.0
+        self.frame_step = 1
+        self._updating_slider = False  # Flag to prevent feedback loops
 
         # Configuration
         self.config = {
@@ -490,6 +492,9 @@ class DEMLATVisualizer(PiVizFX):
             'hinge_color_valley': (1.0, 0.4, 0.2),  # Orange for valley folds (angle < π)
             'hinge_color_flat': (0.5, 0.5, 0.5),  # Gray for flat (angle ≈ π)
             'hinge_indicator_scale': 0.15,  # Scale for hinge direction indicators
+            'show_hinge_rest_angle': True,  # NEW: toggle rest angle visualization
+            'hinge_force_scale': 0.5,  # Scale for hinge force vectors
+            'hinge_geom_scale': 0.4,  # Scale for localized hinge visualization
         }
 
         if config:
@@ -612,6 +617,9 @@ class DEMLATVisualizer(PiVizFX):
 
     def _on_timeline_change(self, value):
         """Called when timeline slider is moved."""
+        if self._updating_slider:
+            return
+
         self.timestep_idx = int(value)
         self.float_timestep = float(self.timestep_idx)
         # Pause when manually scrubbing
@@ -635,19 +643,28 @@ class DEMLATVisualizer(PiVizFX):
         self.float_timestep = float(self.timestep_idx)
         self._sync_timeline_slider()
 
-    def _prev_frame(self):
-        """Go to previous frame(s)."""
-        self.paused = True
-        self._update_pause_button()
-        self.timestep_idx = max(0, self.timestep_idx - self.frame_step)
-        self.float_timestep = float(self.timestep_idx)
-        self._sync_timeline_slider()
-
-    def _next_frame(self):
+    def _step_forward(self):
         """Go to next frame(s)."""
         self.paused = True
         self._update_pause_button()
-        self.timestep_idx = min(self.data.n_frames - 1, self.timestep_idx + self.frame_step)
+
+        step = max(1, int(self.frame_step))
+        max_idx = self.data.n_frames - 1
+        new_idx = min(max_idx, self.timestep_idx + step)
+
+        self.timestep_idx = int(new_idx)
+        self.float_timestep = float(self.timestep_idx)
+        self._sync_timeline_slider()
+
+    def _step_backward(self):
+        """Go to previous frame(s)."""
+        self.paused = True
+        self._update_pause_button()
+
+        step = max(1, int(self.frame_step))
+        new_idx = max(0, self.timestep_idx - step)
+
+        self.timestep_idx = int(new_idx)
         self.float_timestep = float(self.timestep_idx)
         self._sync_timeline_slider()
 
@@ -668,7 +685,9 @@ class DEMLATVisualizer(PiVizFX):
         if hasattr(self, 'ui_manager') and self.ui_manager:
             slider = self.ui_manager.get_widget("sld_timeline")
             if slider:
+                self._updating_slider = True
                 slider.value = self.timestep_idx
+                self._updating_slider = False
 
     def _clear_trails(self):
         """Clear all motion trails."""
@@ -679,12 +698,16 @@ class DEMLATVisualizer(PiVizFX):
         """Reset simulation to start."""
         self._goto_start()
         self.paused = False
+        self.timestep_idx = 0
+        self.float_timestep = 0.0
+        for k in self.trails:
+            self.trails[k].clear()
         self._update_pause_button()
 
         # ========================================================
 
     def _setup_ui(self):
-        """Setup UI controls."""
+        """Setup UI controls with explicit layout."""
         self.ui_manager.set_panel_title("DEMLAT Player")
 
         # Time display
@@ -709,16 +732,20 @@ class DEMLATVisualizer(PiVizFX):
                                        Slider("Frame", 0, self.data.n_frames - 1, 0, self._on_timeline_change))
 
             # Playback buttons row
+            # Note: PiViz widgets don't support explicit positioning in this version.
+            # We rely on the layout manager.
+
+            # In _setup_ui():
             self.ui_manager.add_widget("btn_start",
-                                       Button("|<", self._goto_start))
+                                       Button("<<", self._goto_start))
             self.ui_manager.add_widget("btn_prev",
-                                       Button("<", self._prev_frame))
+                                       Button("<-", self._step_backward))  # or "PREV"
             self.ui_manager.add_widget("btn_pause",
                                        Button("||", self._toggle_pause))
             self.ui_manager.add_widget("btn_next",
-                                       Button(">", self._next_frame))
+                                       Button("->", self._step_forward))  # or "NEXT"
             self.ui_manager.add_widget("btn_end",
-                                       Button(">|", self._goto_end))
+                                       Button(">>", self._goto_end))
 
             # Speed control
             self.ui_manager.add_widget("sld_speed",
@@ -731,7 +758,24 @@ class DEMLATVisualizer(PiVizFX):
                                        Slider("Step", 1, 50, 1, self._on_step_change))
         # ================================================
 
-        # Visualization toggles
+        # Toggles
+        if self.data.n_hinges > 0:
+            self.ui_manager.add_widget("chk_hinges",
+                                       Checkbox("Show Hinges", self.config['show_hinges'],
+                                                lambda v: self.config.update({'show_hinges': v})))
+
+        self.ui_manager.add_widget("chk_hinge_rest",
+                                   Checkbox("Show Rest Angle", self.config['show_hinge_rest_angle'],
+                                            lambda v: self.config.update({'show_hinge_rest_angle': v})))
+
+        self.ui_manager.add_widget("sld_hinge_force",
+                                   Slider("Hinge Force Scale", 0.1, 5.0, self.config['hinge_force_scale'],
+                                          lambda v: self.config.update({'hinge_force_scale': v})))
+
+        self.ui_manager.add_widget("sld_hinge_geom",
+                                   Slider("Hinge Size", 0.1, 1.0, self.config['hinge_geom_scale'],
+                                          lambda v: self.config.update({'hinge_geom_scale': v})))
+
         self.ui_manager.add_widget("chk_nodes",
                                    Checkbox("Show Nodes", self.config['show_nodes'],
                                             lambda v: self.config.update({'show_nodes': v})))
@@ -744,11 +788,6 @@ class DEMLATVisualizer(PiVizFX):
             self.ui_manager.add_widget("chk_faces",
                                        Checkbox("Show Faces", self.config['show_faces'],
                                                 lambda v: self.config.update({'show_faces': v})))
-
-        if self.data.n_hinges > 0:
-            self.ui_manager.add_widget("chk_hinges",
-                                       Checkbox("Show Hinges", self.config['show_hinges'],
-                                                lambda v: self.config.update({'show_hinges': v})))
 
         if 'bar_strain' in self.data.time_series:
             self.ui_manager.add_widget("chk_strain",
@@ -771,15 +810,6 @@ class DEMLATVisualizer(PiVizFX):
         self.ui_manager.add_widget("chk_particles",
                                    Checkbox("Particle Nodes", self.config['use_particles_for_nodes'],
                                             lambda v: self.config.update({'use_particles_for_nodes': v})))
-
-    def _reset_sim(self):
-        self.timestep_idx = 0
-        self.float_timestep = 0.0
-        for k in self.trails:
-            self.trails[k].clear()
-
-    def _toggle_pause(self):
-        self.paused = not self.paused
 
     def _toggle_velocity(self, v):
         self.config['show_velocity'] = v
@@ -870,87 +900,203 @@ class DEMLATVisualizer(PiVizFX):
 
     def _render_hinges(self):
         """
-        Render hinges with color-coded fold type visualization.
-
-        - Mountain folds (rest_angle > π): Blue
-        - Valley folds (rest_angle < π): Orange
-        - Flat hinges (rest_angle ≈ π): Gray
-
-        Shows:
-        - Hinge edge as thick line
-        - Small indicators for wing directions
-        - Optional: normal direction arrows
+        New hinge visualization:
+        - Colored faces based on angular deviation.
+        - Force vectors at wings showing restoring torque.
         """
         if self.data.n_hinges == 0 or not hasattr(self, 'hinge_indices'):
             return
 
-        scale = self.config['hinge_indicator_scale'] * self.scales.L_char
+        # Vectorized calculation
+        idx = self.hinge_indices
+        p_j = self.all_positions[idx[:, 0]]
+        p_k = self.all_positions[idx[:, 1]]
+        p_i = self.all_positions[idx[:, 2]]
+        p_l = self.all_positions[idx[:, 3]]
 
-        for i in range(self.data.n_hinges):
-            idx = self.hinge_indices[i]  # [edge1, edge2, wing1, wing2]
+        # Vectors (matching kernel logic)
+        r_ij = p_i - p_j
+        r_kj = p_k - p_j
+        r_kl = p_k - p_l  # Kernel uses xk - xl
 
-            # Get positions
-            p_edge1 = self.all_positions[idx[0]]
-            p_edge2 = self.all_positions[idx[1]]
-            p_wing1 = self.all_positions[idx[2]]
-            p_wing2 = self.all_positions[idx[3]]
+        # Normals
+        m = np.cross(r_ij, r_kj)
+        n = np.cross(r_kj, r_kl)
 
-            edge_mid = (p_edge1 + p_edge2) / 2
+        len_m = np.linalg.norm(m, axis=1)
+        len_n = np.linalg.norm(n, axis=1)
 
-            # Determine color based on rest angle
-            if self.hinge_rest_angles is not None:
-                rest_angle = self.hinge_rest_angles[i]
+        # Avoid division by zero
+        valid = (len_m > 1e-9) & (len_n > 1e-9)
 
-                if rest_angle > np.pi + 0.05:
-                    # Mountain fold
-                    color = self.config['hinge_color_mountain']
-                elif rest_angle < np.pi - 0.05:
-                    # Valley fold
-                    color = self.config['hinge_color_valley']
-                else:
-                    # Flat
-                    color = self.config['hinge_color_flat']
-            else:
-                color = self.config['hinge_color_flat']
+        # Debug print once
+        if not hasattr(self, '_debug_hinge_printed'):
+            print(f"DEBUG: Hinge render. Valid hinges: {np.sum(valid)}/{len(valid)}")
+            self._debug_hinge_printed = True
 
-            # Draw hinge edge (thick line)
+        if not np.any(valid): return
+
+        # Normalize normals
+        m_hat = np.zeros_like(m)
+        n_hat = np.zeros_like(n)
+        m_hat[valid] = m[valid] / len_m[valid, None]
+        n_hat[valid] = n[valid] / len_n[valid, None]
+
+        # Cosine of angle
+        dot_mn = np.einsum('ij,ij->i', m_hat, n_hat)
+        cos_phi = np.clip(dot_mn, -1.0, 1.0)
+        phi = np.arccos(cos_phi)
+
+        # Sign (Orientation)
+        # dot(m, r_kl) < 0 means convex vs concave
+        # Kernel: if (dot3(m, r_kl) < 0) phi = -phi;
+        dot_m_rkl = np.einsum('ij,ij->i', m, r_kl)
+        mask_neg = dot_m_rkl < 0
+        phi[mask_neg] = -phi[mask_neg]
+
+        # Deviation
+        if self.hinge_rest_angles is not None:
+            phi0 = self.hinge_rest_angles
+            delta = phi - phi0
+            # Wrap delta to [-pi, pi]
+            delta = (delta + np.pi) % (2 * np.pi) - np.pi
+        else:
+            delta = np.zeros_like(phi)
+
+        # Render
+        scale = self.config.get('hinge_force_scale', 0.5) * self.scales.L_char
+        geom_scale = self.config.get('hinge_geom_scale', 0.4)
+        limit = np.deg2rad(45)  # 45 degrees limit for color
+
+        # Arrow sizing
+        L = self.scales.L_char
+        arrow_head = 0.2 * L
+        arrow_width = 0.04 * L
+
+        for i in np.where(valid)[0]:
+            d = delta[i]
+
+            # Color based on deviation
+            # Blue (-limit) -> Green (0) -> Red (+limit)
+            t = np.clip((d + limit) / (2 * limit), 0.0, 1.0)
+            color = Colormap.jet(t)
+
+            # Draw Faces (semi-transparent)
+            c_face = (color[0], color[1], color[2], 0.4)
+
+            # Calculate midpoint
+            mid = (p_j[i] + p_k[i]) * 0.5
+
+            # Scaled positions relative to midpoint
+            pj_s = mid + (p_j[i] - mid) * geom_scale
+            pk_s = mid + (p_k[i] - mid) * geom_scale
+            pi_s = mid + (p_i[i] - mid) * geom_scale
+            pl_s = mid + (p_l[i] - mid) * geom_scale
+
+            # Convert to tuples
+            pt_j = tuple(map(float, pj_s))
+            pt_k = tuple(map(float, pk_s))
+            pt_i = tuple(map(float, pi_s))
+            pt_l = tuple(map(float, pl_s))
+
+            # Draw Faces
+            pgfx.draw_triangle(pt_j, pt_k, pt_i, c_face)
+            pgfx.draw_triangle(pt_j, pt_k, pt_l, c_face)
+
+            # Draw Spine
+            pgfx.draw_line(pt_j, pt_k, color=(1.0, 1.0, 1.0), width=2.0)  # White spine for visibility
+
+            # Draw Wing edges (to make the shape clear)
+            pgfx.draw_line(pt_j, pt_i, color=c_face[:3], width=1.0)
+            pgfx.draw_line(pt_k, pt_i, color=c_face[:3], width=1.0)
+            pgfx.draw_line(pt_j, pt_l, color=c_face[:3], width=1.0)
+            pgfx.draw_line(pt_k, pt_l, color=c_face[:3], width=1.0)
+
+            # Draw Force Vectors at Wings
+            # F_i direction: -sign(d) * m_hat
+            # F_l direction: sign(d) * n_hat
+            # Magnitude proportional to |d|
+
+            mag = abs(d) / limit  # Normalized magnitude 0..1 (can go >1)
+            mag = min(mag, 2.0)  # Cap visual length
+
+            # Always draw a small sphere at center to prove we are here
+            # mid = ((p_j[i] + p_k[i]) * 0.5)
+            # pgfx.draw_sphere(tuple(map(float, mid)), radius=self.scales.node_radius * 0.5, color=color, detail=4)
+
+            if mag > 0.01:  # Lower threshold for visibility
+                # Wing i
+                dir_i = -np.sign(d) * m_hat[i]
+                start_i = pt_i
+                end_i = tuple(map(float, pi_s + dir_i * scale * mag))
+                pgfx.draw_arrow(start_i, end_i, color=(1.0, 1.0, 0.0), head_size=arrow_head, width_radius=arrow_width)
+
+                # Wing l
+                dir_l = np.sign(d) * n_hat[i]
+                start_l = pt_l
+                end_l = tuple(map(float, pl_s + dir_l * scale * mag))
+                pgfx.draw_arrow(start_l, end_l, color=(1.0, 1.0, 0.0), head_size=arrow_head, width_radius=arrow_width)
+
+    def _draw_dashed_line(self, start, end, color, width, dash_length):
+        """Draw a dashed line."""
+        start = np.array(start)
+        end = np.array(end)
+        vec = end - start
+        length = np.linalg.norm(vec)
+
+        if length < 1e-10:
+            return
+
+        direction = vec / length
+        num_dashes = int(length / (2 * dash_length))
+
+        for i in range(num_dashes):
+            t0 = (2 * i * dash_length) / length
+            t1 = ((2 * i + 1) * dash_length) / length
+            if t1 > 1.0:
+                t1 = 1.0
+
+            p0 = start + t0 * vec
+            p1 = start + t1 * vec
+
             pgfx.draw_line(
-                tuple(p_edge1),
-                tuple(p_edge2),
+                tuple(p0),
+                tuple(p1),
                 color=color,
-                width=4.0
+                width=width
             )
 
-            # Draw wing indicators (thin lines from edge midpoint to wings)
-            # Scale them down so they don't clutter
-            wing1_dir = p_wing1 - edge_mid
-            wing1_dir = wing1_dir / (np.linalg.norm(wing1_dir) + 1e-10) * scale
+    def _draw_angle_arc(self, center, axis, start_vec, angle, radius, color, segments=16):
+        """Draw an arc to visualize an angle around an axis."""
+        center = np.array(center)
+        axis = np.array(axis)
+        start_vec = np.array(start_vec)
 
-            wing2_dir = p_wing2 - edge_mid
-            wing2_dir = wing2_dir / (np.linalg.norm(wing2_dir) + 1e-10) * scale
+        # Normalize
+        axis = axis / (np.linalg.norm(axis) + 1e-10)
+        start_vec = start_vec / (np.linalg.norm(start_vec) + 1e-10)
 
-            # Wing 1 indicator
-            pgfx.draw_line(
-                tuple(edge_mid),
-                tuple(edge_mid + wing1_dir),
-                color=(color[0] * 0.7, color[1] * 0.7, color[2] * 0.7),
-                width=2.0
-            )
+        # Generate arc points using Rodrigues rotation
+        points = []
+        for i in range(segments + 1):
+            theta = angle * i / segments
+            cos_t = np.cos(theta)
+            sin_t = np.sin(theta)
 
-            # Wing 2 indicator
-            pgfx.draw_line(
-                tuple(edge_mid),
-                tuple(edge_mid + wing2_dir),
-                color=(color[0] * 0.7, color[1] * 0.7, color[2] * 0.7),
-                width=2.0
-            )
+            # Rodrigues rotation formula
+            rotated = (start_vec * cos_t +
+                       np.cross(axis, start_vec) * sin_t +
+                       axis * np.dot(axis, start_vec) * (1 - cos_t))
 
-            # Small sphere at hinge midpoint
-            pgfx.draw_sphere(
-                center=tuple(edge_mid),
-                radius=self.scales.node_radius * 0.5,
+            point = center + rotated * radius
+            points.append(tuple(point))
+
+        # Draw arc as connected line segments
+        if len(points) > 1:
+            pgfx.draw_path(
+                points=points,
                 color=color,
-                detail=6
+                width=2.0
             )
 
     def _render_hinge_angles_overlay(self):
@@ -1199,8 +1345,16 @@ def visualize_experiment(experiment_path: str, config: Optional[Dict] = None):
     viz = DEMLATVisualizer(data, config)
 
     # Launch studio
-    studio = PiVizStudio(scene_fx=viz)
-    studio.run()
+    # PiVizStudio (via moderngl_window) parses sys.argv, so we need to clear it
+    # to avoid "unrecognized arguments" errors for our custom args.
+    argv_backup = sys.argv
+    sys.argv = [sys.argv[0]]
+
+    try:
+        studio = PiVizStudio(scene_fx=viz)
+        studio.run()
+    finally:
+        sys.argv = argv_backup
 
 
 # =============================================================================

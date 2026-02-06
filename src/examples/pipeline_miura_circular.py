@@ -179,7 +179,7 @@ def step_1_setup_experiment():
 def step_2_run_simulation():
     print("\n[Step 2] Running Simulation...")
     exp = demlat.Experiment(DEMO_DIR)
-    eng = demlat.Engine(BarHingeModel, backend='cuda')
+    eng = demlat.Engine(BarHingeModel, backend='jax')
     eng.run(exp)
 
 
