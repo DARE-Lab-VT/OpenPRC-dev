@@ -48,7 +48,7 @@ def main():
     
     # These arguments control the memory task calculation.
     benchmark_args = {
-        "tau_s": 50,         # Maximum lag to test for memory
+        "tau_s": 200,         # Maximum lag to test for memory
         "n_s": 2,            # Polynomial degree of inputs (1 for linear memory)
         "k_delay": 1,        # Step size for lags
         "ridge": 1e-6        # Regularization for the regression

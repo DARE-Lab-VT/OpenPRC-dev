@@ -1,5 +1,5 @@
 import numpy as np
-from ..utils import compute_ipc_components
+from ..utils import compute_ipc_components, compute_ipc_components_gpu
 
 
 def NARMA_task(u_input, order=2, a=0.3, b=0.05, c=1.5, d=0.1):
@@ -57,7 +57,7 @@ def memory_task(X, u_input, washout: int, train_stop: int, test_duration: int,
         Delay step size. For standard Memory Capacity (Jaeger 2001/Dambre 2012), this must be 1.
     """
     
-    basis_names, capacities, exps = compute_ipc_components(
+    basis_names, capacities, exps = compute_ipc_components_gpu(
         X=X,
         u_input=u_input,
         tau_s=tau_s,
