@@ -13,7 +13,7 @@ trapezoid = getattr(np, 'trapezoid', getattr(np, 'trapz', None))
 DEMO_DIR = Path("experiments/yoshimura_test")
 
 
-def setup(beta, drivers, force=False):
+def setup(beta, drivers, force=False, amplitude=4.0):
     from demlat.io.experiment_setup import ExperimentSetup
     from examples.Yoshimura import Yoshimura
 
@@ -24,21 +24,21 @@ def setup(beta, drivers, force=False):
     setup = ExperimentSetup(DEMO_DIR, overwrite=True)
 
     # Simulation parameters
-    duration = 1.0
-    dt = 0.00005
+    duration = 5.0
+    dt = 0.0005
     save_interval = 0.005
     setup.set_simulation_params(duration=duration, dt=dt, save_interval=save_interval)
-    setup.set_physics(gravity=0.0, damping=0.2)
+    setup.set_physics(gravity=0.0, damping=0.1)
 
     # Build Geometry
     beta = np.deg2rad(beta)
     n = 3
     d = np.tan(beta)
     k_axial = 1000.0
-    k_fold = 10.0
+    k_fold = 0.0
     k_facet = 0.01
     mass = 0.01
-    damping = 3.0
+    damping = 2.0
 
     print(f"\nYoshimura Parameters:")
     print(f"  n={n}, beta={np.rad2deg(beta):.2f}°")
@@ -82,7 +82,7 @@ def setup(beta, drivers, force=False):
     # Setup Actuation
     min_pos = 0.0
     max_pos = d
-    frequency = 0.2
+    frequency = 1.5
     duration = duration
     drivers = drivers
 
@@ -92,12 +92,13 @@ def setup(beta, drivers, force=False):
     dt_sig = 0.001
     t = np.arange(0, duration, dt_sig)
     omega = 2 * np.pi * frequency
-    half_duration = duration / 2.0
+
 
     if force:
         # Force actuation: smooth ramp from 0 to force_magnitude
-        force_magnitude = 150.0  # Adjust this value as needed
+        force_magnitude = amplitude  # Adjust this value as needed
         ramp_duration = 0.5  # Time to reach full force (seconds)
+        half_duration = duration / 2.0
 
         # Create force signal
         force_signal = np.zeros((len(t), 3), dtype=np.float32)
@@ -107,9 +108,6 @@ def setup(beta, drivers, force=False):
             if time <= ramp_duration:
                 # Linear ramp from 0 to force_magnitude
                 force_signal[i, 2] = force_magnitude * (time / ramp_duration)
-            elif time <= half_duration:
-                # Hold at maximum
-                force_signal[i, 2] = force_magnitude
             else:
                 # Zero after half_duration
                 force_signal[i, 2] = 0.0
@@ -128,14 +126,14 @@ def setup(beta, drivers, force=False):
             setup.add_signal(sig_name, sig, dt=dt_sig)
             setup.add_actuator(module.base_idx(2 * i), sig_name, type='force')
 
-        # Mid centers force outward
-        for i in range(drivers):
-            sig = np.zeros((len(t), 3), dtype=np.float32)
-            sig[:, 0] = -force_signal.copy()[:, 2] * np.cos(2 * np.pi / n * (i - 1)) / 5.0
-            sig[:, 1] = -force_signal.copy()[:, 2] * np.sin(2 * np.pi / n * (i - 1)) / 5.0
-            sig_name = f"sig_force_mid_{i}"
-            setup.add_signal(sig_name, sig, dt=dt_sig)
-            setup.add_actuator(module.mid_idx(2 * i), sig_name, type='force')
+        # # Mid centers force outward
+        # for i in range(drivers):
+        #     sig = np.zeros((len(t), 3), dtype=np.float32)
+        #     sig[:, 0] = -force_signal.copy()[:, 2] * np.cos(2 * np.pi / n * (i - 1)) / 5.0
+        #     sig[:, 1] = -force_signal.copy()[:, 2] * np.sin(2 * np.pi / n * (i - 1)) / 5.0
+        #     sig_name = f"sig_force_mid_{i}"
+        #     setup.add_signal(sig_name, sig, dt=dt_sig)
+        #     setup.add_actuator(module.mid_idx(2 * i), sig_name, type='force')
 
     else:
         # Original position actuation
@@ -190,31 +188,13 @@ def show_pe(demo_dir):
     from demlat.utils.plot_timeseries import SimulationPlotter
 
     plotter = SimulationPlotter(demo_dir / "output" / "simulation.h5")
-
-    # Get data
     time, _ = plotter.get_dataset("time")
-    # positions, _ = plotter.get_dataset("nodes/positions")
     potential_energy, _ = plotter.get_dataset("system/potential_energy")
     kinetic_energy, _ = plotter.get_dataset("system/kinetic_energy")
-    # strain_energy, _ = plotter.get_dataset("elements/bars/potential_energy")
-    # potential_energy = np.sum(strain_energy, axis=1)
-    # print(np.array(potential_energy).shape, np.array(strain_energy).shape)
-
-    # Flatten arrays if needed
     time = np.asarray(time).flatten()
     potential_energy = np.asarray(potential_energy).flatten()
     kinetic_energy = np.asarray(kinetic_energy).flatten()
 
-    # # Skip first 5 seconds (transient)
-    # t_start = 10.0
-    # t_end = 20.0
-    # mask = time >= t_start
-    # mask &= time <= t_end
-    # time = time[mask]
-    # # positions = positions[mask]
-    # potential_energy = potential_energy[mask]
-
-    # Plot potential energy
     plt.figure()
     plt.plot(time, potential_energy, '-r', label='pe')
     plt.plot(time, kinetic_energy, '-b', label='ke')
@@ -223,34 +203,6 @@ def show_pe(demo_dir):
     plt.ylabel('Potential Energy (J)')
     plt.legend()
     plt.show()
-
-    # # Get driven node displacement
-    # n = 0
-    # driven_node_idx = 4 * n
-    # z0 = positions[0, driven_node_idx, 2]
-    # displacement = z0 - positions[:, driven_node_idx, 2]
-    # displacement = np.asarray(displacement).flatten()
-    #
-    # plt.figure()
-    # plt.plot(time, displacement)
-    # plt.xlabel('Time (s)')
-    # plt.ylabel('Displacement (m)')
-    # plt.title('Yoshimura Origami: Displacement vs Time')
-    #
-    # plt.figure()
-    # plt.plot(displacement, potential_energy)
-    # plt.xlabel('displacement (m)')
-    # plt.ylabel('potential energy (J)')
-    # plt.title('Yoshimura Origami: Potential Energy vs Displacement')
-    #
-    # plt.figure()
-    # # derivative of pe vs displacement
-    # dPE_ddisp = np.gradient(potential_energy, displacement)
-    # plt.plot(displacement, dPE_ddisp)
-    # plt.xlabel('displacement (m)')
-    # plt.ylabel('dPE/ddisp (N)')
-    # plt.title('Yoshimura Origami: dPE/ddisp vs Displacement')
-    # plt.show()
 
 
 def show(pe):
@@ -261,6 +213,6 @@ def show(pe):
 
 
 if __name__ == "__main__":
-    setup(beta=35, drivers=3, force=True)
+    setup(beta=35, drivers=1, force=True, amplitude=5.6)
     run()
-    show(1)
+    show(0)

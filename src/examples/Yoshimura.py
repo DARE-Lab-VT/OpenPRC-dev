@@ -39,7 +39,7 @@ class Yoshimura:
 
         if randomize:
             # start nodes with random coordinates of size (6*n, 3) uniformly distributed along origin
-            self.nodes += (1 - 2 * np.random.random((6 * self.n, 3))) * 0.2
+            self.nodes += (1 - 2 * np.random.random((6 * self.n, 3))) * 0.01
 
         self.bars = []
         self.hinges = []
