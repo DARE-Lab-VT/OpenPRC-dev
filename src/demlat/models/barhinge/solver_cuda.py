@@ -114,6 +114,7 @@ class CudaSolver:
         # 3. Hinges (Soft vs Rigid)
         self.n_hinges = 0
         self.n_rigid_hinges = 0
+        self.n_angle_restricted_hinges = 0  # Initialize default
 
         if hinges and len(hinges['indices']) > 0:
             is_rigid_h = hinges['stiffness'] < 0
@@ -161,8 +162,6 @@ class CudaSolver:
                 self.grid_ar_hinges = ((int(self.n_angle_restricted_hinges) + 255) // 256, 1)
 
                 self.logger.info(f"Angle-restricted hinges: {self.n_angle_restricted_hinges}")
-            else:
-                self.n_angle_restricted_hinges = 0
 
         # 4. RK4 Buffers
         sz = n_nodes * 3 * 8
@@ -216,6 +215,12 @@ class CudaSolver:
                 max_pairs = int((self.n_collidable * (self.n_collidable - 1)) // 2)
                 self.d_collision_pairs = cuda.mem_alloc(int(max_pairs * 2 * 4))  # int pairs
                 self.d_collision_count = cuda.mem_alloc(int(4))  # single int counter
+                
+                # Calculate grid size for collision resolution
+                # We need to launch enough threads to cover the maximum possible collisions
+                # The grid size must be at least 1, and not exceed device limits
+                # A safe upper bound for grid size is max_pairs / 256
+                self.grid_collisions = (max(1, (max_pairs + 255) // 256), 1)
 
                 self.logger.info(f"Allocated collision buffers for max {max_pairs} pairs")
             else:
@@ -415,6 +420,6 @@ class CudaSolver:
                     self.d_attrs,
                     np.float64(self.collision_radius),
                     np.float64(self.collision_restitution),
-                    block=(256, 1, 1),
-                    grid=(int((self.n_collidable * self.n_collidable + 255) // 256), 1)
+                    block=self.block,
+                    grid=self.grid_collisions
                 )

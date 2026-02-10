@@ -91,22 +91,28 @@ __global__ void apply_position_actuation(int n_actuators, const int* act_indices
 
     int node_idx = act_indices[k];
 
-    double old_x = x[node_idx*3];
-    double old_y = x[node_idx*3 + 1];
-    double old_z = x[node_idx*3 + 2];
+    // X Component
+    double val_x = act_values[k*3];
+    if (!isnan(val_x)) {
+        double old_x = x[node_idx*3];
+        x[node_idx*3] = val_x;
+        if (dt > 1e-9) v[node_idx*3] = (val_x - old_x) / dt;
+    }
 
-    double new_x = act_values[k*3];
-    double new_y = act_values[k*3 + 1];
-    double new_z = act_values[k*3 + 2];
+    // Y Component
+    double val_y = act_values[k*3 + 1];
+    if (!isnan(val_y)) {
+        double old_y = x[node_idx*3 + 1];
+        x[node_idx*3 + 1] = val_y;
+        if (dt > 1e-9) v[node_idx*3 + 1] = (val_y - old_y) / dt;
+    }
 
-    x[node_idx*3]     = new_x;
-    x[node_idx*3 + 1] = new_y;
-    x[node_idx*3 + 2] = new_z;
-
-    if (dt > 1e-9) {
-        v[node_idx*3]     = (new_x - old_x) / dt;
-        v[node_idx*3 + 1] = (new_y - old_y) / dt;
-        v[node_idx*3 + 2] = (new_z - old_z) / dt;
+    // Z Component
+    double val_z = act_values[k*3 + 2];
+    if (!isnan(val_z)) {
+        double old_z = x[node_idx*3 + 2];
+        x[node_idx*3 + 2] = val_z;
+        if (dt > 1e-9) v[node_idx*3 + 2] = (val_z - old_z) / dt;
     }
 }
 
