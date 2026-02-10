@@ -1,790 +1,1034 @@
 """
-Equilibrium Analyzer for DEMLAT
-================================
+Equilibrium Finder for DEMLAT Bar-Hinge Models
+================================================
 
-Finds multiple equilibria of bar-hinge systems using deflated Newton's method
-on the gradient of the potential energy. Classifies stability via Hessian eigenvalues.
+Finds all fixed points of a conservative bar-hinge system by solving:
 
-Theory
-------
-For a conservative system with potential energy V(x; θ):
-    - Equilibria satisfy ∇V(x) = 0
-    - Stability is determined by the Hessian H = ∇²V(x):
-        * All eigenvalues > 0  →  stable (local minimum)
-        * Any eigenvalue < 0   →  unstable (saddle or maximum)
-        * Any eigenvalue ≈ 0   →  marginally stable / mechanism mode
+    ∇V(x) = 0
 
-Deflation: After finding equilibrium x*, we solve instead:
-    M(x; x*) · ∇V(x) = 0,  where M deflates known roots so Newton
-    doesn't reconverge to them.
+where V(x) is the total potential energy (gravity + elastic bars + elastic hinges).
 
-Usage
------
-    from demlat.analysis.equilibria import EquilibriumAnalyzer
+Method: Deflated Newton-Raphson
+    1. Find a root x*_1 via Newton
+    2. Deflate: modify the system so Newton is repelled from x*_1
+    3. Repeat to find x*_2, x*_3, ...
 
-    exp = demlat.Experiment("my_experiment/")
-    analyzer = EquilibriumAnalyzer(exp)
-    results = analyzer.find_equilibria(n_attempts=100)
+Reference: Farrell, Birkisson & Funke (2015)
+    "Deflation Techniques for Finding Distinct Solutions of Nonlinear PDEs"
+
+Usage:
+    finder = EquilibriumFinder.from_experiment("experiments/yoshimura_test")
+    results = finder.find_all()
+    finder.save_results(results, "equilibria.h5")
 """
 
 import numpy as np
-from dataclasses import dataclass, field
-from typing import List, Optional, Tuple, Dict, Any
-from pathlib import Path
-import time
-import json
-
 import jax
 import jax.numpy as jnp
-from jax import jit, grad, jacfwd, jacrev
+from jax import jit, grad, jacobian, hessian
+from functools import partial
+from pathlib import Path
+from dataclasses import dataclass, field
+from typing import List, Optional, Tuple, Dict
+import h5py
+import json
+import time
 
-from enum import Enum
 
-
-class StabilityType(Enum):
-    STABLE = "stable"              # All eigenvalues > 0 (local minimum)
-    UNSTABLE_SADDLE = "saddle"     # Mixed sign eigenvalues
-    UNSTABLE_MAXIMUM = "maximum"   # All eigenvalues < 0
-    MARGINAL = "marginal"          # Has near-zero eigenvalues (mechanism modes)
-
+# ============================================================
+# Data Structures
+# ============================================================
 
 @dataclass
 class Equilibrium:
-    """A single equilibrium state of the system."""
-    positions: np.ndarray            # (n_nodes, 3) equilibrium configuration
-    energy: float                    # V(x*) potential energy at equilibrium
-    eigenvalues: np.ndarray          # Eigenvalues of the Hessian (sorted)
-    eigenvectors: np.ndarray         # Corresponding eigenvectors
-    stability_type: StabilityType
-    n_negative: int                  # Number of negative eigenvalues (Morse index)
-    n_zero: int                      # Number of near-zero eigenvalues (mechanisms)
-    converged: bool                  # Whether Newton actually converged
-    residual: float                  # ||∇V(x*)|| at termination
-    n_iterations: int                # Newton iterations used
-
-    @property
-    def is_stable(self) -> bool:
-        return self.stability_type == StabilityType.STABLE
-
-    @property
-    def min_eigenvalue(self) -> float:
-        return float(self.eigenvalues[0])
-
-    @property
-    def morse_index(self) -> int:
-        """Number of unstable directions (negative eigenvalues)."""
-        return self.n_negative
-
-    def mechanism_modes(self, tol: float = 1e-6) -> np.ndarray:
-        """Return eigenvectors corresponding to near-zero eigenvalues."""
-        mask = np.abs(self.eigenvalues) < tol
-        return self.eigenvectors[:, mask]
+    """A single equilibrium state."""
+    positions: np.ndarray  # (n_nodes, 3)
+    energy: float  # V(x*)
+    eigenvalues: np.ndarray  # of the Hessian (reduced space)
+    stability: str  # 'stable', 'unstable', 'saddle'
+    index: int  # number of negative eigenvalues (Morse index)
+    residual: float  # ||∇V(x*)||
+    n_iterations: int  # Newton iterations to converge
+    source_guess: str  # label for the initial guess that found this
 
 
 @dataclass
-class EquilibriumSet:
-    """Collection of equilibria found for a system."""
+class FinderResults:
+    """Collection of all found equilibria."""
     equilibria: List[Equilibrium] = field(default_factory=list)
-    parameters: Dict[str, Any] = field(default_factory=dict)
-    timing: float = 0.0  # Total wall-clock time
+    n_total_attempts: int = 0
+    n_converged: int = 0
+    wall_time: float = 0.0
+    metadata: Dict = field(default_factory=dict)
 
     @property
-    def stable(self) -> List[Equilibrium]:
-        return [eq for eq in self.equilibria if eq.is_stable]
+    def n_stable(self):
+        return sum(1 for eq in self.equilibria if eq.stability == 'stable')
 
     @property
-    def unstable(self) -> List[Equilibrium]:
-        return [eq for eq in self.equilibria if not eq.is_stable]
+    def n_unstable(self):
+        return sum(1 for eq in self.equilibria if eq.stability != 'stable')
 
-    @property
-    def saddles(self) -> List[Equilibrium]:
-        return [eq for eq in self.equilibria
-                if eq.stability_type == StabilityType.UNSTABLE_SADDLE]
-
-    def summary(self) -> str:
-        lines = [
-            f"Equilibrium Analysis Results",
-            f"============================",
-            f"Total found: {len(self.equilibria)}",
-            f"  Stable (minima):    {len(self.stable)}",
-            f"  Saddle points:      {len(self.saddles)}",
-            f"  Unstable (maxima):  {len([e for e in self.equilibria if e.stability_type == StabilityType.UNSTABLE_MAXIMUM])}",
-            f"  Marginal:           {len([e for e in self.equilibria if e.stability_type == StabilityType.MARGINAL])}",
-            f"Wall time: {self.timing:.2f}s",
-            f"",
-        ]
+    def summary(self):
+        print(f"\n{'=' * 60}")
+        print(f"  Equilibrium Finder Results")
+        print(f"{'=' * 60}")
+        print(f"  Total attempts:     {self.n_total_attempts}")
+        print(f"  Converged:          {self.n_converged}")
+        print(f"  Unique equilibria:  {len(self.equilibria)}")
+        print(f"  Stable:             {self.n_stable}")
+        print(f"  Unstable:           {self.n_unstable}")
+        print(f"  Wall time:          {self.wall_time:.2f}s")
+        print(f"{'=' * 60}")
         for i, eq in enumerate(self.equilibria):
-            lines.append(
-                f"  [{i}] E={eq.energy:.6f}  type={eq.stability_type.value:>8s}  "
-                f"morse_idx={eq.morse_index}  n_zero={eq.n_zero}  "
-                f"min_eig={eq.min_eigenvalue:.2e}  residual={eq.residual:.2e}"
-            )
-        return "\n".join(lines)
-
-    def save(self, path: Path):
-        """Save results to JSON + NPZ."""
-        path = Path(path)
-        path.mkdir(parents=True, exist_ok=True)
-
-        # Metadata
-        meta = {
-            "n_equilibria": len(self.equilibria),
-            "n_stable": len(self.stable),
-            "n_unstable": len(self.unstable),
-            "timing": self.timing,
-            "parameters": {k: str(v) for k, v in self.parameters.items()},
-            "equilibria": []
-        }
-        for i, eq in enumerate(meta["equilibria"]):
-            meta["equilibria"].append({
-                "index": i,
-                "energy": float(eq.energy),
-                "stability_type": eq.stability_type.value,
-                "morse_index": eq.morse_index,
-                "n_zero": eq.n_zero,
-                "min_eigenvalue": float(eq.min_eigenvalue),
-                "residual": float(eq.residual),
-                "converged": eq.converged,
-            })
-
-        with open(path / "equilibria_meta.json", "w") as f:
-            json.dump(meta, f, indent=2)
-
-        # Numerical data
-        arrays = {}
-        for i, eq in enumerate(self.equilibria):
-            arrays[f"positions_{i}"] = eq.positions
-            arrays[f"eigenvalues_{i}"] = eq.eigenvalues
-            arrays[f"eigenvectors_{i}"] = eq.eigenvectors
-        np.savez_compressed(path / "equilibria_data.npz", **arrays)
+            neg = eq.index
+            print(f"  [{i}] E={eq.energy:+.6f}  "
+                  f"stability={eq.stability:<8s}  "
+                  f"morse_index={neg}  "
+                  f"residual={eq.residual:.2e}  "
+                  f"from={eq.source_guess}")
+        print()
 
 
-class EquilibriumAnalyzer:
+# ============================================================
+# Potential Energy Builder
+# ============================================================
+
+class PotentialEnergyBuilder:
     """
-    Finds and classifies equilibria of a DEMLAT bar-hinge system.
+    Builds a JAX-differentiable potential energy function V(x)
+    from DEMLAT geometry data.
 
-    Builds a JAX potential energy function from experiment geometry,
-    then uses deflated Newton iteration on ∇V = 0 with Hessian-based
-    stability classification.
+    This is intentionally decoupled from JaxSolver so it can be
+    used standalone for equilibrium analysis.
     """
 
-    def __init__(self, experiment):
+    def __init__(self, geometry: Dict, physics: Dict):
         """
-        Parameters
-        ----------
-        experiment : demlat.Experiment or path-like
-            A configured DEMLAT experiment (geometry + physics must exist).
+        Args:
+            geometry: dict with keys 'nodes', 'masses', 'bars', 'hinges'
+                      (matching DEMLAT HDF5 schema)
+            physics:  dict with 'gravity' (float)
         """
-        from demlat.core.experiment import Experiment
+        self.n_nodes = len(geometry['nodes'])
+        self.ref_positions = np.array(geometry['nodes'], dtype=np.float32)
+        self.mass = jnp.array(geometry.get('masses', np.ones(self.n_nodes) * 0.01),
+                              dtype=jnp.float32)
+        self.gravity = float(physics.get('gravity', 0.0))
 
-        if not isinstance(experiment, Experiment):
-            experiment = Experiment(experiment)
+        # --- Parse Bars ---
+        self.n_bars = 0
+        bars = geometry.get('bars', {})
+        if bars and len(bars.get('indices', [])) > 0:
+            idx = np.array(bars['indices'])
+            k = np.array(bars['stiffness'])
+            soft = k >= 0
+            if np.any(soft):
+                self.n_bars = int(np.sum(soft))
+                self.bar_indices = jnp.array(idx[soft], dtype=jnp.int32)
+                self.bar_k = jnp.array(k[soft], dtype=jnp.float32)
+                self.bar_l0 = jnp.array(bars['rest_length'][soft], dtype=jnp.float32)
 
-        self.experiment = experiment
-        self.config = experiment.config
-        self._load_geometry()
-        self._build_energy_function()
+                if 'prestress' in bars and bars['prestress'] is not None:
+                    self.bar_prestress = jnp.array(bars['prestress'][soft], dtype=jnp.float32)
+                else:
+                    self.bar_prestress = jnp.zeros(self.n_bars, dtype=jnp.float32)
 
-    def _load_geometry(self):
-        """Extract geometry and physics parameters from experiment files."""
-        import h5py
+        # --- Parse Hinges ---
+        self.n_hinges = 0
+        hinges = geometry.get('hinges', {})
+        if hinges and len(hinges.get('indices', [])) > 0:
+            idx = np.array(hinges['indices'])
+            k = np.array(hinges['stiffness'])
+            soft = k >= 0
+            if np.any(soft):
+                self.n_hinges = int(np.sum(soft))
+                self.hinge_indices = jnp.array(idx[soft], dtype=jnp.int32)
+                self.hinge_k = jnp.array(k[soft], dtype=jnp.float32)
 
-        phys = self.config.get("global_physics", {})
-        self.gravity = float(phys.get("gravity", -9.81))
-        self.damping = float(phys.get("global_damping", 0.1))
+                # Handle both key conventions: 'rest_angle' (internal) or 'angle' (HDF5)
+                angle_data = hinges.get('rest_angle', hinges.get('angle'))
+                if angle_data is None:
+                    raise KeyError("Hinge data missing both 'rest_angle' and 'angle' keys")
+                self.hinge_phi0 = jnp.array(np.array(angle_data)[soft], dtype=jnp.float32)
 
-        with self.experiment.get_geometry_reader() as f:
-            self.x0 = np.array(f["nodes/positions"])
-            self.masses = np.array(f["nodes/masses"])
-            self.attrs = np.array(f["nodes/attributes"])
-            self.n_nodes = self.x0.shape[0]
+        print(f"[PotentialEnergyBuilder] {self.n_nodes} nodes, "
+              f"{self.n_bars} bars, {self.n_hinges} hinges, "
+              f"gravity={self.gravity}")
 
-            # Bars
-            self.n_bars = 0
-            if "elements/bars/indices" in f and f["elements/bars/indices"].shape[0] > 0:
-                bar_k = np.array(f["elements/bars/stiffness"])
-                is_soft = bar_k >= 0
-                if np.any(is_soft):
-                    self.n_bars = int(np.sum(is_soft))
-                    self.bar_indices = np.array(f["elements/bars/indices"])[is_soft]
-                    self.bar_k = bar_k[is_soft]
-                    self.bar_l0 = np.array(f["elements/bars/rest_length"])[is_soft]
-                    if "elements/bars/prestress" in f:
-                        self.bar_prestress = np.array(f["elements/bars/prestress"])[is_soft]
-                    else:
-                        self.bar_prestress = np.zeros(self.n_bars)
-
-            # Hinges
-            self.n_hinges = 0
-            if "elements/hinges/indices" in f and f["elements/hinges/indices"].shape[0] > 0:
-                hinge_k = np.array(f["elements/hinges/stiffness"])
-                is_soft = hinge_k >= 0
-                if np.any(is_soft):
-                    self.n_hinges = int(np.sum(is_soft))
-                    self.hinge_indices = np.array(f["elements/hinges/indices"])[is_soft]
-                    self.hinge_k = hinge_k[is_soft]
-                    self.hinge_phi0 = np.array(f["elements/hinges/angle"])[is_soft]
-
-        # Fixed node mask
-        self.fixed_mask = (self.attrs & 1).astype(bool)
-        self.free_mask = ~self.fixed_mask
-        self.n_free = int(np.sum(self.free_mask))
-        self.free_indices = np.where(self.free_mask)[0]
-        self.fixed_indices = np.where(self.fixed_mask)[0]
-
-        # We work in reduced coordinates: only free node DOFs
-        self.n_dof = self.n_free * 3
-
-        print(f"[EquilibriumAnalyzer] {self.n_nodes} nodes ({self.n_free} free, "
-              f"{len(self.fixed_indices)} fixed), {self.n_bars} bars, {self.n_hinges} hinges")
-        print(f"[EquilibriumAnalyzer] DOF = {self.n_dof}")
-
-    def _build_energy_function(self):
+    def build(self):
         """
-        Build JAX potential energy V(q) where q is the reduced coordinate vector
-        (free node positions only). Fixed nodes are baked in as constants.
-        """
-        # Convert to JAX arrays
-        mass_j = jnp.array(self.masses, dtype=jnp.float32)
-        x0_fixed = jnp.array(self.x0[self.fixed_mask], dtype=jnp.float32)
-        free_idx = jnp.array(self.free_indices, dtype=jnp.int32)
-        fixed_idx = jnp.array(self.fixed_indices, dtype=jnp.int32)
+        Returns a pure JAX function: V(x_flat) -> scalar
+        where x_flat is positions flattened to (n_nodes * 3,).
 
+        This function is compatible with jax.grad, jax.hessian, etc.
+        """
         n_nodes = self.n_nodes
+        mass = self.mass
         gravity = self.gravity
-
-        # Bar data
         n_bars = self.n_bars
-        if n_bars > 0:
-            bar_idx = jnp.array(self.bar_indices, dtype=jnp.int32)
-            bar_k = jnp.array(self.bar_k, dtype=jnp.float32)
-            bar_l0 = jnp.array(self.bar_l0, dtype=jnp.float32)
-            bar_prestress = jnp.array(self.bar_prestress, dtype=jnp.float32)
-
-        # Hinge data
         n_hinges = self.n_hinges
+
+        # Capture element data in closure
+        if n_bars > 0:
+            bar_idx = self.bar_indices
+            bar_k = self.bar_k
+            bar_l0 = self.bar_l0
+            bar_ps = self.bar_prestress
+
         if n_hinges > 0:
-            hinge_idx = jnp.array(self.hinge_indices, dtype=jnp.int32)
-            hinge_k = jnp.array(self.hinge_k, dtype=jnp.float32)
-            hinge_phi0 = jnp.array(self.hinge_phi0, dtype=jnp.float32)
+            h_idx = self.hinge_indices
+            h_k = self.hinge_k
+            h_phi0 = self.hinge_phi0
 
-        def _reconstruct_full(q_free):
-            """Reconstruct full (n_nodes, 3) positions from free DOFs."""
-            x_full = jnp.zeros((n_nodes, 3), dtype=jnp.float32)
-            # Place free nodes
-            q_reshaped = q_free.reshape(-1, 3)
-            x_full = x_full.at[free_idx].set(q_reshaped)
-            # Place fixed nodes
-            if len(fixed_idx) > 0:
-                x_full = x_full.at[fixed_idx].set(x0_fixed)
-            return x_full
-
-        def potential_energy(q_free):
-            """Total potential energy as function of free DOFs only."""
-            x = _reconstruct_full(q_free)
+        def potential_energy(x_flat):
+            x = x_flat.reshape(n_nodes, 3)
             pe = 0.0
 
-            # Gravity
-            pe += jnp.sum(mass_j * (-gravity) * x[:, 2])
+            # --- Gravity ---
+            if gravity != 0.0:
+                pe += jnp.sum(mass * (-gravity) * x[:, 2])
 
-            # Bars: V = 0.5 * k * (L - L_eff)^2
+            # --- Bars: 0.5 * k * (L - L0_eff)^2 ---
             if n_bars > 0:
                 xi = x[bar_idx[:, 0]]
                 xj = x[bar_idx[:, 1]]
                 dx = xj - xi
-                dist = jnp.linalg.norm(dx, axis=1) + 1e-12
-                l_eff = bar_l0 * (1.0 + bar_prestress)
+                dist = jnp.linalg.norm(dx, axis=1)
+                l_eff = bar_l0 * (1.0 + bar_ps)
                 pe += 0.5 * jnp.sum(bar_k * (dist - l_eff) ** 2)
 
-            # Hinges: V = 0.5 * k * (phi - phi0)^2
+            # --- Hinges: 0.5 * k * wrap(phi - phi0)^2 ---
             if n_hinges > 0:
-                xj = x[hinge_idx[:, 0]]
-                xk = x[hinge_idx[:, 1]]
-                xi = x[hinge_idx[:, 2]]
-                xl = x[hinge_idx[:, 3]]
+                # Index convention from solver_jax.py:
+                #   [j, k, i, l] -> edge j-k, faces (i,j,k) and (k,j,l)
+                j_idx = h_idx[:, 0]
+                k_idx = h_idx[:, 1]
+                i_idx = h_idx[:, 2]
+                l_idx = h_idx[:, 3]
+
+                xj = x[j_idx]
+                xk = x[k_idx]
+                xi = x[i_idx]
+                xl = x[l_idx]
 
                 r_ij = xi - xj
                 r_kj = xk - xj
                 r_kl = xk - xl
 
-                m = jnp.cross(r_ij, r_kj)
-                n = jnp.cross(r_kj, r_kl)
+                m_vec = jnp.cross(r_ij, r_kj)
+                n_vec = jnp.cross(r_kj, r_kl)
 
-                len_m = jnp.linalg.norm(m, axis=1) + 1e-12
-                len_n = jnp.linalg.norm(n, axis=1) + 1e-12
+                len_m = jnp.linalg.norm(m_vec, axis=1) + 1e-12
+                len_n = jnp.linalg.norm(n_vec, axis=1) + 1e-12
 
-                m_hat = m / len_m[:, None]
-                n_hat = n / len_n[:, None]
+                m_hat = m_vec / len_m[:, None]
+                n_hat = n_vec / len_n[:, None]
 
-                cos_phi = jnp.clip(jnp.sum(m_hat * n_hat, axis=1), -1.0, 1.0)
+                cos_phi = jnp.sum(m_hat * n_hat, axis=1)
+                cos_phi = jnp.clip(cos_phi, -1.0, 1.0)
 
                 len_rkj = jnp.linalg.norm(r_kj, axis=1) + 1e-12
                 rkj_hat = r_kj / len_rkj[:, None]
                 sin_phi = jnp.sum(jnp.cross(m_hat, n_hat) * rkj_hat, axis=1)
 
                 phi = jnp.arctan2(sin_phi, cos_phi)
-                delta = phi - hinge_phi0
+                delta = phi - h_phi0
                 delta = jnp.arctan2(jnp.sin(delta), jnp.cos(delta))
 
-                pe += 0.5 * jnp.sum(hinge_k * delta ** 2)
+                pe += 0.5 * jnp.sum(h_k * delta ** 2)
 
             return pe
 
-        # Store functions
-        self._potential_energy = potential_energy
-        self._reconstruct_full = _reconstruct_full
+        return potential_energy
 
-        # Build gradient and Hessian via AD
-        self._gradient = jit(grad(potential_energy))
-        self._hessian = jit(jacfwd(grad(potential_energy)))
 
-        # JIT the energy itself
-        self._energy_jit = jit(potential_energy)
+# ============================================================
+# Deflated Newton Solver
+# ============================================================
 
-        # Warm up JIT
-        q0 = jnp.array(self.x0[self.free_mask].flatten(), dtype=jnp.float32)
-        _ = self._energy_jit(q0)
-        _ = self._gradient(q0)
-        print(f"[EquilibriumAnalyzer] Energy function built and JIT-compiled "
-              f"(V(x0) = {float(self._energy_jit(q0)):.6f})")
+class DeflatedNewtonSolver:
+    """
+    Finds multiple roots of ∇V(x) = 0 for stiff bar-hinge systems using a
+    two-phase approach with rigid body mode projection and deflation.
 
-    def _q_from_positions(self, x_full: np.ndarray) -> jnp.ndarray:
-        """Extract free DOF vector from full position array."""
-        return jnp.array(x_full[self.free_mask].flatten(), dtype=jnp.float32)
+    Phase 1: Energy minimization via projected gradient descent with momentum
+             (handles the severe ill-conditioning from k_bar >> k_hinge)
+    Phase 2: Newton-Raphson polishing to machine precision
 
-    def _positions_from_q(self, q: jnp.ndarray) -> np.ndarray:
-        """Reconstruct full positions from free DOF vector."""
-        return np.array(self._reconstruct_full(q))
+    Rigid body modes are projected out throughout. Deflation (Farrell et al.
+    2015) prevents re-convergence to known roots.
+    """
 
-    # =========================================================================
-    # Newton Solver with Deflation
-    # =========================================================================
+    def __init__(self,
+                 energy_fn,  # V(x) -> scalar
+                 residual_fn,  # g(x) = ∇V(x) -> (n,)
+                 n_nodes: int,
+                 ref_positions,  # (n_nodes, 3) reference config for null space
+                 deflation_power: float = 2.0,
+                 tol: float = 1e-6,
+                 max_iter: int = 2000,
+                 uniqueness_tol: float = 1e-3):
+        self.V = energy_fn
+        self.g = residual_fn
+        self.n_nodes = n_nodes
+        self.dim = n_nodes * 3
+        self.p = deflation_power
+        self.tol = tol
+        self.max_iter = max_iter
+        self.uniqueness_tol = uniqueness_tol
 
-    def _newton_solve(
-            self,
-            q0: jnp.ndarray,
-            known_roots: List[jnp.ndarray],
-            max_iter: int = 200,
-            tol: float = 1e-8,
-            deflation_power: float = 2.0,
-            line_search: bool = True,
-    ) -> Optional[Equilibrium]:
+        # JIT compile
+        self._energy_fn = jit(energy_fn)
+        self._res_fn = jit(residual_fn)
+        self._jac_fn = jit(jacobian(residual_fn))
+
+        # Build rigid body mode projector
+        self._build_null_space_projector(ref_positions)
+
+        # Known roots for deflation
+        self.known_roots: List[jnp.ndarray] = []
+
+    def _build_null_space_projector(self, ref_positions):
         """
-        Deflated Newton iteration to find a root of ∇V(q) = 0.
-
-        Deflation operator M(q; {q*_i}) = ∏_i ||q - q*_i||^p
-        We solve: ∇V(q) / M(q) = 0 (same roots as ∇V except known ones).
-
-        In practice, we modify the Newton direction rather than the residual:
-            H * Δq = -g / M(q)
-        where g = ∇V, H = ∇²V.
-
-        Parameters
-        ----------
-        q0 : initial guess (free DOFs)
-        known_roots : list of previously found equilibria (free DOFs)
-        max_iter : maximum Newton iterations
-        tol : convergence tolerance on ||∇V||
-        deflation_power : exponent p in deflation operator
-        line_search : whether to use backtracking line search
+        Build projector P = I - N @ N^T that removes rigid body modes.
+        N is orthonormal basis for 3 translations + 3 rotations.
         """
-        q = q0.copy()
+        pos = np.array(ref_positions, dtype=np.float64).reshape(self.n_nodes, 3)
+        centroid = pos.mean(axis=0)
+        r = pos - centroid
 
-        for iteration in range(max_iter):
-            g = self._gradient(q)
-            g_norm = float(jnp.linalg.norm(g))
+        null_modes = []
+        for axis in range(3):
+            mode = np.zeros((self.n_nodes, 3), dtype=np.float64)
+            mode[:, axis] = 1.0
+            null_modes.append(mode.flatten())
 
-            # Check convergence on the undeflated gradient
-            if g_norm < tol:
-                return self._classify_equilibrium(q, g_norm, iteration, converged=True)
+        for axis in range(3):
+            omega = np.zeros(3, dtype=np.float64)
+            omega[axis] = 1.0
+            mode = np.cross(omega, r)
+            null_modes.append(mode.flatten())
 
-            # Compute deflation factor
-            deflation = 1.0
-            for qstar in known_roots:
-                dist_sq = float(jnp.sum((q - qstar) ** 2))
-                if dist_sq < 1e-20:
-                    # Too close to known root, bail out
-                    return None
-                deflation *= dist_sq ** (deflation_power / 2.0)
+        N = np.column_stack(null_modes)
+        Q, _ = np.linalg.qr(N)
 
-            # Hessian
-            H = self._hessian(q)
+        self._null_basis = jnp.array(Q, dtype=jnp.float64)
+        self._n_rigid = Q.shape[1]
+        print(f"  [Null space] {self._n_rigid} rigid body modes projected out")
 
-            # Deflated RHS: solve H @ dq = -g / M
-            rhs = -g / (deflation + 1e-30)
+    def _project(self, v):
+        """Remove rigid body components from vector v."""
+        coeffs = self._null_basis.T @ v
+        return v - self._null_basis @ coeffs
 
-            # Regularized solve (Hessian may be singular near bifurcations)
-            try:
-                # Add small regularization for robustness
-                reg = 1e-8 * jnp.eye(self.n_dof)
-                dq = jnp.linalg.solve(H + reg, rhs)
-            except Exception:
-                return None
-
-            # Check for NaN
-            if jnp.any(jnp.isnan(dq)):
-                return None
-
-            # Backtracking line search on ||∇V||²
-            if line_search:
-                alpha = 1.0
-                current_merit = g_norm ** 2
-                for _ in range(20):
-                    q_trial = q + alpha * dq
-                    g_trial = self._gradient(q_trial)
-                    trial_merit = float(jnp.sum(g_trial ** 2))
-                    if trial_merit < current_merit * (1 - 1e-4 * alpha):
-                        break
-                    alpha *= 0.5
-                else:
-                    # Line search failed, take small step anyway
-                    alpha = 0.01
-                q = q + alpha * dq
-            else:
-                q = q + dq
-
-            # Clamp to prevent explosion
-            q = jnp.clip(q, -100.0, 100.0)
-
-        # Did not converge within max_iter
-        g_final = self._gradient(q)
-        g_norm = float(jnp.linalg.norm(g_final))
-        if g_norm < tol * 100:  # Near-converged
-            return self._classify_equilibrium(q, g_norm, max_iter, converged=False)
-        return None
-
-    def _classify_equilibrium(
-            self, q: jnp.ndarray, residual: float, n_iter: int, converged: bool
-    ) -> Equilibrium:
-        """Compute Hessian eigenvalues and classify stability."""
-        H = self._hessian(q)
-        H_np = np.array(H)
-
-        # Symmetrize (numerical noise)
-        H_np = 0.5 * (H_np + H_np.T)
-
-        eigenvalues, eigenvectors = np.linalg.eigh(H_np)
-
-        # Classification thresholds
-        zero_tol = 1e-6 * max(1.0, abs(eigenvalues[-1]))  # relative to largest
-        n_negative = int(np.sum(eigenvalues < -zero_tol))
-        n_zero = int(np.sum(np.abs(eigenvalues) <= zero_tol))
-        n_positive = int(np.sum(eigenvalues > zero_tol))
-
-        if n_negative == 0 and n_zero == 0:
-            stability = StabilityType.STABLE
-        elif n_negative == 0 and n_zero > 0:
-            stability = StabilityType.MARGINAL
-        elif n_positive == 0 and n_zero == 0:
-            stability = StabilityType.UNSTABLE_MAXIMUM
-        else:
-            stability = StabilityType.UNSTABLE_SADDLE
-
-        return Equilibrium(
-            positions=self._positions_from_q(q),
-            energy=float(self._energy_jit(q)),
-            eigenvalues=eigenvalues,
-            eigenvectors=eigenvectors,
-            stability_type=stability,
-            n_negative=n_negative,
-            n_zero=n_zero,
-            converged=converged,
-            residual=residual,
-            n_iterations=n_iter,
-        )
-
-    # =========================================================================
-    # Initial Guess Strategies
-    # =========================================================================
-
-    def _generate_initial_guesses(
-            self,
-            n_attempts: int,
-            strategies: List[str],
-            perturbation_scale: float = 0.1,
-            rng: np.random.Generator = None,
-    ) -> List[jnp.ndarray]:
+    def _deflation_weight(self, x):
         """
-        Generate diverse initial guesses for Newton solver.
-
-        Strategies
-        ----------
-        'reference' : Start from the reference (undeformed) configuration.
-        'random'    : Random perturbations around reference.
-        'kinematic' : Perturbations along known kinematic modes (e.g., folding
-                      direction for origami). Uses the softest eigenmodes of
-                      the Hessian at the reference config.
-        'compressed': Systematically compressed/extended configurations along z.
+        Deflation penalty added to energy to repel from known roots.
+        W(x) = sum_i  sigma / ||P(x - x*_i)||^p
         """
-        if rng is None:
-            rng = np.random.default_rng(42)
+        if len(self.known_roots) == 0:
+            return 0.0
+        w = 0.0
+        for x_star in self.known_roots:
+            diff = self._project(x - x_star)
+            dist = jnp.sqrt(jnp.sum(diff ** 2) + 1e-30)
+            w += 1.0 / (dist ** self.p + 1e-12)
+        return w
 
-        q_ref = self._q_from_positions(self.x0)
-        guesses = []
-
-        n_per_strategy = max(1, n_attempts // len(strategies))
-
-        for strategy in strategies:
-            if strategy == "reference":
-                guesses.append(q_ref)
-
-            elif strategy == "random":
-                for _ in range(n_per_strategy):
-                    perturbation = rng.normal(0, perturbation_scale, size=self.n_dof)
-                    guesses.append(q_ref + jnp.array(perturbation, dtype=jnp.float32))
-
-            elif strategy == "kinematic":
-                # Use soft modes of Hessian at reference as perturbation directions
-                H0 = np.array(self._hessian(q_ref))
-                H0 = 0.5 * (H0 + H0.T)
-                eigvals, eigvecs = np.linalg.eigh(H0)
-
-                # Take the softest modes (smallest |eigenvalue|)
-                n_modes = min(6, self.n_dof)
-                soft_modes = eigvecs[:, :n_modes]
-
-                for _ in range(n_per_strategy):
-                    # Random combination of soft modes
-                    coeffs = rng.normal(0, perturbation_scale, size=n_modes)
-                    perturbation = soft_modes @ coeffs
-                    guesses.append(q_ref + jnp.array(perturbation, dtype=jnp.float32))
-
-            elif strategy == "compressed":
-                # Systematic compression along z-axis
-                for frac in np.linspace(0.1, 0.9, n_per_strategy):
-                    q_compressed = q_ref.copy()
-                    # Scale z-coordinates of free nodes
-                    q_reshaped = np.array(q_compressed).reshape(-1, 3)
-                    z_range = q_reshaped[:, 2].max() - q_reshaped[:, 2].min()
-                    if z_range > 1e-6:
-                        z_mid = 0.5 * (q_reshaped[:, 2].max() + q_reshaped[:, 2].min())
-                        q_reshaped[:, 2] = z_mid + (q_reshaped[:, 2] - z_mid) * frac
-                    guesses.append(jnp.array(q_reshaped.flatten(), dtype=jnp.float32))
-
-            else:
-                raise ValueError(f"Unknown strategy: {strategy}")
-
-        return guesses
-
-    # =========================================================================
-    # Deduplication
-    # =========================================================================
-
-    def _is_duplicate(
-            self,
-            q_new: jnp.ndarray,
-            known: List[jnp.ndarray],
-            tol: float = 1e-4,
-    ) -> bool:
-        """Check if q_new is close to any known root."""
-        for qk in known:
-            dist = float(jnp.linalg.norm(q_new - qk))
-            if dist < tol:
+    def _is_duplicate(self, x_new):
+        """Check if x_new matches any known root (in deformation space)."""
+        x_proj = self._project(x_new)
+        for x_star in self.known_roots:
+            x_star_proj = self._project(x_star)
+            if float(jnp.linalg.norm(x_proj - x_star_proj)) < self.uniqueness_tol:
                 return True
         return False
 
-    # =========================================================================
-    # Main API
-    # =========================================================================
-
-    def find_equilibria(
-            self,
-            n_attempts: int = 100,
-            strategies: Optional[List[str]] = None,
-            perturbation_scale: float = 0.1,
-            deflation: bool = True,
-            tol: float = 1e-8,
-            max_newton_iter: int = 200,
-            dedup_tol: float = 1e-4,
-            seed: int = 42,
-            verbose: bool = True,
-    ) -> EquilibriumSet:
+    def solve_from(self, x0, label="unknown"):
         """
-        Find multiple equilibria of the system.
+        Find equilibrium from initial guess x0 using two-phase approach.
 
-        Parameters
-        ----------
-        n_attempts : int
-            Number of initial guesses to try.
-        strategies : list of str
-            Initial guess strategies. Default: ['reference', 'random', 'kinematic', 'compressed']
-        perturbation_scale : float
-            Scale of random perturbations relative to system size.
-        deflation : bool
-            Use deflation to avoid reconverging to known roots.
-        tol : float
-            Convergence tolerance for ||∇V||.
-        max_newton_iter : int
-            Maximum Newton iterations per attempt.
-        dedup_tol : float
-            Distance tolerance for considering two equilibria identical.
-        seed : int
-            Random seed for reproducibility.
-        verbose : bool
-            Print progress.
+        Phase 1: Projected gradient descent with adaptive step size.
+                 Robust to ill-conditioning. Runs until residual is small.
+        Phase 2: Projected Newton-Raphson for quadratic convergence.
+                 Kicks in when close enough for Newton to work.
 
-        Returns
-        -------
-        EquilibriumSet
-            Collection of found equilibria with metadata.
+        Returns (result_dict, converged) or (None, False).
         """
-        if strategies is None:
-            strategies = ["reference", "random", "kinematic", "compressed"]
+        x = jnp.array(x0, dtype=jnp.float64)
 
-        rng = np.random.default_rng(seed)
-        t0 = time.time()
+        # ---- Phase 1: Gradient descent with momentum ----
+        newton_threshold = self.tol * 1e3  # switch to Newton when residual < this
+        lr = 1e-2  # initial learning rate
+        momentum = 0.9
+        v = jnp.zeros_like(x)
+        best_res = float('inf')
+        stall_count = 0
 
-        # Generate initial guesses
-        guesses = self._generate_initial_guesses(
-            n_attempts, strategies, perturbation_scale, rng
+        phase1_iters = int(self.max_iter * 0.8)  # budget 80% for phase 1
+
+        for iteration in range(phase1_iters):
+            gx = self._res_fn(x)
+            gx_proj = self._project(gx)
+            res_norm = float(jnp.linalg.norm(gx_proj))
+
+            if res_norm < self.tol:
+                if self._is_duplicate(x):
+                    return None, False
+                return {
+                    'x': np.array(x), 'residual': res_norm,
+                    'n_iter': iteration, 'label': label
+                }, True
+
+            if res_norm < newton_threshold:
+                break  # switch to phase 2
+
+            # Add deflation gradient to repel from known roots
+            if len(self.known_roots) > 0:
+                deflation_grad = jnp.zeros_like(x)
+                for x_star in self.known_roots:
+                    diff = self._project(x - x_star)
+                    dist_sq = jnp.sum(diff ** 2) + 1e-20
+                    # Gradient of 1/||d||^p = -p * d / ||d||^{p+2}
+                    deflation_grad += -self.p * diff / (dist_sq ** (self.p / 2.0 + 1.0))
+                deflation_strength = min(0.1 * res_norm, 1.0)
+                gx_proj = gx_proj + deflation_strength * self._project(deflation_grad)
+
+            # Adaptive learning rate via line search on energy
+            E_curr = float(self._energy_fn(x))
+
+            # Momentum update
+            v = momentum * v - lr * gx_proj
+            v = self._project(v)  # keep in deformation subspace
+
+            x_trial = x + v
+            E_trial = float(self._energy_fn(x_trial))
+
+            if E_trial < E_curr:
+                x = x_trial
+                lr = min(lr * 1.05, 1.0)  # speed up
+            else:
+                # Backtrack
+                v = jnp.zeros_like(x)
+                lr *= 0.5
+                x = x - lr * gx_proj
+                x = x  # keep current position, reduce lr
+
+            # Track progress
+            if res_norm < best_res * 0.999:
+                best_res = res_norm
+                stall_count = 0
+            else:
+                stall_count += 1
+
+            if stall_count > 200:
+                # Completely stalled — give up on this guess
+                return None, False
+
+            if lr < 1e-15:
+                return None, False
+
+        # ---- Phase 2: Newton-Raphson polishing ----
+        phase2_iters = self.max_iter - phase1_iters
+        mu = 1e-4  # LM regularization
+
+        for iteration in range(phase2_iters):
+            gx = self._res_fn(x)
+            gx_proj = self._project(gx)
+            res_norm = float(jnp.linalg.norm(gx_proj))
+
+            if res_norm < self.tol:
+                if self._is_duplicate(x):
+                    return None, False
+                total_iter = phase1_iters + iteration
+                return {
+                    'x': np.array(x), 'residual': res_norm,
+                    'n_iter': total_iter, 'label': label
+                }, True
+
+            J = self._jac_fn(x)
+
+            # Projected regularized Hessian
+            N = self._null_basis
+            null_penalty = 1e6
+            J_reg = J + mu * jnp.eye(self.dim) + null_penalty * (N @ N.T)
+
+            try:
+                delta = jnp.linalg.solve(J_reg, gx_proj)
+            except Exception:
+                mu *= 10
+                if mu > 1e8:
+                    return None, False
+                continue
+
+            delta = self._project(delta)
+
+            if not jnp.isfinite(delta).all():
+                return None, False
+
+            # Backtracking line search
+            alpha = 1.0
+            accepted = False
+            for _ in range(30):
+                x_trial = x - alpha * delta
+                if not jnp.isfinite(x_trial).all():
+                    alpha *= 0.5
+                    continue
+
+                gx_trial = self._res_fn(x_trial)
+                trial_norm = float(jnp.linalg.norm(self._project(gx_trial)))
+
+                if trial_norm < res_norm:
+                    x = x_trial
+                    mu = max(mu * 0.1, 1e-12)
+                    accepted = True
+                    break
+                alpha *= 0.5
+
+            if not accepted:
+                mu = min(mu * 10, 1e6)
+
+        return None, False
+
+    def find_from_guesses(self, guesses, labels=None):
+        """Run solver from multiple initial guesses with deflation."""
+        if labels is None:
+            labels = [f"guess_{i}" for i in range(len(guesses))]
+
+        found = []
+        for i, (x0, label) in enumerate(zip(guesses, labels)):
+            result, converged = self.solve_from(x0, label=label)
+
+            if converged and result is not None:
+                x_root = jnp.array(result['x'], dtype=jnp.float64)
+                self.known_roots.append(x_root)
+                found.append(result)
+                E = float(self._energy_fn(x_root))
+                print(f"  [Root {len(found)}] from {label:25s} "
+                      f"E={E:+.8f}  res={result['residual']:.2e}  "
+                      f"iter={result['n_iter']}")
+
+        return found
+
+
+# ============================================================
+# Main Finder Class
+# ============================================================
+
+class EquilibriumFinder:
+    """
+    Top-level interface for finding equilibria of a DEMLAT bar-hinge system.
+
+    Usage:
+        finder = EquilibriumFinder.from_experiment("experiments/yoshimura_test")
+        results = finder.find_all(num_random=50)
+        results.summary()
+        finder.save_results(results, "equilibria.h5")
+    """
+
+    def __init__(self, geometry: Dict, physics: Dict):
+        self.geometry = geometry
+        self.physics = physics
+
+        self.n_nodes = len(geometry['nodes'])
+        self.dim = self.n_nodes * 3
+        self.ref_positions = np.array(geometry['nodes'], dtype=np.float64)
+
+        # Build potential energy (float64 for Newton precision)
+        builder = PotentialEnergyBuilder(geometry, physics)
+        V_f32 = builder.build()
+
+        # Wrap to accept float64 and promote internally
+        def V_f64(x_flat):
+            return V_f32(x_flat.astype(jnp.float32)).astype(jnp.float64)
+
+        # Actually, better: rebuild with float64 throughout
+        # For now, just use the f32 version — JAX will handle promotion
+        self.V = jit(V_f32)
+        self.grad_V = jit(grad(V_f32))
+        self.hess_V = jit(hessian(V_f32))
+
+        # Verify at reference config
+        x0 = jnp.array(self.ref_positions.flatten(), dtype=jnp.float32)
+        v0 = self.V(x0)
+        g0 = self.grad_V(x0)
+        print(f"[EquilibriumFinder] Reference config: V={float(v0):.6f}, "
+              f"||∇V||={float(jnp.linalg.norm(g0)):.6f}")
+
+    @classmethod
+    def from_experiment(cls, experiment_dir, config_overrides=None):
+        """
+        Load geometry and physics from a DEMLAT experiment directory.
+
+        Reads:
+            input/geometry.h5  — nodes, bars, hinges
+            input/config.json  — physics params
+        """
+        root = Path(experiment_dir)
+        geom_path = root / "input" / "geometry.h5"
+        config_path = root / "input" / "config.json"
+
+        if not geom_path.exists():
+            raise FileNotFoundError(f"Geometry not found: {geom_path}")
+        if not config_path.exists():
+            raise FileNotFoundError(f"Config not found: {config_path}")
+
+        # --- Load geometry ---
+        geometry = {}
+        with h5py.File(geom_path, 'r') as f:
+            geometry['nodes'] = f['nodes/positions'][:]
+
+            if 'nodes/masses' in f:
+                geometry['masses'] = f['nodes/masses'][:]
+
+            if 'elements/bars/indices' in f:
+                geometry['bars'] = {
+                    'indices': f['elements/bars/indices'][:].astype(np.int32),
+                }
+                for attr in ['stiffness', 'rest_length', 'prestress']:
+                    key = f'elements/bars/{attr}'
+                    if key in f:
+                        geometry['bars'][attr] = f[key][:]
+
+            if 'elements/hinges/indices' in f:
+                geometry['hinges'] = {
+                    'indices': f['elements/hinges/indices'][:].astype(np.int32),
+                }
+                for attr in ['stiffness', 'damping']:
+                    key = f'elements/hinges/{attr}'
+                    if key in f:
+                        geometry['hinges'][attr] = f[key][:]
+
+                # Rest angle: stored as 'angle' in HDF5
+                if 'elements/hinges/angle' in f:
+                    geometry['hinges']['rest_angle'] = f['elements/hinges/angle'][:]
+                elif 'elements/hinges/rest_angle' in f:
+                    geometry['hinges']['rest_angle'] = f['elements/hinges/rest_angle'][:]
+
+        # --- Load physics ---
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+
+        physics = config.get('global_physics', config.get('physics', {}))
+
+        if config_overrides:
+            physics.update(config_overrides)
+
+        return cls(geometry, physics)
+
+    # ----------------------------------------------------------
+    # Initial Guess Generation
+    # ----------------------------------------------------------
+
+    def _generate_guesses(self, num_random=50, perturbation_scale=0.1,
+                          include_compressed=True, n_intermediate=10):
+        """
+        Generate physics-informed initial guesses.
+
+        For origami structures, equilibria lie on or near the kinematic
+        manifold (configurations with bars at rest length). We bias
+        guesses toward this manifold by:
+          1. Z-scaling (folding/unfolding the cylinder)
+          2. Radial perturbation of mid-ring nodes (origami breathing mode)
+          3. Small random perturbations (for nearby saddle points)
+        """
+        guesses = []
+        labels = []
+        x_ref = self.ref_positions.copy()  # (n_nodes, 3)
+        n_nodes = self.n_nodes
+
+        # 1. Reference config
+        guesses.append(x_ref.flatten().copy())
+        labels.append("reference")
+
+        # 2. Z-scaled (folding/unfolding): scale z toward/away from midplane
+        if include_compressed:
+            z_min, z_max = x_ref[:, 2].min(), x_ref[:, 2].max()
+            z_mid = (z_min + z_max) / 2.0
+
+            for scale in [0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 0.8, 0.9,
+                          1.1, 1.3, 1.5, 2.0, 3.0]:
+                x_mod = x_ref.copy()
+                x_mod[:, 2] = z_mid + (x_mod[:, 2] - z_mid) * scale
+                guesses.append(x_mod.flatten())
+                labels.append(f"z_scale_{scale:.1f}")
+
+        # 3. Radial breathing: move mid-layer nodes inward/outward
+        #    This is the primary origami deformation mode
+        #    Detect mid-layer as nodes with z closest to z_midplane
+        z_vals = x_ref[:, 2]
+        z_sorted = np.sort(np.unique(np.round(z_vals, 6)))
+        if len(z_sorted) >= 3:
+            z_mid_layer = z_sorted[len(z_sorted) // 2]
+            mid_mask = np.abs(z_vals - z_mid_layer) < 0.01
+
+            for radial_scale in [-0.5, -0.3, -0.2, -0.1, -0.05,
+                                 0.05, 0.1, 0.2, 0.3, 0.5]:
+                x_mod = x_ref.copy()
+                # Move mid nodes radially
+                xy_norm = np.linalg.norm(x_mod[mid_mask, :2], axis=1, keepdims=True)
+                xy_norm = np.maximum(xy_norm, 1e-12)
+                direction = x_mod[mid_mask, :2] / xy_norm
+                x_mod[mid_mask, :2] += radial_scale * direction
+                guesses.append(x_mod.flatten())
+                labels.append(f"radial_{radial_scale:+.2f}")
+
+        # 4. Combined: z-scale + radial
+        for z_sc in [0.3, 0.5, 0.7, 1.3]:
+            for r_sc in [-0.2, -0.1, 0.1, 0.2]:
+                x_mod = x_ref.copy()
+                x_mod[:, 2] = z_mid + (x_mod[:, 2] - z_mid) * z_sc
+                if len(z_sorted) >= 3:
+                    xy_norm = np.linalg.norm(x_mod[mid_mask, :2], axis=1, keepdims=True)
+                    xy_norm = np.maximum(xy_norm, 1e-12)
+                    direction = x_mod[mid_mask, :2] / xy_norm
+                    x_mod[mid_mask, :2] += r_sc * direction
+                guesses.append(x_mod.flatten())
+                labels.append(f"combined_z{z_sc:.1f}_r{r_sc:+.1f}")
+
+        # 5. Random perturbations around reference (small scale)
+        key = jax.random.PRNGKey(42)
+        for i in range(num_random):
+            key, subkey = jax.random.split(key)
+            noise = jax.random.normal(subkey, (self.dim,)) * perturbation_scale
+            guesses.append(x_ref.flatten() + np.array(noise))
+            labels.append(f"perturbed_{i}")
+
+        return guesses, labels
+
+    # ----------------------------------------------------------
+    # Stability Classification
+    # ----------------------------------------------------------
+
+    def classify_equilibrium(self, x_flat):
+        """
+        Classify an equilibrium by computing eigenvalues of the Hessian.
+
+        For a free-floating body (no fixed nodes, no gravity), 6 eigenvalues
+        correspond to rigid body modes and should be near-zero. We exclude
+        these from the stability classification.
+
+        Returns:
+            eigenvalues, stability_label, morse_index
+        """
+        H = np.array(self.hess_V(jnp.array(x_flat)))
+
+        eigenvalues = np.linalg.eigvalsh(H)
+
+        # Separate rigid body modes from deformation modes
+        # Rigid body modes have |λ| << smallest elastic eigenvalue
+        # Heuristic: anything below 1e-3 * median(|λ|) is a rigid body mode
+        abs_eigs = np.abs(eigenvalues)
+        median_eig = np.median(abs_eigs[abs_eigs > 1e-12]) if np.any(abs_eigs > 1e-12) else 1.0
+        rigid_body_tol = min(1e-3 * median_eig, 1e-2)
+
+        deformation_eigs = eigenvalues[abs_eigs > rigid_body_tol]
+        n_rigid = np.sum(abs_eigs <= rigid_body_tol)
+
+        # Count negative deformation eigenvalues (Morse index)
+        negative = int(np.sum(deformation_eigs < -rigid_body_tol))
+
+        if negative == 0:
+            stability = 'stable'
+        elif negative == len(deformation_eigs):
+            stability = 'unstable'
+        else:
+            stability = 'saddle'
+
+        return eigenvalues, stability, negative
+
+    # ----------------------------------------------------------
+    # Main Entry Point
+    # ----------------------------------------------------------
+
+    def find_all(self,
+                 num_random: int = 50,
+                 perturbation_scale: float = 0.1,
+                 tol: float = 1e-6,
+                 max_iter: int = 2000,
+                 uniqueness_tol: float = 1e-3,
+                 deflation_power: float = 2.0) -> FinderResults:
+        """
+        Find all equilibria of the system.
+
+        Args:
+            num_random:         number of random/perturbed initial guesses
+            perturbation_scale: magnitude of perturbations around reference
+            tol:                Newton convergence tolerance
+            max_iter:           max Newton iterations per attempt
+            uniqueness_tol:     distance below which two roots are identical
+            deflation_power:    deflation exponent p
+
+        Returns:
+            FinderResults with all found equilibria
+        """
+        t_start = time.time()
+
+        # Generate guesses
+        guesses, labels = self._generate_guesses(
+            num_random=num_random,
+            perturbation_scale=perturbation_scale
         )
 
-        if verbose:
-            print(f"\n[EquilibriumAnalyzer] Starting search with {len(guesses)} initial guesses")
-            print(f"  Strategies: {strategies}")
-            print(f"  Deflation: {deflation}")
-            print(f"  Tolerance: {tol}")
+        print(f"\n[EquilibriumFinder] Searching with {len(guesses)} initial guesses...")
+        print(f"  Tolerance: {tol:.1e}, Max iter: {max_iter}")
+        print(f"  Deflation power: {deflation_power}")
+        print()
 
-        found_roots: List[jnp.ndarray] = []  # q vectors of found equilibria
-        results: List[Equilibrium] = []
+        # Create solver
+        solver = DeflatedNewtonSolver(
+            energy_fn=self.V,
+            residual_fn=self.grad_V,
+            n_nodes=self.n_nodes,
+            ref_positions=self.ref_positions,
+            deflation_power=deflation_power,
+            tol=tol,
+            max_iter=max_iter,
+            uniqueness_tol=uniqueness_tol
+        )
 
-        for i, q0 in enumerate(guesses):
-            known = found_roots if deflation else []
+        # Run deflated Newton
+        raw_results = solver.find_from_guesses(guesses, labels)
 
-            eq = self._newton_solve(
-                q0, known,
-                max_iter=max_newton_iter,
-                tol=tol,
-                line_search=True,
+        # Classify each found equilibrium
+        results = FinderResults(
+            n_total_attempts=len(guesses),
+            metadata={
+                'n_nodes': self.n_nodes,
+                'tol': tol,
+                'max_iter': max_iter,
+                'uniqueness_tol': uniqueness_tol,
+                'deflation_power': deflation_power,
+                'num_random': num_random,
+            }
+        )
+
+        for raw in raw_results:
+            x_flat = jnp.array(raw['x'], dtype=jnp.float32)
+
+            # Energy
+            energy = float(self.V(x_flat))
+
+            # Stability
+            eigenvalues, stability, morse_index = self.classify_equilibrium(x_flat)
+
+            eq = Equilibrium(
+                positions=raw['x'].reshape(self.n_nodes, 3),
+                energy=energy,
+                eigenvalues=eigenvalues,
+                stability=stability,
+                index=morse_index,
+                residual=raw['residual'],
+                n_iterations=raw['n_iter'],
+                source_guess=raw['label']
             )
+            results.equilibria.append(eq)
 
-            if eq is not None and eq.converged:
-                q_found = self._q_from_positions(eq.positions)
+        results.n_converged = len(raw_results)
+        results.wall_time = time.time() - t_start
 
-                if not self._is_duplicate(q_found, found_roots, tol=dedup_tol):
-                    found_roots.append(q_found)
-                    results.append(eq)
+        return results
 
-                    if verbose:
-                        print(
-                            f"  [{i+1}/{len(guesses)}] NEW equilibrium #{len(results)}: "
-                            f"E={eq.energy:.6f}, type={eq.stability_type.value}, "
-                            f"morse={eq.morse_index}"
-                        )
-            elif verbose and (i + 1) % max(1, len(guesses) // 10) == 0:
-                print(f"  [{i+1}/{len(guesses)}] ... ({len(results)} found so far)")
+    # ----------------------------------------------------------
+    # I/O: Save / Load
+    # ----------------------------------------------------------
 
-        elapsed = time.time() - t0
-
-        result_set = EquilibriumSet(
-            equilibria=results,
-            parameters={
-                "n_attempts": n_attempts,
-                "strategies": strategies,
-                "perturbation_scale": perturbation_scale,
-                "deflation": deflation,
-                "tol": tol,
-                "seed": seed,
-            },
-            timing=elapsed,
-        )
-
-        if verbose:
-            print(f"\n{result_set.summary()}")
-
-        return result_set
-
-    # =========================================================================
-    # Convenience: Energy Landscape
-    # =========================================================================
-
-    def energy_along_mode(
-            self,
-            mode_index: int = 0,
-            amplitude_range: Tuple[float, float] = (-1.0, 1.0),
-            n_points: int = 200,
-            base_config: Optional[np.ndarray] = None,
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    def save_results(self, results: FinderResults, filepath: str):
         """
-        Compute energy along a specific eigenmode of the Hessian.
+        Save equilibria to HDF5 in DEMLAT-compatible format.
 
-        Useful for 1D energy landscape visualization and understanding
-        the shape of the energy surface near an equilibrium.
-
-        Parameters
-        ----------
-        mode_index : int
-            Which eigenmode (0 = softest).
-        amplitude_range : tuple
-            (min, max) amplitude along the mode.
-        n_points : int
-            Number of sample points.
-        base_config : np.ndarray, optional
-            Base configuration (full positions). Default: reference config.
-
-        Returns
-        -------
-        amplitudes : np.ndarray
-            Parameter values along the mode.
-        energies : np.ndarray
-            V(x0 + alpha * mode) for each alpha.
+        Structure:
+            /metadata/              — finder settings
+            /equilibria/
+                /eq_000/
+                    positions       (n_nodes, 3)
+                    energy          scalar
+                    eigenvalues     (dim,)
+                    stability       string
+                    morse_index     int
+                    residual        float
+                /eq_001/
+                    ...
+            /summary/
+                n_found             int
+                n_stable            int
+                energies            (n_found,)
+                stabilities         string array
         """
-        if base_config is None:
-            q_base = self._q_from_positions(self.x0)
-        else:
-            q_base = self._q_from_positions(base_config)
+        filepath = Path(filepath)
+        filepath.parent.mkdir(parents=True, exist_ok=True)
 
-        # Get mode direction
-        H = np.array(self._hessian(q_base))
-        H = 0.5 * (H + H.T)
-        eigvals, eigvecs = np.linalg.eigh(H)
-        mode = eigvecs[:, mode_index]
+        with h5py.File(filepath, 'w') as f:
+            # --- Metadata ---
+            meta = f.create_group('metadata')
+            meta.attrs['n_nodes'] = self.n_nodes
+            meta.attrs['n_equilibria'] = len(results.equilibria)
+            meta.attrs['wall_time'] = results.wall_time
+            meta.attrs['n_attempts'] = results.n_total_attempts
+            meta.attrs['n_converged'] = results.n_converged
+            for k, v in results.metadata.items():
+                meta.attrs[k] = v
 
-        amplitudes = np.linspace(amplitude_range[0], amplitude_range[1], n_points)
-        energies = np.zeros(n_points)
+            # --- Reference geometry ---
+            f.create_dataset('reference/positions', data=self.ref_positions)
 
-        for i, alpha in enumerate(amplitudes):
-            q = q_base + alpha * jnp.array(mode, dtype=jnp.float32)
-            energies[i] = float(self._energy_jit(q))
+            # --- Each equilibrium ---
+            eq_group = f.create_group('equilibria')
+            for i, eq in enumerate(results.equilibria):
+                g = eq_group.create_group(f'eq_{i:03d}')
+                g.create_dataset('positions', data=eq.positions)
+                g.create_dataset('eigenvalues', data=eq.eigenvalues)
+                g.attrs['energy'] = eq.energy
+                g.attrs['stability'] = eq.stability
+                g.attrs['morse_index'] = eq.index
+                g.attrs['residual'] = eq.residual
+                g.attrs['n_iterations'] = eq.n_iterations
+                g.attrs['source_guess'] = eq.source_guess
 
-        return amplitudes, energies
+            # --- Summary arrays (convenient for plotting) ---
+            summary = f.create_group('summary')
+            if results.equilibria:
+                summary.create_dataset('energies',
+                                       data=np.array([eq.energy for eq in results.equilibria]))
+                summary.create_dataset('morse_indices',
+                                       data=np.array([eq.index for eq in results.equilibria]))
+                summary.create_dataset('residuals',
+                                       data=np.array([eq.residual for eq in results.equilibria]))
 
-    def energy_landscape_2d(
-            self,
-            mode_i: int = 0,
-            mode_j: int = 1,
-            amplitude_range: Tuple[float, float] = (-1.0, 1.0),
-            n_points: int = 50,
-            base_config: Optional[np.ndarray] = None,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """
-        Compute 2D energy landscape over two eigenmodes.
+                # String array for stability labels
+                dt = h5py.string_dtype()
+                stab = summary.create_dataset('stabilities',
+                                              shape=(len(results.equilibria),), dtype=dt)
+                for i, eq in enumerate(results.equilibria):
+                    stab[i] = eq.stability
 
-        Returns
-        -------
-        A_i, A_j : np.ndarray
-            Meshgrid of amplitudes.
-        E : np.ndarray
-            Energy at each grid point.
-        """
-        if base_config is None:
-            q_base = self._q_from_positions(self.x0)
-        else:
-            q_base = self._q_from_positions(base_config)
+        print(f"[Saved] {len(results.equilibria)} equilibria -> {filepath}")
 
-        H = np.array(self._hessian(q_base))
-        H = 0.5 * (H + H.T)
-        eigvals, eigvecs = np.linalg.eigh(H)
-        vi = eigvecs[:, mode_i]
-        vj = eigvecs[:, mode_j]
+    @staticmethod
+    def load_results(filepath: str) -> FinderResults:
+        """Load equilibria from HDF5."""
+        filepath = Path(filepath)
+        results = FinderResults()
 
-        a = np.linspace(amplitude_range[0], amplitude_range[1], n_points)
-        A_i, A_j = np.meshgrid(a, a)
-        E = np.zeros_like(A_i)
+        with h5py.File(filepath, 'r') as f:
+            results.n_total_attempts = int(f['metadata'].attrs.get('n_attempts', 0))
+            results.n_converged = int(f['metadata'].attrs.get('n_converged', 0))
+            results.wall_time = float(f['metadata'].attrs.get('wall_time', 0))
 
-        for ii in range(n_points):
-            for jj in range(n_points):
-                q = q_base + A_i[ii, jj] * jnp.array(vi) + A_j[ii, jj] * jnp.array(vj)
-                E[ii, jj] = float(self._energy_jit(q))
+            eq_group = f['equilibria']
+            for key in sorted(eq_group.keys()):
+                g = eq_group[key]
+                eq = Equilibrium(
+                    positions=g['positions'][:],
+                    energy=float(g.attrs['energy']),
+                    eigenvalues=g['eigenvalues'][:],
+                    stability=str(g.attrs['stability']),
+                    index=int(g.attrs['morse_index']),
+                    residual=float(g.attrs['residual']),
+                    n_iterations=int(g.attrs['n_iterations']),
+                    source_guess=str(g.attrs['source_guess'])
+                )
+                results.equilibria.append(eq)
 
-        return A_i, A_j, E
+        return results
+
+
+# ============================================================
+# Parameter Sweep Utility
+# ============================================================
+
+def sweep_stiffness(experiment_dir, k_facet_values, **finder_kwargs):
+    """
+    Sweep over facet stiffness and track how equilibria evolve.
+
+    This is the starting point for bifurcation analysis.
+    """
+    root = Path(experiment_dir)
+    geom_path = root / "input" / "geometry.h5"
+    config_path = root / "input" / "config.json"
+
+    with open(config_path, 'r') as f:
+        config = json.load(f)
+    physics = config.get('global_physics', config.get('physics', {}))
+
+    all_results = {}
+
+    for k_facet in k_facet_values:
+        print(f"\n{'=' * 60}")
+        print(f"  k_facet = {k_facet}")
+        print(f"{'=' * 60}")
+
+        # Load geometry and override hinge stiffness
+        geometry = {}
+        with h5py.File(geom_path, 'r') as f:
+            geometry['nodes'] = f['nodes/positions'][:]
+            if 'nodes/masses' in f:
+                geometry['masses'] = f['nodes/masses'][:]
+            if 'elements/bars/indices' in f:
+                geometry['bars'] = {
+                    'indices': f['elements/bars/indices'][:].astype(np.int32),
+                }
+                for attr in ['stiffness', 'rest_length', 'prestress']:
+                    key = f'elements/bars/{attr}'
+                    if key in f:
+                        geometry['bars'][attr] = f[key][:]
+            if 'elements/hinges/indices' in f:
+                geometry['hinges'] = {
+                    'indices': f['elements/hinges/indices'][:].astype(np.int32),
+                }
+                for attr in ['stiffness', 'damping']:
+                    key = f'elements/hinges/{attr}'
+                    if key in f:
+                        geometry['hinges'][attr] = f[key][:]
+
+                if 'elements/hinges/angle' in f:
+                    geometry['hinges']['rest_angle'] = f['elements/hinges/angle'][:]
+                elif 'elements/hinges/rest_angle' in f:
+                    geometry['hinges']['rest_angle'] = f['elements/hinges/rest_angle'][:]
+
+        # Override hinge stiffness
+        if 'hinges' in geometry:
+            geometry['hinges']['stiffness'][:] = k_facet
+
+        finder = EquilibriumFinder(geometry, physics)
+        results = finder.find_all(**finder_kwargs)
+        results.summary()
+
+        all_results[k_facet] = results
+
+    return all_results
+
+
+# ============================================================
+# Quick Test (standalone)
+# ============================================================
+
+if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) > 1:
+        exp_dir = sys.argv[1]
+    else:
+        exp_dir = "experiments/yoshimura_test"
+
+    print(f"Loading experiment from: {exp_dir}")
+    finder = EquilibriumFinder.from_experiment(exp_dir)
+
+    results = finder.find_all(
+        num_random=100,
+        perturbation_scale=0.5,
+        tol=1e-8,
+        max_iter=300,
+        uniqueness_tol=1e-3
+    )
+
+    results.summary()
+
+    # Save
+    out_path = Path(exp_dir) / "output" / "equilibria.h5"
+    finder.save_results(results, out_path)
+
+    # Verify round-trip
+    loaded = EquilibriumFinder.load_results(out_path)
+    print(f"Loaded back {len(loaded.equilibria)} equilibria.")

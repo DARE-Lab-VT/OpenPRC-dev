@@ -7,28 +7,23 @@ Tools for finding and classifying equilibria of nonlinear bar-hinge systems.
 Modules
 -------
 equilibria : Deflated Newton solver for finding multiple equilibria
-stability  : Eigenvalue-based stability classification (included in equilibria)
-landscape  : Energy landscape sampling and visualization (included in equilibria)
 
 Example
 -------
-    from demlat.analysis.equilibria import EquilibriumAnalyzer
+    from demlat.analysis.equilibria import EquilibriumFinder
 
-    exp = demlat.Experiment("my_experiment/")
-    analyzer = EquilibriumAnalyzer(exp)
-    results = analyzer.find_equilibria(n_attempts=200)
-    print(results.summary())
+    finder = EquilibriumFinder.from_experiment("experiments/yoshimura_test")
+    results = finder.find_all(num_random=50)
+    results.summary()
 
-    # Get only stable states
-    for eq in results.stable:
-        print(f"Stable state: E={eq.energy:.4f}, min_eig={eq.min_eigenvalue:.2e}")
+    # Save results
+    finder.save_results(results, "equilibria.h5")
 """
 
-from .equilibria import EquilibriumAnalyzer, EquilibriumSet, Equilibrium, StabilityType
+from .equilibria import EquilibriumFinder, Equilibrium, FinderResults
 
 __all__ = [
-    "EquilibriumAnalyzer",
-    "EquilibriumSet",
+    "EquilibriumFinder",
     "Equilibrium",
-    "StabilityType",
+    "FinderResults",
 ]

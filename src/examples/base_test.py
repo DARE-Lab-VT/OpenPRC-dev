@@ -18,27 +18,28 @@ def setup():
     setup.set_simulation_params(duration=2.0, dt=0.0005, save_interval=0.01)
     setup.set_physics(gravity=0.0, damping=0.2)
 
-    phi = np.pi / 2
+    phi = 0
 
     # nodes
-    setup.add_node([-1.0, 0.0, 0.0], mass=0.01, fixed=True)
-    setup.add_node([1.0, 0.0, 0.0], mass=0.01, fixed=True)
+    setup.add_node([-1.0, 0.0, 0.0], mass=0.01, fixed=False)
+    setup.add_node([1.0, 0.0, 0.0], mass=0.01, fixed=False)
     setup.add_node([0.0, np.cos(phi / 2), np.sin(phi / 2)], mass=0.01, fixed=False)
     setup.add_node([0.0, -np.cos(phi / 2), np.sin(phi / 2)], mass=0.01, fixed=False)
 
     # bars
-    setup.add_bar(0, 1, stiffness=10.0, rest_length=2.0, damping=0.1)
+    # setup.add_bar(0, 1, stiffness=10.0, rest_length=2.0, damping=0.1)
     setup.add_bar(0, 2, stiffness=10.0, rest_length=2 ** 0.5, damping=0.1)
     setup.add_bar(2, 1, stiffness=10.0, rest_length=2 ** 0.5, damping=0.1)
     setup.add_bar(1, 3, stiffness=10.0, rest_length=2 ** 0.5, damping=0.1)
     setup.add_bar(3, 0, stiffness=10.0, rest_length=2 ** 0.5, damping=0.1)
 
     # hinges
-    setup.add_hinge(nodes=[0, 1, 2, 3], stiffness=1.0, rest_angle=-np.pi)
+    setup.add_hinge(nodes=[0, 1, 2, 3], stiffness=1.0, rest_angle=np.pi / 2)
+    setup.add_hinge(nodes=[2, 3, 0, 1], stiffness=2.0, rest_angle=np.pi / 2)
 
     # faces
-    setup.add_face([0, 1, 2])
-    setup.add_face([0, 1, 3])
+    # setup.add_face([0, 1, 2])
+    # setup.add_face([0, 1, 3])
 
     # actuation
     pass
