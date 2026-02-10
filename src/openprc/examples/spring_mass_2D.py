@@ -90,7 +90,33 @@ def run_pipeline(
             
     print(f"Added {len(setup.bars['indices'])} bars.")
 
-    # --- 4. Define Fixed Nodes ---
+    # --- 4. Add Hinges for Bending Resistance ---
+    HINGE_STIFFNESS = 0.01  # N-m/rad. Kept low as a precaution.
+    HINGE_DAMPING = 0.1
+    # Add diagonal hinges to each quad to provide a baseline bending resistance
+    print("Generating hinges for all quads in the grid.")
+    for r in range(ROWS - 1):
+        for c in range(COLS - 1):
+            # Quad nodes
+            n_tl = node_indices[r, c]
+            n_tr = node_indices[r, c + 1]
+            n_bl = node_indices[r + 1, c]
+            n_br = node_indices[r + 1, c + 1]
+
+            # Hinge across the diagonal n_tl -> n_br
+            # Hinge 1: [j, k, i, l]
+            setup.add_hinge([n_tl, n_br, n_tr, n_bl], stiffness=HINGE_STIFFNESS, damping=HINGE_DAMPING, rest_angle=np.pi)
+
+            # Hinge across the other diagonal n_tr -> n_bl
+            # The order of the last two nodes is swapped here compared to previous attempts.
+            # This might be required to ensure a consistent winding order for the solver.
+            # Hinge 2: [j, k, i, l]
+            setup.add_hinge([n_tr, n_bl, n_br, n_tl], stiffness=HINGE_STIFFNESS, damping=HINGE_DAMPING, rest_angle=np.pi)
+    
+    print(f"Added {len(setup.hinges['indices'])} hinges.")
+
+
+    # --- 5. Define Fixed Nodes ---
     fixed_indices = []
     print(f"Fixing nodes via actuation: {fixed_indices}")
 
@@ -105,7 +131,7 @@ def run_pipeline(
             setup.add_signal(f"sig_fixed_corner_{i}", sig, dt=dt_sig)
             setup.add_actuator(idx, f"sig_fixed_corner_{i}", type='position')
 
-    # --- 5. Define Actuated Nodes ---
+    # --- 6. Define Actuated Nodes ---
     act_indices = [
         node_indices[0, 0], 
         node_indices[0, COLS - 1], 
