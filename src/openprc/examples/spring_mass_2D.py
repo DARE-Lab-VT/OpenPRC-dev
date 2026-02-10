@@ -1,11 +1,10 @@
 """
 2D Spring-Mass System Example (ExperimentSetup API)
 =====================================================
-This script demonstrates how to create and simulate a 2D spring-mass system
-using the high-level `ExperimentSetup` API. It generates a grid of masses
-connected by springs, fixes the top corners, and runs a simulation under gravity.
+Modified for GA Integration (Strict Naming & String Path Fix)
 """
 import sys
+import h5py
 from pathlib import Path
 import numpy as np
 
@@ -20,24 +19,24 @@ from openprc.demlat.io.experiment_setup import ExperimentSetup
 from openprc.demlat.utils.viz_player import visualize_experiment
 
 
-def run_pipeline(k_mat: np.ndarray = None, c_mat: np.ndarray = None, ga_generation: int = 0):
+def run_pipeline(
+    rows: int = 3, 
+    cols: int = 3, 
+    k_mat: np.ndarray = None, 
+    c_mat: np.ndarray = None, 
+    ga_generation: int = 0
+):
     """
     Defines, saves, and runs the entire spring-mass experiment.
-
-    Args:
-        k_mat (np.ndarray, optional): An NxN matrix of spring stiffness values,
-            where N is the total number of nodes (ROWS * COLS). A non-zero
-            value at (i, j) creates a spring. If None, a default grid is
-            generated with default stiffness.
-        c_mat (np.ndarray, optional): An NxN matrix of spring damping values.
-            If None, the default damping value is used for all springs.
     """
     # --- 1. Define Grid and Simulation Parameters ---
-    ROWS, COLS = 3, 3
+    ROWS, COLS = rows, cols
     SPACING = 0.053  # meters
     STIFFNESS = 100.0  # N/m
     DAMPING = 0.4
     NODE_MASS = 0.01  # kg
+    
+    # STRICT Directory Naming: experiments/spring_mass_{R}x{C}_test/generation_{gen}
     OUTPUT_DIR = src_dir/"experiments"/f"spring_mass_{ROWS}x{COLS}_test"/f"generation_{ga_generation}"
 
     print(f"[Step 1] Setting up {ROWS}x{COLS} spring-mass grid in {OUTPUT_DIR}")
@@ -66,17 +65,8 @@ def run_pipeline(k_mat: np.ndarray = None, c_mat: np.ndarray = None, ga_generati
         print("Using provided stiffness matrix (k_mat) to create springs.")
         num_nodes = ROWS * COLS
         if not isinstance(k_mat, np.ndarray) or k_mat.shape != (num_nodes, num_nodes):
-            raise ValueError(
-                f"Stiffness matrix (k_mat) must be a NumPy array with shape "
-                f"({num_nodes}, {num_nodes}), but got shape {k_mat.shape if isinstance(k_mat, np.ndarray) else type(k_mat)}."
-            )
-        if c_mat is not None and (not isinstance(c_mat, np.ndarray) or c_mat.shape != (num_nodes, num_nodes)):
-            raise ValueError(
-                f"Damping matrix (c_mat) must be a NumPy array with shape "
-                f"({num_nodes}, {num_nodes}), but got shape {c_mat.shape if isinstance(c_mat, np.ndarray) else type(c_mat)}."
-            )
-
-        # Iterate over the upper triangle of the matrix to add bars
+            raise ValueError("Stiffness matrix mismatch.")
+        
         for i in range(num_nodes):
             for j in range(i + 1, num_nodes):
                 stiffness = k_mat[i, j]
@@ -91,7 +81,6 @@ def run_pipeline(k_mat: np.ndarray = None, c_mat: np.ndarray = None, ga_generati
                 idx1 = node_indices[r, c]
                 idx2 = node_indices[r, c + 1]
                 setup.add_bar(idx1, idx2, stiffness=STIFFNESS, damping=DAMPING)
-
         # Vertical
         for r in range(ROWS - 1):
             for c in range(COLS):
@@ -109,23 +98,25 @@ def run_pipeline(k_mat: np.ndarray = None, c_mat: np.ndarray = None, ga_generati
     dt_sig = sim_params['dt_base']
     t_ = np.arange(0, sim_params['duration'], dt_sig)
     
-    # Create static signals to hold corner nodes in place
     if len(fixed_indices) != 0:
         for i, idx in enumerate(fixed_indices):
             p0 = setup.nodes['positions'][idx]
             sig = np.tile(p0, (len(t_), 1))
-            sig_name = f"sig_fixed_corner_{i}"
-            setup.add_signal(sig_name, sig, dt=dt_sig)
-            setup.add_actuator(idx, sig_name, type='position')
+            setup.add_signal(f"sig_fixed_corner_{i}", sig, dt=dt_sig)
+            setup.add_actuator(idx, f"sig_fixed_corner_{i}", type='position')
 
     # --- 5. Define Actuated Nodes ---
-    act_indices = [node_indices[0, 0], node_indices[0, COLS - 1], node_indices[ROWS - 1, 0], node_indices[ROWS - 1, COLS - 1]]
+    act_indices = [
+        node_indices[0, 0], 
+        node_indices[0, COLS - 1], 
+        node_indices[ROWS - 1, 0], 
+        node_indices[ROWS - 1, COLS - 1]
+    ]
     act_indices = [idx for idx in act_indices if idx not in fixed_indices]
     print(f"Adding dynamic actuation to nodes: {act_indices}")
 
     if len(act_indices) != 0:
         for i, act_idx in enumerate(act_indices):
-            # Create a sinusoidal signal in the X direction
             p0 = setup.nodes['positions'][act_idx]
             amp = 0.02  # 2 cm
             f1 = 2.11   # 2.11 Hz
@@ -135,10 +126,8 @@ def run_pipeline(k_mat: np.ndarray = None, c_mat: np.ndarray = None, ga_generati
             sig = np.tile(p0, (len(t_), 1))
             sig[:, 0] += amp * np.sin(2 * np.pi * f1 * t_) * np.sin(2 * np.pi * f2 * t_) * np.sin(2 * np.pi * f3 * t_)
             
-            # Add the dynamic signal and actuator
-            sig_name = f"sig_actuator_{i}"
-            setup.add_signal(sig_name, sig, dt=dt_sig)
-            setup.add_actuator(act_idx, sig_name, type='position')
+            setup.add_signal(f"sig_actuator_{i}", sig, dt=dt_sig)
+            setup.add_actuator(act_idx, f"sig_actuator_{i}", type='position')
 
     # --- 6. Save Experiment Files ---
     print("\n[Step 2] Saving experiment files (config.json, geometry.h5)...")
@@ -148,7 +137,6 @@ def run_pipeline(k_mat: np.ndarray = None, c_mat: np.ndarray = None, ga_generati
     print("\n[Step 3] Running simulation...")
     exp = demlat.Experiment(OUTPUT_DIR)
     
-    # Use CUDA if available, else CPU
     try:
         import pycuda.driver
         pycuda.driver.init()
@@ -165,13 +153,25 @@ def run_pipeline(k_mat: np.ndarray = None, c_mat: np.ndarray = None, ga_generati
     eng.run(exp)
     
     print("\nDone. You can now visualize the results with:")
+    # Return Path object for internal use, string for print/visualizer
     print(f"python src/demlat/utils/viz_player.py {OUTPUT_DIR}")
 
-    return OUTPUT_DIR
+    # --- 8. Read and Return Data ---
+    data = None
+    res_path = OUTPUT_DIR / "output" / "simulation.h5"
+    
+    if res_path.exists():
+        with h5py.File(res_path, 'r') as f:
+            data = f['time_series/nodes/positions'][:]
+    return data, OUTPUT_DIR
 
 
 if __name__ == "__main__":
-    output_dir = run_pipeline()
+    # Test Run
+    result = run_pipeline(rows=4, cols=4)
+    data, output_dir = result
+    
     if output_dir:
         print(f"\n[Step 4] Visualizing experiment: {output_dir}")
-        visualize_experiment(output_dir)
+        # FIX: Convert Path object to string for the visualizer
+        visualize_experiment(str(output_dir))
