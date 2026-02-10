@@ -32,7 +32,7 @@ def run_pipeline(
     # --- 1. Define Grid and Simulation Parameters ---
     ROWS, COLS = rows, cols
     SPACING = 0.053  # meters
-    STIFFNESS = 100.0  # N/m
+    STIFFNESS = 222.15  # N/m
     DAMPING = 0.4
     NODE_MASS = 0.01  # kg
     
