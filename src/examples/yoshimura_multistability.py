@@ -1,190 +1,205 @@
 """
-Yoshimura Multistability Analysis
-==================================
-
-Example: Setup a Yoshimura experiment, find all equilibria,
-then optionally verify stable ones via time-domain simulation.
+Yoshimura Equilibrium Analysis
+===============================
+Finds all equilibria of the Yoshimura origami bar-hinge model
+using dynamic relaxation from multiple initial guesses.
 
 Usage:
-    python examples/yoshimura_multistability.py
+    python pipeline_yoshimura_equilibrium.py
 """
 
 from pathlib import Path
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
-# ── DEMLAT imports ──
-# from demlat.io.experiment_setup import ExperimentSetup
-# from demlat.core.experiment import Experiment
-# from demlat.analysis.equilibria import EquilibriumAnalyzer
-# from examples.Yoshimura import Yoshimura
-
-DEMO_DIR = Path("experiments/yoshimura_multistability")
+DEMO_DIR = Path("experiments/yoshimura_equilibrium")
 
 
-def setup_experiment(beta_deg=35.0, n=3):
-    """Create the Yoshimura geometry (no actuation — static analysis)."""
+# =============================================================
+# 1. SETUP
+# =============================================================
+
+def setup(beta=35, k_facet=0.02):
     from demlat.io.experiment_setup import ExperimentSetup
     from examples.Yoshimura import Yoshimura
 
-    setup = ExperimentSetup(DEMO_DIR, overwrite=True)
+    print("\n[Setup] Creating Yoshimura Geometry...")
 
-    # Physics: no gravity, light damping
-    setup.set_simulation_params(duration=1.0, dt=0.001, save_interval=0.01)
+    setup = ExperimentSetup(DEMO_DIR, overwrite=True)
+    setup.set_simulation_params(duration=5.0, dt=0.0001, save_interval=0.01)
     setup.set_physics(gravity=0.0, damping=0.1)
 
-    # Geometry
-    beta = np.deg2rad(beta_deg)
-    module = Yoshimura(n, beta, randomize=False)
-    nodes, bars, hinges, faces, _ = module.get_geometry()
-
-    # Material
-    k_axial = 2000.0
-    k_fold = 0.0  # fold creases are free
-    k_facet = 0.01  # facets resist bending
+    beta_rad = np.deg2rad(beta)
+    n = 3
+    k_axial = 1000.0
+    k_fold = 0.0
     mass = 0.01
     damping = 2.0
 
-    # Add nodes
-    for node_pos in nodes:
-        setup.add_node(node_pos, mass=mass, fixed=False)
+    print(f"  n={n}, beta={beta:.1f}°, k_axial={k_axial}, k_facet={k_facet}, k_fold={k_fold}")
 
-    # Add bars
+    module = Yoshimura(n, beta_rad, randomize=False)
+    nodes, bars, hinges, faces, _ = module.get_geometry()
+
+    print(f"  Nodes: {len(nodes)}, Bars: {len(bars)}, Hinges: {len(hinges)}, Faces: {len(faces)}")
+
+    for pos in nodes:
+        setup.add_node(pos, mass=mass, fixed=False)
+
     for bar in bars:
         setup.add_bar(bar[0], bar[1], stiffness=k_axial * bar[2],
                       rest_length=bar[2], damping=damping)
 
-    # Add hinges (only facet bending stiffness)
     for hinge in hinges:
-        k = k_fold if hinge[5] == 'fold' else k_facet
+        if hinge[5] == 'fold':
+            k = k_fold
+        elif hinge[5] == 'facet':
+            k = k_facet
+        else:
+            k = 0.0
         if k > 0.0:
-            setup.add_hinge(
-                nodes=[hinge[0], hinge[1], hinge[2], hinge[3]],
-                stiffness=k, rest_angle=hinge[4]
-            )
+            setup.add_hinge(nodes=[hinge[0], hinge[1], hinge[2], hinge[3]],
+                            stiffness=k, rest_angle=hinge[4])
 
     for face in faces:
         setup.add_face(face)
 
     setup.save()
-    print(f"Experiment saved to {DEMO_DIR}")
-    return module
+    print(f"  Saved to {DEMO_DIR}")
 
 
-def find_equilibria():
-    """Find all equilibria using deflated Newton."""
-    from demlat.core.experiment import Experiment
-    from demlat.analysis.equilibria import EquilibriumAnalyzer
+# =============================================================
+# 2. FIND EQUILIBRIA
+# =============================================================
 
-    exp = Experiment(DEMO_DIR)
-    analyzer = EquilibriumAnalyzer(exp)
+def find(backend='jax', num_random=30, max_steps=10000, tol=5.0e-5,
+         dt=0.0005, damping=0.90, verbose=True):
+    from demlat.analysis.equilibria import EquilibriumFinder
 
-    # ── Find equilibria ──
-    results = analyzer.find_equilibria(
-        n_attempts=200,
-        strategies=['reference', 'random', 'kinematic', 'compressed'],
-        perturbation_scale=0.15,
-        deflation=True,
-        tol=1e-8,
-        dedup_tol=1e-4,
-        seed=42,
-        verbose=True,
+    print("\n[Find] Searching for equilibria...")
+
+    finder = EquilibriumFinder.from_experiment(DEMO_DIR, backend=backend)
+
+    results = finder.find_all(
+        num_random=num_random,
+        dt=dt,
+        damping=damping,
+        max_steps=max_steps,
+        tol=tol,
+        uniqueness_tol=1e-3,
+        classify=True,
+        verbose=verbose
     )
 
-    print(results.summary())
+    results.summary()
 
-    # ── Save results ──
-    results.save(DEMO_DIR / "analysis")
+    out_path = DEMO_DIR / "output" / "equilibria.h5"
+    finder.save_results(results, out_path)
 
-    return analyzer, results
+    return results
 
 
-def plot_energy_landscape(analyzer, results):
-    """Visualize energy landscape along softest modes."""
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+# =============================================================
+# 3. PLOT
+# =============================================================
 
-    # 1D: energy along softest mode
-    amps, energies = analyzer.energy_along_mode(
-        mode_index=0, amplitude_range=(-0.5, 0.5), n_points=300
-    )
-    axes[0].plot(amps, energies, 'b-', lw=1.5)
+def plot_results(results=None):
+    """Plot found equilibria."""
+    from demlat.analysis.equilibria import EquilibriumFinder
 
-    # Mark found equilibria projected onto this mode
-    for eq in results.equilibria:
-        axes[0].axhline(eq.energy, color='r' if not eq.is_stable else 'g',
-                        alpha=0.3, ls='--')
-    axes[0].set_xlabel("Amplitude along softest mode")
-    axes[0].set_ylabel("Potential Energy V(x)")
-    axes[0].set_title("1D Energy Landscape (mode 0)")
+    if results is None:
+        results = EquilibriumFinder.load_results(DEMO_DIR / "output" / "equilibria.h5")
 
-    # 2D: energy over two softest modes
-    Ai, Aj, E = analyzer.energy_landscape_2d(
-        mode_i=0, mode_j=1, amplitude_range=(-0.3, 0.3), n_points=80
-    )
-    c = axes[1].contourf(Ai, Aj, E, levels=40, cmap='viridis')
-    plt.colorbar(c, ax=axes[1], label='V(x)')
-    axes[1].set_xlabel("Mode 0 amplitude")
-    axes[1].set_ylabel("Mode 1 amplitude")
-    axes[1].set_title("2D Energy Landscape")
+    if not results.equilibria:
+        print("No equilibria found.")
+        return
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+
+    # A. Z-range comparison
+    ax = axes[0]
+    z_ranges = [eq.positions[:, 2].max() - eq.positions[:, 2].min()
+                for eq in results.equilibria]
+    colors = ['tab:green' if eq.stability == 'stable' else 'tab:red'
+              for eq in results.equilibria]
+    ax.barh(range(len(z_ranges)), z_ranges, color=colors)
+    ax.set_xlabel('Z Range (height)')
+    ax.set_ylabel('Equilibrium Index')
+    ax.set_title('Equilibria: Height Comparison')
+    from matplotlib.patches import Patch
+    ax.legend(handles=[Patch(facecolor='tab:green', label='Stable'),
+                       Patch(facecolor='tab:red', label='Unstable/Saddle')])
+
+    # B. Eigenvalue spectrum
+    ax = axes[1]
+    for i, eq in enumerate(results.equilibria):
+        if eq.eigenvalues is not None:
+            eigs = eq.eigenvalues
+            ax.scatter([i] * len(eigs), eigs, s=8, alpha=0.6,
+                       c=['tab:red' if e > 0 else 'tab:blue' for e in eigs])
+    ax.axhline(y=0, color='k', linewidth=0.5, linestyle='--')
+    ax.set_xlabel('Equilibrium Index')
+    ax.set_ylabel('Linearized Eigenvalue')
+    ax.set_title('Stability Spectrum')
+
+    # C. Residuals
+    ax = axes[2]
+    residuals = [eq.residual for eq in results.equilibria]
+    ax.bar(range(len(residuals)), residuals, color='steelblue')
+    ax.set_yscale('log')
+    ax.set_xlabel('Equilibrium Index')
+    ax.set_ylabel('Max Residual Acceleration')
+    ax.set_title('Convergence Quality')
 
     plt.tight_layout()
-    plt.savefig(DEMO_DIR / "analysis" / "energy_landscape.png", dpi=150)
+    plt.savefig(DEMO_DIR / "output" / "equilibria_analysis.png", dpi=150)
     plt.show()
 
 
-def verify_stable_states(results):
-    """
-    Take each stable equilibrium, set it as initial condition,
-    run a short simulation, and confirm it stays put.
-    """
-    from demlat.io.experiment_setup import ExperimentSetup
-    from demlat.core.experiment import Experiment
-    import demlat
-    from demlat.models.barhinge import BarHingeModel
+def plot_3d(eq_index=0):
+    """3D scatter of equilibrium vs reference."""
+    from demlat.analysis.equilibria import EquilibriumFinder
+    import h5py
 
-    for i, eq in enumerate(results.stable):
-        verify_dir = DEMO_DIR / f"verify_stable_{i}"
-        print(f"\nVerifying stable state #{i} (E={eq.energy:.6f})...")
+    results = EquilibriumFinder.load_results(DEMO_DIR / "output" / "equilibria.h5")
+    with h5py.File(DEMO_DIR / "output" / "equilibria.h5", 'r') as f:
+        ref = f['reference/positions'][:]
 
-        # Re-create experiment with equilibrium as initial positions
-        # (Copy the original setup but override initial positions)
-        setup = ExperimentSetup(verify_dir, overwrite=True)
-        setup.set_simulation_params(duration=0.5, dt=0.001, save_interval=0.01)
-        setup.set_physics(gravity=0.0, damping=0.1)
+    if eq_index >= len(results.equilibria):
+        print(f"Only {len(results.equilibria)} equilibria found.")
+        return
 
-        # Use equilibrium positions as initial config
-        eq_positions = eq.positions
-        for j, pos in enumerate(eq_positions):
-            setup.add_node(pos, mass=0.01, fixed=False)
+    eq = results.equilibria[eq_index]
+    pos = eq.positions
 
-        setup.save()
+    fig = plt.figure(figsize=(12, 5))
+    ax1 = fig.add_subplot(121, projection='3d')
+    ax1.scatter(ref[:, 0], ref[:, 1], ref[:, 2], s=40, c=ref[:, 2], cmap='coolwarm')
+    ax1.set_title('Reference Config')
 
-        # Run short simulation
-        exp = Experiment(verify_dir)
-        eng = demlat.Engine(BarHingeModel, backend='cuda')
-        eng.run(exp)
+    ax2 = fig.add_subplot(122, projection='3d')
+    ax2.scatter(pos[:, 0], pos[:, 1], pos[:, 2], s=40, c=pos[:, 2], cmap='coolwarm')
+    ax2.set_title(f'Equilibrium [{eq_index}] — {eq.stability}')
 
-        # Check: did it stay near the equilibrium?
-        # Load final positions from simulation output and compare
-        print(f"  Verification simulation complete for stable state #{i}")
+    for ax in [ax1, ax2]:
+        all_pts = np.vstack([ref, pos])
+        rng = np.ptp(all_pts, axis=0).max() / 2.0
+        mid = all_pts.mean(axis=0)
+        ax.set_xlim(mid[0] - rng, mid[0] + rng)
+        ax.set_ylim(mid[1] - rng, mid[1] + rng)
+        ax.set_zlim(mid[2] - rng, mid[2] + rng)
+        ax.set_xlabel('X'); ax.set_ylabel('Y'); ax.set_zlabel('Z')
 
+    plt.tight_layout()
+    plt.show()
+
+
+# =============================================================
+# MAIN
+# =============================================================
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("Yoshimura-Ori Multistability Analysis")
-    print("=" * 60)
-
-    # Step 1: Setup geometry
-    module = setup_experiment(beta_deg=35.0)
-
-    # Step 2: Find all equilibria
-    analyzer, results = find_equilibria()
-
-    # Step 3: Visualize energy landscape
-    plot_energy_landscape(analyzer, results)
-
-    # Step 4: (Optional) Verify stable states via simulation
-    if results.stable:
-        verify_stable_states(results)
-    else:
-        print("\nNo stable equilibria found — try adjusting parameters.")
+    setup(beta=35, k_facet=0.02)
+    results = find(backend='jax', num_random=30, max_steps=50000)
+    plot_results(results)
+    # plot_3d(0)
