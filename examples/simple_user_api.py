@@ -13,9 +13,9 @@ from pathlib import Path
 # Ensure import
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import demlat
-from demlat.models.barhinge import BarHingeModel
-from demlat.io.experiment_setup import ExperimentSetup
+import openprc.demlat
+from openprc.demlat.models.barhinge import BarHingeModel
+from openprc.demlat.io.experiment_setup import ExperimentSetup
 
 # Define Experiment Path
 EXP_DIR = Path("experiments/simple_api_test")
@@ -53,10 +53,10 @@ def main():
     # --- 2. Initialize Engine ---
     # Load the experiment context
     print("\n[2] Initializing Engine...")
-    exp = demlat.Experiment(EXP_DIR)
+    exp = openprc.demlat.Experiment(EXP_DIR)
 
     # Create the engine with the desired physics model and backend
-    engine = demlat.Engine(
+    engine = openprc.demlat.Engine(
         model_class=BarHingeModel,
         backend="auto",  # Will prefer CUDA, fallback to CPU
         buffer_size=50
@@ -77,7 +77,7 @@ def main():
     # --- 4. Inspect Results (Optional) ---
     # Use the validator to peek at the generated file
     print("\n[4] Inspecting Output...")
-    from demlat.io.validator import ExperimentValidator
+    from openprc.demlat.io.validator import ExperimentValidator
     
     validator = ExperimentValidator(EXP_DIR)
     # Inspect the simulation file to show it contains valid data

@@ -14,8 +14,8 @@ DEMO_DIR = Path("experiments/yoshimura_test")
 
 
 def setup(beta, drivers, force=False, amplitude=4.0):
-    from demlat.io.experiment_setup import ExperimentSetup
-    from examples.Yoshimura import Yoshimura
+    from openprc.demlat.io.experiment_setup import ExperimentSetup
+    from Yoshimura import Yoshimura
 
     """Setup the Yoshimura experiment"""
     print("\n[Setup] Creating Yoshimura Experiment...")
@@ -174,18 +174,18 @@ def setup(beta, drivers, force=False, amplitude=4.0):
 def run():
     """Run the simulation"""
     print("\n[Step 2] Running Simulation...")
-    import demlat
-    from demlat.models.barhinge import BarHingeModel
+    import openprc.demlat
+    from openprc.demlat.models.barhinge import BarHingeModel
 
-    exp = demlat.Experiment(DEMO_DIR)
-    eng = demlat.Engine(BarHingeModel, backend='cuda')
+    exp = openprc.demlat.Experiment(DEMO_DIR)
+    eng = openprc.demlat.Engine(BarHingeModel, backend='cuda')
     eng.run(exp)
 
     print("\nSimulation complete!")
 
 
 def show_pe(demo_dir):
-    from demlat.utils.plot_timeseries import SimulationPlotter
+    from openprc.demlat.utils.plot_timeseries import SimulationPlotter
 
     plotter = SimulationPlotter(demo_dir / "output" / "simulation.h5")
     time, _ = plotter.get_dataset("time")
@@ -206,7 +206,7 @@ def show_pe(demo_dir):
 
 
 def show(pe):
-    from demlat.utils.viz_player import visualize_experiment
+    from openprc.demlat.utils.viz_player import visualize_experiment
     if pe:
         show_pe(DEMO_DIR)
     visualize_experiment(DEMO_DIR)

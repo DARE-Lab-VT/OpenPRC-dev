@@ -11,9 +11,9 @@ import h5py
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
-import demlat
-from demlat.io.experiment_setup import ExperimentSetup
-from demlat.models.barhinge import BarHingeModel
+import openprc.demlat
+from openprc.demlat.io.experiment_setup import ExperimentSetup
+from openprc.demlat.models.barhinge import BarHingeModel
 
 EXP_DIR_ROOT = Path("experiments/yoshimura_hilbert_sweep/")
 
@@ -602,8 +602,8 @@ def run_hilbert_sweep(n, beta, hilbert_order=4, psi=0.0, gamma_range=(0.0, np.pi
 
     print("\n[Step 2] Running Simulation...")
 
-    exp = demlat.Experiment(path)
-    eng = demlat.Engine(BarHingeModel, backend='cuda')
+    exp = openprc.demlat.Experiment(path)
+    eng = openprc.demlat.Engine(BarHingeModel, backend='cuda')
     eng.run(exp)
 
     print("\nSimulation complete!")
@@ -633,7 +633,7 @@ if __name__ == "__main__":
     #
     #     print(f"\nExperiment saved to: {exp_path}")
 
-    from demlat.utils.viz_player import visualize_experiment
+    from openprc.demlat.utils.viz_player import visualize_experiment
 
     n = 3
     beta = np.deg2rad(31.7)

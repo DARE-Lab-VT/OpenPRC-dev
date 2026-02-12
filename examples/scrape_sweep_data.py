@@ -1,6 +1,6 @@
 import numpy as np
 from pathlib import Path
-from demlat.utils.plot_timeseries import SimulationPlotter
+from openprc.demlat.utils.plot_timeseries import SimulationPlotter
 import json
 
 # Configuration

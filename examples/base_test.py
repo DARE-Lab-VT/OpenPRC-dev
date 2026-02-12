@@ -10,7 +10,7 @@ DEMO_DIR = Path("experiments/base_test")
 
 
 def setup():
-    from demlat.io.experiment_setup import ExperimentSetup
+    from openprc.demlat.io.experiment_setup import ExperimentSetup
     print("\n[Setup] Creating Experiment...")
 
     setup = ExperimentSetup(DEMO_DIR, overwrite=True)
@@ -50,23 +50,23 @@ def setup():
 def run():
     """Run the simulation"""
     print("\n[Step 2] Running Simulation...")
-    import demlat
-    from demlat.models.barhinge import BarHingeModel
+    import openprc.demlat
+    from openprc.demlat.models.barhinge import BarHingeModel
 
-    exp = demlat.Experiment(DEMO_DIR)
-    eng = demlat.Engine(BarHingeModel, backend='cuda')
+    exp = openprc.demlat.Experiment(DEMO_DIR)
+    eng = openprc.demlat.Engine(BarHingeModel, backend='cuda')
     eng.run(exp)
 
     print("\nSimulation complete!")
 
 
 def show():
-    from demlat.utils.viz_player import visualize_experiment
+    from openprc.demlat.utils.viz_player import visualize_experiment
     visualize_experiment(DEMO_DIR)
 
 
 def show_stats():
-    from demlat.utils.plot_timeseries import SimulationPlotter
+    from openprc.demlat.utils.plot_timeseries import SimulationPlotter
     import matplotlib.pyplot as plt
     plotter = SimulationPlotter(DEMO_DIR / "output" / "simulation.h5")
 

@@ -8,12 +8,12 @@ from examples.yoshimura_ori_geometry import *
 from pathlib import Path
 import h5py
 
-import demlat
-from demlat.io.experiment_setup import ExperimentSetup
-from demlat.utils.viz_player import visualize_experiment
-from examples.pipeline_yoshimura_test import setup_actuation
-from examples.pipeline_yoshimura_test import show_pe
-from demlat.models.barhinge import BarHingeModel
+import openprc.demlat
+from openprc.demlat.io.experiment_setup import ExperimentSetup
+from openprc.demlat.utils.viz_player import visualize_experiment
+from pipeline_yoshimura_test import setup_actuation
+from pipeline_yoshimura_test import show_pe
+from openprc.demlat.models.barhinge import BarHingeModel
 
 EXP_DIR_ROOT = Path("experiments/yoshimura_beta_d_sweep/")
 

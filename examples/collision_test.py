@@ -8,9 +8,9 @@ simulation experiment, and visualizes them one by one.
 import h5py
 import numpy as np
 from pathlib import Path
-import demlat
-from demlat.models.barhinge import BarHingeModel
-from demlat.utils.viz_player import visualize_experiment
+import openprc.demlat
+from openprc.demlat.models.barhinge import BarHingeModel
+from openprc.demlat.utils.viz_player import visualize_experiment
 
 # Import your existing setup function
 # (Assuming the previous script is named 'yoshimura_test.py')
@@ -21,8 +21,8 @@ EQUILIBRIA_PATH = Path("experiments/yoshimura_equilibrium") / "output" / "equili
 
 
 def setup(beta=35):
-    from demlat.io.experiment_setup import ExperimentSetup
-    from examples.Yoshimura import Yoshimura
+    from openprc.demlat.io.experiment_setup import ExperimentSetup
+    from Yoshimura import Yoshimura
 
     """Setup the Yoshimura experiment"""
     print("\n[Setup] Creating Yoshimura Experiment...")
@@ -113,9 +113,9 @@ def patch_geometry_with_equilibrium(exp_dir, positions):
 def run_simulation(exp_dir):
     """Runs a short simulation to verify stability."""
     print("  -> Running verification simulation...")
-    exp = demlat.Experiment(exp_dir)
+    exp = openprc.demlat.Experiment(exp_dir)
     # Use 'cuda' if available, else 'cpu' or 'jax'
-    eng = demlat.Engine(BarHingeModel, backend='cuda')
+    eng = openprc.demlat.Engine(BarHingeModel, backend='cuda')
     eng.run(exp)
 
 

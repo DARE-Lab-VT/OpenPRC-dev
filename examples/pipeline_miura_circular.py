@@ -8,15 +8,14 @@ while the structure hangs under gravity.
 import numpy as np
 from pathlib import Path
 import sys
-import shutil
 
 # Ensure import
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import demlat
-from demlat.models.barhinge import BarHingeModel
-from demlat.io.experiment_setup import ExperimentSetup
-from demlat.utils.viz_player import visualize_experiment
+import openprc.demlat
+from openprc.demlat.models.barhinge import BarHingeModel
+from openprc.demlat.io.experiment_setup import ExperimentSetup
+from openprc.demlat.utils.viz_player import visualize_experiment
 
 DEMO_DIR = Path("experiments/miura_circular_test")
 
@@ -178,8 +177,8 @@ def step_1_setup_experiment():
 
 def step_2_run_simulation():
     print("\n[Step 2] Running Simulation...")
-    exp = demlat.Experiment(DEMO_DIR)
-    eng = demlat.Engine(BarHingeModel, backend='cuda')
+    exp = openprc.demlat.Experiment(DEMO_DIR)
+    eng = openprc.demlat.Engine(BarHingeModel, backend='cuda')
     eng.run(exp)
 
 
