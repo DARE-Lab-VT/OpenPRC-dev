@@ -21,14 +21,14 @@ EQUILIBRIA_PATH = Path("experiments/yoshimura_equilibrium") / "output" / "equili
 
 
 def setup(beta=35):
-    from openprc.demlat.io.experiment_setup import ExperimentSetup
+    from openprc.demlat.io.simulation_setup import SimulationSetup
     from Yoshimura import Yoshimura
 
     """Setup the Yoshimura experiment"""
-    print("\n[Setup] Creating Yoshimura Experiment...")
+    print("\n[Setup] Creating Yoshimura Simulation...")
 
     # Initialize Setup
-    setup = ExperimentSetup(DEMO_DIR, overwrite=True)
+    setup = SimulationSetup(DEMO_DIR, overwrite=True)
 
     # Simulation parameters
     duration = 5.0
@@ -113,7 +113,7 @@ def patch_geometry_with_equilibrium(exp_dir, positions):
 def run_simulation(exp_dir):
     """Runs a short simulation to verify stability."""
     print("  -> Running verification simulation...")
-    exp = openprc.demlat.Experiment(exp_dir)
+    exp = openprc.demlat.Simulation(exp_dir)
     # Use 'cuda' if available, else 'cpu' or 'jax'
     eng = openprc.demlat.Engine(BarHingeModel, backend='cuda')
     eng.run(exp)
@@ -155,7 +155,7 @@ def visualize_sequence(state=0):
             print(f"  Source:     {src}")
             print(f"{'=' * 60}")
 
-            # A. Reset Experiment Topology (Force=False ensures no external loads)
+            # A. Reset Simulation Topology (Force=False ensures no external loads)
             # We assume beta=35 matches your finder's geometry
             setup(beta=35)
 

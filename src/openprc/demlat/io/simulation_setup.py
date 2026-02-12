@@ -16,7 +16,7 @@ from ..core.exceptions import DemlatError, SchemaValidationError, ConfigurationE
 from ..utils.logging import get_logger
 
 
-class ExperimentSetup:
+class SimulationSetup:
     """
     A setup class to programmatically create and modify DEMLat experiments.
     
@@ -250,7 +250,7 @@ class ExperimentSetup:
 
         return self
 
-    # Add these methods to the ExperimentSetup class:
+    # Add these methods to the SimulationSetup class:
 
     # --- Visualization Methods ---
 

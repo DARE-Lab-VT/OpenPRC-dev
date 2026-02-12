@@ -2,7 +2,7 @@
 Simple User API Example
 =======================
 Demonstrates the complete DEMLat workflow:
-1. Setup (Create Experiment)
+1. Setup (Create Simulation)
 2. Run (Execute Simulation)
 3. Inspect (Validate Results)
 """
@@ -15,19 +15,19 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import openprc.demlat
 from openprc.demlat.models.barhinge import BarHingeModel
-from openprc.demlat.io.experiment_setup import ExperimentSetup
+from openprc.demlat.io.simulation_setup import SimulationSetup
 
-# Define Experiment Path
+# Define Simulation Path
 EXP_DIR = Path("experiments/simple_api_test")
 
 
 def main():
     print("🚀 Starting DEMLat Simple API Test...\n")
 
-    # --- 1. Setup Experiment ---
-    # Use the fluent ExperimentSetup API to create the environment
-    print("[1] Setting up Experiment...")
-    setup = ExperimentSetup(EXP_DIR, overwrite=True)
+    # --- 1. Setup Simulation ---
+    # Use the fluent SimulationSetup API to create the environment
+    print("[1] Setting up Simulation...")
+    setup = SimulationSetup(EXP_DIR, overwrite=True)
 
     # Configure Simulation
     setup.set_simulation_params(duration=2.0, dt=0.001, save_interval=0.01)
@@ -47,13 +47,13 @@ def main():
 
     # Save to disk (generates input/config.json, input/geometry.h5, etc.)
     setup.save()
-    print(f"    Experiment created at: {EXP_DIR}")
+    print(f"    Simulation created at: {EXP_DIR}")
 
 
     # --- 2. Initialize Engine ---
     # Load the experiment context
     print("\n[2] Initializing Engine...")
-    exp = openprc.demlat.Experiment(EXP_DIR)
+    exp = openprc.demlat.Simulation(EXP_DIR)
 
     # Create the engine with the desired physics model and backend
     engine = openprc.demlat.Engine(

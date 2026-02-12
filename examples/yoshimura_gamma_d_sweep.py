@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
 import openprc.demlat
-from openprc.demlat.io.experiment_setup import ExperimentSetup
+from openprc.demlat.io.simulation_setup import SimulationSetup
 from openprc.demlat.models.barhinge import BarHingeModel
 
 EXP_DIR_ROOT = Path("experiments/yoshimura_hilbert_sweep/")
@@ -441,7 +441,7 @@ def run_hilbert_sweep(n, beta, hilbert_order=4, psi=0.0, gamma_range=(0.0, np.pi
 
     dir_name = f"exp_n{n}_beta{np.rad2deg(beta):.1f}deg_hilbert{hilbert_order}"
     path = EXP_DIR_ROOT / dir_name
-    setup = ExperimentSetup(path, overwrite=True)
+    setup = SimulationSetup(path, overwrite=True)
 
     # Simulation parameters
     # Duration should be long enough to traverse the Hilbert curve smoothly
@@ -602,7 +602,7 @@ def run_hilbert_sweep(n, beta, hilbert_order=4, psi=0.0, gamma_range=(0.0, np.pi
 
     print("\n[Step 2] Running Simulation...")
 
-    exp = openprc.demlat.Experiment(path)
+    exp = openprc.demlat.Simulation(path)
     eng = openprc.demlat.Engine(BarHingeModel, backend='cuda')
     eng.run(exp)
 

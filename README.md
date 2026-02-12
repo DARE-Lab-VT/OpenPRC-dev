@@ -185,15 +185,15 @@ The `demlat` module treats mechanical structures as graphs of discrete elements 
 demlat/
 │
 ├── io/
-│   ├── experiment_setup.py       # Fluent builder API for experiment creation
+│   ├── simulation_setup.py       # Fluent builder API for experiment creation
 │   ├── validator.py              # Schema validation and inspection
 │   └── exporters.py              # Format converters (VTK, PLY, etc.)
 │
 ├── core/
-│   ├── experiment.py             # Filesystem interface (paths, config loading)
+│   ├── simulation.py             # Filesystem interface (paths, config loading)
 │   ├── engine.py                 # Main simulation loop orchestrator
 │   ├── base_model.py             # Abstract base class for physics models
-│   ├── state_computer.py         # Post-processing (energy, strain, stress)
+│   ├── post_processor.py         # Post-processing (energy, strain, stress)
 │   ├── scaler.py                 # Unit conversion (physical ↔ dimensionless)
 │   └── exceptions.py             # Domain-specific exceptions
 │
@@ -416,7 +416,7 @@ from openprc import demlat
 
 # Fluent experiment creation
 experiment = (
-    demlat.ExperimentSetup("./experiments/lattice_01")
+    demlat.SimulationSetup("./experiments/lattice_01")
     .load_geometry("lattice_10x10.h5")
     .add_signal("chirp", demlat.signals.chirp(f0=0.1, f1=10, duration=5.0))
     .wire_actuator(node_idx=0, signal="chirp", type="force", direction=[0, 0, 1])
@@ -961,7 +961,7 @@ geometry.save("./my_experiment/input/geometry.h5")
 
 # 2. Define input signal and run simulation
 experiment = (
-    demlat.ExperimentSetup("./my_experiment")
+    demlat.SimulationSetup("./my_experiment")
     .add_signal("input", demlat.signals.white_noise(duration=10.0, amplitude=0.1))
     .wire_actuator(node_idx=0, signal="input", type="force", direction=[1, 0, 0])
     .set_duration(10.0)

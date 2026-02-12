@@ -10,10 +10,10 @@ DEMO_DIR = Path("experiments/base_test")
 
 
 def setup():
-    from openprc.demlat.io.experiment_setup import ExperimentSetup
-    print("\n[Setup] Creating Experiment...")
+    from openprc.demlat.io.simulation_setup import SimulationSetup
+    print("\n[Setup] Creating Simulation...")
 
-    setup = ExperimentSetup(DEMO_DIR, overwrite=True)
+    setup = SimulationSetup(DEMO_DIR, overwrite=True)
 
     setup.set_simulation_params(duration=2.0, dt=0.0005, save_interval=0.01)
     setup.set_physics(gravity=0.0, damping=0.2)
@@ -53,7 +53,7 @@ def run():
     import openprc.demlat
     from openprc.demlat.models.barhinge import BarHingeModel
 
-    exp = openprc.demlat.Experiment(DEMO_DIR)
+    exp = openprc.demlat.Simulation(DEMO_DIR)
     eng = openprc.demlat.Engine(BarHingeModel, backend='cuda')
     eng.run(exp)
 

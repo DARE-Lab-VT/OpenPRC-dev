@@ -20,12 +20,12 @@ DEMO_DIR = Path("experiments/yoshimura_equilibrium")
 # =============================================================
 
 def setup(beta=35, k_facet=0.02):
-    from openprc.demlat.io.experiment_setup import ExperimentSetup
+    from openprc.demlat.io.simulation_setup import SimulationSetup
     from Yoshimura import Yoshimura
 
     print("\n[Setup] Creating Yoshimura Geometry...")
 
-    setup = ExperimentSetup(DEMO_DIR, overwrite=True)
+    setup = SimulationSetup(DEMO_DIR, overwrite=True)
     setup.set_simulation_params(duration=5.0, dt=0.0001, save_interval=0.01)
     setup.set_physics(gravity=0.0, damping=0.1)
 

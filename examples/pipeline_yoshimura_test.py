@@ -14,14 +14,14 @@ DEMO_DIR = Path("experiments/yoshimura_test")
 
 
 def setup(beta, drivers, force=False, amplitude=4.0):
-    from openprc.demlat.io.experiment_setup import ExperimentSetup
+    from openprc.demlat.io.simulation_setup import SimulationSetup
     from Yoshimura import Yoshimura
 
     """Setup the Yoshimura experiment"""
-    print("\n[Setup] Creating Yoshimura Experiment...")
+    print("\n[Setup] Creating Yoshimura Simulation...")
 
     # Initialize Setup
-    setup = ExperimentSetup(DEMO_DIR, overwrite=True)
+    setup = SimulationSetup(DEMO_DIR, overwrite=True)
 
     # Simulation parameters
     duration = 5.0
@@ -177,7 +177,7 @@ def run():
     import openprc.demlat
     from openprc.demlat.models.barhinge import BarHingeModel
 
-    exp = openprc.demlat.Experiment(DEMO_DIR)
+    exp = openprc.demlat.Simulation(DEMO_DIR)
     eng = openprc.demlat.Engine(BarHingeModel, backend='cuda')
     eng.run(exp)
 

@@ -20,22 +20,15 @@ _KNOWN_LOGGERS: List[logging.Logger] = []
 _SHARED_FILE_HANDLER: Optional[logging.FileHandler] = None
 
 
-def get_logger(name: str, log_dir: Optional[Path] = None, file_level: int = logging.DEBUG,
-               console_level: int = logging.INFO) -> logging.Logger:
+def get_logger(name: str) -> logging.Logger:
     """
     Creates or retrieves a logger with specific formatting and handlers.
     
-    If 'log_dir' is provided, it initializes (or resets) the shared file handler
-    for ALL loggers created by this function. This ensures that loggers created
-    before the experiment path was known (e.g. Engine) will start writing to the
-    correct log file once the Experiment initializes.
+    This function ensures that all loggers created through it will share
+    the same file handler once it's set up by `setup_file_logging`.
 
     Args:
         name: Dot-separated module name (e.g., 'demlat.io').
-        log_dir: If provided, a log file will be created in this directory, and
-                 attached to ALL known demlat loggers.
-        file_level: Logging level for the file handler.
-        console_level: Logging level for the console handler.
     """
     global _SHARED_FILE_HANDLER
 
@@ -54,43 +47,52 @@ def get_logger(name: str, log_dir: Optional[Path] = None, file_level: int = logg
 
     if not has_console:
         c_handler = logging.StreamHandler(sys.stdout)
-        c_handler.setLevel(console_level)
+        c_handler.setLevel(logging.INFO) # Default console level
         c_handler.setFormatter(logging.Formatter(CONSOLE_FMT))
         logger.addHandler(c_handler)
 
-    # 2. File Handler Logic
-    if log_dir:
-        # We are initializing a NEW file logging session (e.g. Experiment start or reset)
-        log_dir = Path(log_dir)
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_file = log_dir / "demlat_execution.log"
-
-        # Create new handler
-        new_handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
-        new_handler.setLevel(file_level)
-        new_handler.setFormatter(logging.Formatter(FILE_FMT))
-
-        # Replace the shared handler
-        old_handler = _SHARED_FILE_HANDLER
-        _SHARED_FILE_HANDLER = new_handler
-
-        # Update ALL known loggers (retroactively fix Engine, etc.)
-        for l in _KNOWN_LOGGERS:
-            # Remove old shared handler if present
-            if old_handler and old_handler in l.handlers:
-                l.removeHandler(old_handler)
-
-            # Add new handler if not present
-            if new_handler not in l.handlers:
-                l.addHandler(new_handler)
-
-        # Close the old handler to release the file lock
-        if old_handler:
-            old_handler.close()
-
-    else:
-        # Just retrieving a logger. Attach the shared handler if it exists.
-        if _SHARED_FILE_HANDLER and _SHARED_FILE_HANDLER not in logger.handlers:
-            logger.addHandler(_SHARED_FILE_HANDLER)
+    # 2. Attach shared file handler if it already exists
+    if _SHARED_FILE_HANDLER and _SHARED_FILE_HANDLER not in logger.handlers:
+        logger.addHandler(_SHARED_FILE_HANDLER)
 
     return logger
+
+
+def setup_file_logging(log_dir: Path, file_level: int = logging.DEBUG):
+    """
+    Initializes the shared file logger for the entire application.
+    This should be called once at the start of an execution script.
+    
+    Args:
+        log_dir: The directory where the log file will be created.
+        file_level: The logging level for the file.
+    """
+    global _SHARED_FILE_HANDLER
+    
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / "demlat_execution.log"
+
+    # Create the new shared handler
+    new_handler = logging.FileHandler(log_file, mode='w', encoding='utf-8') # 'w' to overwrite old logs
+    new_handler.setLevel(file_level)
+    new_handler.setFormatter(logging.Formatter(FILE_FMT))
+
+    # If there was an old handler, close it
+    if _SHARED_FILE_HANDLER:
+        _SHARED_FILE_HANDLER.close()
+    
+    _SHARED_FILE_HANDLER = new_handler
+
+    # Update ALL known loggers to use the new handler
+    for l in _KNOWN_LOGGERS:
+        # Remove any old file handlers
+        old_handlers = [h for h in l.handlers if isinstance(h, logging.FileHandler)]
+        for h in old_handlers:
+            l.removeHandler(h)
+        
+        # Add the new one
+        l.addHandler(new_handler)
+        
+    # Log the initialization
+    root_logger = get_logger("demlat")
+    root_logger.info(f"File logging initialized at: {log_file}")
