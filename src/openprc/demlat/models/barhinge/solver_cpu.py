@@ -1,7 +1,6 @@
 import numpy as np
-import numba
-from numba import njit, float64, int32, uint8
-from ...utils.logging import get_logger
+from numba import njit, float64
+from openprc.schemas.logging import get_logger
 
 # --- Constants & Helpers ---
 EPSILON = 1e-12

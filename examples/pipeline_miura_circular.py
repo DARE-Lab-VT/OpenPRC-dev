@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import openprc.demlat
 from openprc.demlat.models.barhinge import BarHingeModel
 from openprc.demlat.io.simulation_setup import SimulationSetup
-from openprc.demlat.utils.viz_player import visualize_experiment
+from openprc.demlat.utils.animator import ShowSimulation
 
 DEMO_DIR = Path("experiments/miura_circular_test")
 
@@ -186,4 +186,4 @@ def step_2_run_simulation():
 if __name__ == "__main__":
     step_1_setup_experiment()
     step_2_run_simulation()
-    visualize_experiment(DEMO_DIR)
+    ShowSimulation(DEMO_DIR)

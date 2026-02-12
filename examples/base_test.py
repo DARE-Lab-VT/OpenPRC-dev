@@ -61,14 +61,14 @@ def run():
 
 
 def show():
-    from openprc.demlat.utils.viz_player import visualize_experiment
-    visualize_experiment(DEMO_DIR)
+    from openprc.demlat.utils.animator import ShowSimulation
+    ShowSimulation(DEMO_DIR)
 
 
 def show_stats():
-    from openprc.demlat.utils.plot_timeseries import SimulationPlotter
+    from openprc.demlat.utils.data_parser import SimulationData
     import matplotlib.pyplot as plt
-    plotter = SimulationPlotter(DEMO_DIR / "output" / "simulation.h5")
+    plotter = SimulationData(DEMO_DIR / "output" / "simulation.h5")
 
     # Get data
     time, _ = plotter.get_dataset("time")

@@ -633,7 +633,7 @@ if __name__ == "__main__":
     #
     #     print(f"\nExperiment saved to: {exp_path}")
 
-    from openprc.demlat.utils.viz_player import visualize_experiment
+    from openprc.demlat.utils.animator import ShowSimulation
 
     n = 3
     beta = np.deg2rad(31.7)
@@ -650,4 +650,4 @@ if __name__ == "__main__":
     # Run the actual sweep
     # Start with order 4 (16x16 = 256 points, ~13 seconds)
     exp_path = EXP_DIR_ROOT / f"exp_n{n}_beta{np.rad2deg(beta):.1f}deg_hilbert{order}"
-    visualize_experiment(exp_path)
+    ShowSimulation(exp_path)

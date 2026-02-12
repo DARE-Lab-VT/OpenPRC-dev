@@ -17,13 +17,13 @@ Features:
 
 Usage:
 ------
-    from demlat.utils.viz_player import visualize_experiment
+    from demlat.utils.viz_player import ShowSimulation
     
     # Auto-detect and visualize
-    visualize_experiment("path/to/experiment")
+    ShowSimulation("path/to/experiment")
     
     # Custom configuration
-    visualize_experiment("path/to/experiment", config={
+    ShowSimulation("path/to/experiment", config={
         'show_strain': True,
         'show_stress': False,
         'colormap': 'jet',
@@ -1131,7 +1131,7 @@ class DEMLATVisualizer(PiVizFX):
 # CONVENIENCE FUNCTION
 # =============================================================================
 
-def visualize_experiment(experiment_path: str, config: Optional[Dict] = None):
+def ShowSimulation(experiment_path: str, config: Optional[Dict] = None):
     """Main entry point for visualizing DEMLAT experiments."""
     data = ExperimentData(experiment_path)
     viz = DEMLATVisualizer(data, config)
@@ -1204,4 +1204,4 @@ if __name__ == '__main__':
     if '--lines' in user_flags:
         config['use_lines_for_bars'] = True
 
-    visualize_experiment(experiment_path, config)
+    ShowSimulation(experiment_path, config)

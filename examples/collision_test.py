@@ -10,7 +10,7 @@ import numpy as np
 from pathlib import Path
 import openprc.demlat
 from openprc.demlat.models.barhinge import BarHingeModel
-from openprc.demlat.utils.viz_player import visualize_experiment
+from openprc.demlat.utils.animator import ShowSimulation
 
 # Import your existing setup function
 # (Assuming the previous script is named 'yoshimura_test.py')
@@ -168,7 +168,7 @@ def visualize_sequence(state=0):
 
             # D. Visualize
             print("  -> Launching Visualizer (Close window to see next)...")
-            visualize_experiment(DEMO_DIR)
+            ShowSimulation(DEMO_DIR)
 
             # Optional: Pause
             # choice = input(f"  [Enter] for next, [q] to quit: ")

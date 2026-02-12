@@ -6,7 +6,7 @@ Post-processing module to calculate derived physics quantities.
 
 import numpy as np
 from typing import Dict, Any, Tuple
-from ..utils.logging import get_logger
+from openprc.schemas.logging import get_logger
 
 # Try to import JAX for accelerated analytics
 try:

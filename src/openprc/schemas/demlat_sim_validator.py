@@ -7,16 +7,16 @@ Also provides inspection utilities for debugging HDF5 files.
 
 import numpy as np
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, List
 import h5py
 import json
 
-from ..core.exceptions import (
+from openprc.demlat.core.exceptions import (
     SchemaValidationError,
     DataIntegrityError,
     ConfigurationError
 )
-from ..utils.logging import get_logger
+from openprc.schemas.logging import get_logger
 
 # Define expected HDF5 structures
 REQUIRED_GEOMETRY_DATASETS = [
@@ -29,10 +29,10 @@ REQUIRED_GEOMETRY_DATASETS = [
 ]
 
 
-class ExperimentValidator:
+class DemlatSimValidator:
     def __init__(self, exp_path: Path, logger=None):
         self.root = exp_path
-        self.logger = logger or get_logger("demlat.validator")
+        self.logger = logger or get_logger("schemas.demlat_sim_validator")
 
         self.input_dir = self.root / "input"
         self.files = {

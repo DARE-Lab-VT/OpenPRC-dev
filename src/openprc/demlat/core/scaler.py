@@ -5,7 +5,7 @@ Handles non-dimensionalization to improve numerical stability.
 
 """
 import numpy as np
-from ..utils.logging import get_logger
+from openprc.schemas.logging import get_logger
 
 
 class SimulationScaler:

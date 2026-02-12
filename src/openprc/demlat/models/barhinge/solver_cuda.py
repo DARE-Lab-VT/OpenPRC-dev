@@ -4,7 +4,7 @@ import pycuda.autoinit
 from pycuda.compiler import SourceModule
 import os
 
-from ...utils.logging import get_logger
+from openprc.schemas.logging import get_logger
 
 
 class CudaSolver:

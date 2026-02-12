@@ -14,7 +14,7 @@ DEMO_DIR = Path("experiments/yoshimura_test")
 
 
 def setup(beta, drivers, force=False, amplitude=4.0):
-    from openprc.demlat.io.simulation_setup import SimulationSetup
+    from openprc.demlat import SimulationSetup
     from Yoshimura import Yoshimura
 
     """Setup the Yoshimura experiment"""
@@ -174,23 +174,23 @@ def setup(beta, drivers, force=False, amplitude=4.0):
 def run():
     """Run the simulation"""
     print("\n[Step 2] Running Simulation...")
-    import openprc.demlat
-    from openprc.demlat.models.barhinge import BarHingeModel
+    from openprc.demlat import Simulation, Engine, BarHingeModel
 
-    exp = openprc.demlat.Simulation(DEMO_DIR)
-    eng = openprc.demlat.Engine(BarHingeModel, backend='cuda')
-    eng.run(exp)
+    sim = Simulation(DEMO_DIR)
+    eng = Engine(BarHingeModel, backend='cuda')
+    eng.run(sim)
+    sim.show()
 
     print("\nSimulation complete!")
 
 
-def show_pe(demo_dir):
-    from openprc.demlat.utils.plot_timeseries import SimulationPlotter
+def show_pe():
+    from openprc.demlat import SimulationData
 
-    plotter = SimulationPlotter(demo_dir / "output" / "simulation.h5")
-    time, _ = plotter.get_dataset("time")
-    potential_energy, _ = plotter.get_dataset("system/potential_energy")
-    kinetic_energy, _ = plotter.get_dataset("system/kinetic_energy")
+    data = SimulationData(DEMO_DIR / "output" / "simulation.h5")
+    time, _ = data.get_dataset("time")
+    potential_energy, _ = data.get_dataset("system/potential_energy")
+    kinetic_energy, _ = data.get_dataset("system/kinetic_energy")
     time = np.asarray(time).flatten()
     potential_energy = np.asarray(potential_energy).flatten()
     kinetic_energy = np.asarray(kinetic_energy).flatten()
@@ -205,14 +205,10 @@ def show_pe(demo_dir):
     plt.show()
 
 
-def show(pe):
-    from openprc.demlat.utils.viz_player import visualize_experiment
-    if pe:
-        show_pe(DEMO_DIR)
-    visualize_experiment(DEMO_DIR)
+
 
 
 if __name__ == "__main__":
     setup(beta=35, drivers=3, force=True, amplitude=5.6)
     run()
-    show(0)
+    show_pe()

@@ -186,7 +186,7 @@ demlat/
 │
 ├── io/
 │   ├── simulation_setup.py       # Fluent builder API for experiment creation
-│   ├── validator.py              # Schema validation and inspection
+│   ├── demlat_sim_validator.py              # Schema validation and inspection
 │   └── exporters.py              # Format converters (VTK, PLY, etc.)
 │
 ├── core/
@@ -218,7 +218,7 @@ demlat/
 └── utils/
     ├── meshing.py                # Procedural geometry generators
     ├── topology.py               # Graph analysis utilities
-    └── viz_player.py             # Quick visualization playback
+    └── animator.py             # Quick visualization playback
 
 ```
 

@@ -7,8 +7,7 @@ It includes the main Engine, Simulation management, Base Model definitions,
 Scaling utilities, and custom Exceptions.
 """
 
-import logging
-from ..utils.logging import get_logger
+from openprc.schemas.logging import get_logger
 
 # Initialize module-level logger
 logger = get_logger("demlat.core")

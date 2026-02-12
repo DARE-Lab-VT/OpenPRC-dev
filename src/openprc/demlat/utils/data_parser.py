@@ -1,4 +1,4 @@
-# demlat/utils/plot_timeseries.py
+# demlat/utils/data_parser.py
 """
 DEMLAT Time Series Plotter
 ==========================
@@ -14,9 +14,9 @@ Usage:
     python -m demlat.utils.plot_timeseries simulation.h5 --plot nodes/positions --indices 0,1,2 --components z
 
     # Python API
-    from demlat.utils.plot_timeseries import SimulationPlotter
+    from demlat.utils.plot_timeseries import SimulationData
 
-    plotter = SimulationPlotter("simulation.h5")
+    plotter = SimulationData("simulation.h5")
     plotter.list_datasets()
     plotter.plot("nodes/positions", indices=[0, 1, 2], components=['z'])
     plotter.plot_energy_summary()
@@ -31,7 +31,7 @@ from typing import Optional, List, Union, Tuple
 import argparse
 
 
-class SimulationPlotter:
+class SimulationData:
     """
     Flexible plotter for DEMLAT simulation HDF5 files.
     """
@@ -759,7 +759,7 @@ Examples:
     args = parser.parse_args()
 
     # Create plotter
-    plotter = SimulationPlotter(args.filepath)
+    plotter = SimulationData(args.filepath)
 
     # Parse common arguments
     indices = None
@@ -847,9 +847,9 @@ if __name__ == '__main__':
     ### Python API
     
     ```python
-    from demlat.utils.plot_timeseries import SimulationPlotter
+    from demlat.utils.plot_timeseries import SimulationData
     
-    plotter = SimulationPlotter("experiments/yoshimura/output/simulation.h5")
+    plotter = SimulationData("experiments/yoshimura/output/simulation.h5")
     
     # List what's available
     plotter.list_datasets()

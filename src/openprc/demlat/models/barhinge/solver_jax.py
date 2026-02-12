@@ -7,12 +7,10 @@ Forces are derived automatically from Potential Energy and Rayleigh Dissipation 
 """
 
 import numpy as np
-import jax
 import jax.numpy as jnp
 from jax import jit, grad
-from functools import partial
 
-from ...utils.logging import get_logger
+from openprc.schemas.logging import get_logger
 
 
 class JaxSolver:

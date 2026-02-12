@@ -8,7 +8,7 @@ import h5py
 import shutil
 from pathlib import Path
 from datetime import datetime
-from ..utils.logging import get_logger, setup_file_logging
+from openprc.schemas.logging import get_logger, setup_file_logging
 
 
 class Simulation:
@@ -80,7 +80,7 @@ class Simulation:
         Removes all files and subdirectories within the output directory, then recreates the necessary structure.
         """
         # No logger here, as it might not be initialized yet if called early
-        
+
         if self.output_dir.exists():
             # Remove all files in output but keep directory structure
             for item in self.output_dir.iterdir():
@@ -89,7 +89,7 @@ class Simulation:
                 else:
                     item.unlink()
         self._setup_outputs()
-        
+
         # Re-initialize logger since the log file was deleted
         setup_file_logging(self.log_dir)
         # Get a new logger instance after setup
@@ -205,3 +205,7 @@ class Simulation:
         :return: A file object opened in read mode ('r').
         """
         return open(self.log_dir / log_name, 'r')
+
+    def show(self, config=None):
+        from ..utils.animator import ShowSimulation
+        ShowSimulation(str(self.root), config)

@@ -1,6 +1,6 @@
 import numpy as np
 from pathlib import Path
-from openprc.demlat.utils.plot_timeseries import SimulationPlotter
+from openprc.demlat.utils.data_parser import SimulationData
 import json
 
 # Configuration
@@ -35,7 +35,7 @@ for beta in betas:
         continue
 
     try:
-        plotter = SimulationPlotter(sim_file)
+        plotter = SimulationData(sim_file)
         time, _ = plotter.get_dataset("time")
         positions, _ = plotter.get_dataset("nodes/positions")
 
@@ -98,7 +98,7 @@ for i, beta in enumerate(betas):
         continue
 
     try:
-        plotter = SimulationPlotter(sim_file)
+        plotter = SimulationData(sim_file)
 
         time, _ = plotter.get_dataset("time")
         positions, _ = plotter.get_dataset("nodes/positions")

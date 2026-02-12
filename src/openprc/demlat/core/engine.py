@@ -5,16 +5,15 @@ High-performance simulation driver.
 Production ready: Robust error handling, crash recovery, and auto-analytics.
 """
 
-import time
 import numpy as np
 import h5py
 from pathlib import Path
 from tqdm import tqdm
 from typing import Dict, Any, List, Optional
 
-from ..utils.logging import get_logger
+from openprc.schemas.logging import get_logger
 from .post_processor import PostProcessor
-from ..io.validator import ExperimentValidator
+from openprc.schemas.demlat_sim_validator import DemlatSimValidator
 
 
 class SimulationError(Exception): pass
@@ -42,7 +41,7 @@ class Engine:
         # --- 1. Pre-Run Validation ---
         try:
             # Pass the already configured logger to the validator
-            validator = ExperimentValidator(simulation.root, logger=self.logger)
+            validator = DemlatSimValidator(simulation.root, logger=self.logger)
             validator.validate_all()
         except Exception as e:
             self.logger.critical(f"simulation validation failed: {e}", exc_info=True)

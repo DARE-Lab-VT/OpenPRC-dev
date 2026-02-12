@@ -1,7 +1,7 @@
 from ...core.base_model import BaseModel
 from ...core.exceptions import ConfigurationError
 from ...core.scaler import SimulationScaler
-from ...utils.logging import get_logger
+from openprc.schemas.logging import get_logger
 import numpy as np
 
 # Import Solvers

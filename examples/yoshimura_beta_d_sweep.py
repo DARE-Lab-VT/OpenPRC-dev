@@ -10,9 +10,9 @@ import h5py
 
 import openprc.demlat
 from openprc.demlat.io.simulation_setup import SimulationSetup
-from openprc.demlat.utils.viz_player import visualize_experiment
-from pipeline_yoshimura_test import setup_actuation
-from pipeline_yoshimura_test import show_pe
+from openprc.demlat.utils.animator import ShowSimulation
+from yoshimura_test import setup_actuation
+from yoshimura_test import show_pe
 from openprc.demlat.models.barhinge import BarHingeModel
 
 EXP_DIR_ROOT = Path("experiments/yoshimura_beta_d_sweep/")
@@ -160,5 +160,5 @@ if __name__ == "__main__":
     beta = betas[499]
     dir_name = "exp_beta_" + str(beta) + "_n_" + str(n)
 
-    visualize_experiment(EXP_DIR_ROOT / dir_name)
+    ShowSimulation(EXP_DIR_ROOT / dir_name)
     show_pe(EXP_DIR_ROOT / dir_name)

@@ -6,7 +6,7 @@ import h5py
 import matplotlib.pyplot as plt
 from pathlib import Path
 from scipy.interpolate import griddata
-from openprc.demlat.utils.plot_timeseries import SimulationPlotter
+from openprc.demlat.utils.data_parser import SimulationData
 from scipy.optimize import fsolve
 from scipy.ndimage import minimum_filter
 
@@ -133,7 +133,7 @@ def plot_hilbert_manifold(exp_path):
     params = generate_parameter_list(3)
 
     # Initialize plotter
-    plotter = SimulationPlotter(exp_path / "output" / "simulation.h5")
+    plotter = SimulationData(exp_path / "output" / "simulation.h5")
 
     # Load trajectory parameters
     traj_file = exp_path / "input" / "trajectory_params.h5"

@@ -77,9 +77,9 @@ def main():
     # --- 4. Inspect Results (Optional) ---
     # Use the validator to peek at the generated file
     print("\n[4] Inspecting Output...")
-    from openprc.demlat.io.validator import ExperimentValidator
+    from openprc.schemas.demlat_sim_validator import DemlatSimValidator
     
-    validator = ExperimentValidator(EXP_DIR)
+    validator = DemlatSimValidator(EXP_DIR)
     # Inspect the simulation file to show it contains valid data
     validator.inspect_file('simulation', show_data=False)
 

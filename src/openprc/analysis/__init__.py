@@ -20,7 +20,7 @@ Example
     finder.save_results(results, "equilibria.h5")
 """
 
-from .equilibria import EquilibriumFinder, Equilibrium, FinderResults
+from .multistability.equilibria import EquilibriumFinder, Equilibrium, FinderResults
 
 __all__ = [
     "EquilibriumFinder",
