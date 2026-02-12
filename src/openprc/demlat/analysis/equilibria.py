@@ -230,7 +230,7 @@ class EquilibriumFinder:
         import demlat
         from demlat.models.barhinge import BarHingeModel
 
-        exp = demlat.Experiment(experiment_dir)
+        exp = demlat.Simulation(experiment_dir)
         model = BarHingeModel(exp, backend=backend)
 
         print(f"[EquilibriumFinder] {model.n_nodes} nodes, backend={model.backend_name}")

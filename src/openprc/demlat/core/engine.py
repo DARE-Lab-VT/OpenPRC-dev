@@ -13,7 +13,7 @@ from tqdm import tqdm
 from typing import Dict, Any, List, Optional
 
 from ..utils.logging import get_logger
-from .state_computer import StateComputer
+from .post_processor import PostProcessor
 from ..io.validator import ExperimentValidator
 
 
@@ -30,35 +30,34 @@ class Engine:
         self.buffer_size = buffer_size
         self._interrupted = False
 
-    def run(self, experiment, auto_process: bool = True) -> Dict[str, Any]:
+    def run(self, simulation, auto_process: bool = True) -> Dict[str, Any]:
         """
         Execute the simulation pipeline.
         Phase 1: Validation
         Phase 2: Fast Physics Loop (Positions/Velocities only).
         Phase 3: Auto Post-Processing (Default: True)
         """
-        self.logger.info(f"Starting simulation pipeline: {experiment.root.name}")
+        self.logger.info(f"Starting simulation pipeline: {simulation.root.name}")
 
         # --- 1. Pre-Run Validation ---
         try:
-            # Explicitly pass our logger (or a child of it) to ensure it writes to the same file/stream
-            # This bypasses any potential issues with global handler registration order
-            validator = ExperimentValidator(experiment.root, logger=self.logger)
+            # Pass the already configured logger to the validator
+            validator = ExperimentValidator(simulation.root, logger=self.logger)
             validator.validate_all()
         except Exception as e:
-            self.logger.critical(f"Experiment validation failed: {e}", exc_info=True)
+            self.logger.critical(f"simulation validation failed: {e}", exc_info=True)
             raise SimulationError(f"Validation failed: {e}") from e
 
         self.logger.info("Validation passed. Proceeding to physics loop.")
 
         try:
             # --- 2. Setup Configuration ---
-            sim_cfg = experiment.config['simulation']
+            sim_cfg = simulation.config['simulation']
 
             # Fallback for dt_base if not present (using dt)
             dt = sim_cfg.get('dt_base')
             if dt is None:
-                dt = experiment.config['physics'].get('dt', 0.001)
+                dt = simulation.config['physics'].get('dt', 0.001)
 
             dt_save = sim_cfg.get('save_interval', 0.01)  # Use save_interval if dt_save missing
             duration = sim_cfg['duration']
@@ -67,14 +66,14 @@ class Engine:
             n_steps = int(duration / dt)
 
             # --- 3. Initialize Model & Signals ---
-            model = self.model_class(experiment, backend=self.backend)
-            signals = self._load_signals(experiment)
-            actuators = experiment.config.get('actuators', [])
+            model = self.model_class(simulation, backend=self.backend)
+            signals = self._load_signals(simulation)
+            actuators = simulation.config.get('actuators', [])
 
             # --- 4. Prepare Output File ---
-            save_path = Path(experiment.paths['simulation'])
+            save_path = Path(simulation.paths['simulation'])
             save_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure folder exists
-            experiment.reset_output()
+            simulation.reset_output()
 
             t_curr = 0.0
             frames_written = 0
@@ -95,7 +94,7 @@ class Engine:
 
                 # [NEW] Check for Visualization File
                 # We assume standard structure: ../input/visualization.h5 relative to output/
-                viz_path = Path(experiment.root) / "input" / "visualization.h5"
+                viz_path = Path(simulation.root) / "input" / "visualization.h5"
                 if viz_path.exists():
                     f.attrs['source_visualization'] = "../input/visualization.h5"
                     self.logger.info("Linked source_visualization.")
@@ -154,7 +153,7 @@ class Engine:
         # --- 6. Auto Post-Processing ---
         if auto_process and not self._interrupted:
             try:
-                self.post_process(experiment)
+                self.post_process(simulation)
             except Exception as e:
                 self.logger.error(f"Post-processing failed: {e}", exc_info=True)
                 # Don't crash the whole run if analytics fail, just log it.
@@ -165,18 +164,18 @@ class Engine:
             'path': str(save_path)
         }
 
-    def post_process(self, experiment):
+    def post_process(self, simulation):
         """
         Phase 2: Analytics Loop.
         Reads the simulation file, calculates energy/stress, and adds new datasets.
         """
-        path = experiment.paths['simulation']
+        path = simulation.paths['simulation']
         self.logger.info(f"Starting Post-Processing: {path}")
 
         try:
-            sc = self._create_state_computer(experiment)
+            sc = self._create_state_computer(simulation)
             if not sc:
-                self.logger.error("Could not initialize StateComputer. Skipping analytics.")
+                self.logger.error("Could not initialize PostProcessor. Skipping analytics.")
                 return
 
             with h5py.File(path, 'r+') as f:
@@ -340,9 +339,9 @@ class Engine:
             self.logger.warning(f"Dataset '{path}' already exists. Skipping creation.")
             pass
 
-    def _create_state_computer(self, experiment) -> Optional[StateComputer]:
-        """Load geometry and material to initialize StateComputer."""
-        geom_path = experiment.paths.get('geometry')
+    def _create_state_computer(self, simulation) -> Optional[PostProcessor]:
+        """Load geometry and material to initialize PostProcessor."""
+        geom_path = simulation.paths.get('geometry')
         if not geom_path or not Path(geom_path).exists():
             return None
 
@@ -375,16 +374,16 @@ class Engine:
                         if key in f:
                             geometry['hinges'][attr] = f[key][:]
 
-            material = experiment.config.get('material', {})
-            return StateComputer(geometry, material)
+            material = simulation.config.get('material', {})
+            return PostProcessor(geometry, material)
 
         except Exception as e:
             self.logger.error(f"Failed to load geometry for analytics: {e}", exc_info=True)
             return None
 
-    def _load_signals(self, experiment) -> Dict[str, np.ndarray]:
+    def _load_signals(self, simulation) -> Dict[str, np.ndarray]:
         """Load input signals."""
-        path = experiment.paths.get('signals')
+        path = simulation.paths.get('signals')
         signals = {}
         if not path or not Path(path).exists():
             return signals

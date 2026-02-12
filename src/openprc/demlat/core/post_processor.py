@@ -17,17 +17,17 @@ try:
 except ImportError:
     JAX_AVAILABLE = False
 
-logger = get_logger("demlat.state_computer")
+logger = get_logger("demlat.post_processor")
 
 
-class StateComputer:
+class PostProcessor:
     """
     Computes derived quantities (Energy, Stress, Strain) from raw simulation state.
     Supports JAX acceleration if available.
     """
 
     def __init__(self, geometry: Dict[str, Any], material: Dict[str, Any]):
-        self.logger = get_logger("demlat.state_computer")
+        self.logger = get_logger("demlat.post_processor")
         self.geometry = geometry
         self.material = material
         self._bar_rest_lengths = None
@@ -45,7 +45,7 @@ class StateComputer:
         try:
             self._init_caches()
         except Exception as e:
-            self.logger.error(f"Failed to initialize StateComputer caches: {e}", exc_info=True)
+            self.logger.error(f"Failed to initialize PostProcessor caches: {e}", exc_info=True)
             raise
 
     def _init_caches(self):

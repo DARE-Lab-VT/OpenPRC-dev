@@ -6,7 +6,7 @@ import h5py
 import matplotlib.pyplot as plt
 from pathlib import Path
 from scipy.interpolate import griddata
-from demlat.utils.plot_timeseries import SimulationPlotter
+from openprc.demlat.utils.plot_timeseries import SimulationPlotter
 from scipy.optimize import fsolve
 from scipy.ndimage import minimum_filter
 

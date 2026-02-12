@@ -1,31 +1,30 @@
 """
 Miura-Ori Circular Actuation Test
 =================================
-Demonstrates coordinated multi-node actuation using the ExperimentSetup API.
+Demonstrates coordinated multi-node actuation using the SimulationSetup API.
 The four corners move in synchronized circles on the XY plane
 while the structure hangs under gravity.
 """
 import numpy as np
 from pathlib import Path
 import sys
-import shutil
 
 # Ensure import
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import demlat
-from demlat.models.barhinge import BarHingeModel
-from demlat.io.experiment_setup import ExperimentSetup
-from demlat.utils.viz_player import visualize_experiment
+import openprc.demlat
+from openprc.demlat.models.barhinge import BarHingeModel
+from openprc.demlat.io.simulation_setup import SimulationSetup
+from openprc.demlat.utils.viz_player import visualize_experiment
 
 DEMO_DIR = Path("experiments/miura_circular_test")
 
 
-def create_miura_ori_geometry(setup: ExperimentSetup, xn=4, yn=4, a=1.0, b=1.0,
+def create_miura_ori_geometry(setup: SimulationSetup, xn=4, yn=4, a=1.0, b=1.0,
                               gamma=np.deg2rad(45), theta=np.deg2rad(30),
                               k_axial=1000.0, k_fold=10.0, k_facet=200.0, mass=0.01):
     """
-    Generates Miura-Ori geometry and adds it to the ExperimentSetup.
+    Generates Miura-Ori geometry and adds it to the SimulationSetup.
     """
     # 1. Derived Dimensions
     ht = a * np.sin(gamma) * np.sin(theta)
@@ -120,10 +119,10 @@ def create_miura_ori_geometry(setup: ExperimentSetup, xn=4, yn=4, a=1.0, b=1.0,
 
 
 def step_1_setup_experiment():
-    print("\n[Step 1] Setting up Experiment...")
+    print("\n[Step 1] Setting up Simulation...")
 
     # Initialize Setup
-    setup = ExperimentSetup(DEMO_DIR, overwrite=True)
+    setup = SimulationSetup(DEMO_DIR, overwrite=True)
 
     # 1. Configure Simulation
     setup.set_simulation_params(duration=10.0, dt=0.0005, save_interval=0.01)
@@ -178,8 +177,8 @@ def step_1_setup_experiment():
 
 def step_2_run_simulation():
     print("\n[Step 2] Running Simulation...")
-    exp = demlat.Experiment(DEMO_DIR)
-    eng = demlat.Engine(BarHingeModel, backend='cuda')
+    exp = openprc.demlat.Simulation(DEMO_DIR)
+    eng = openprc.demlat.Engine(BarHingeModel, backend='cuda')
     eng.run(exp)
 
 

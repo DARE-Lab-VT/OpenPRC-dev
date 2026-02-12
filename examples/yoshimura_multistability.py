@@ -20,12 +20,12 @@ DEMO_DIR = Path("experiments/yoshimura_equilibrium")
 # =============================================================
 
 def setup(beta=35, k_facet=0.02):
-    from demlat.io.experiment_setup import ExperimentSetup
-    from examples.Yoshimura import Yoshimura
+    from openprc.demlat.io.simulation_setup import SimulationSetup
+    from Yoshimura import Yoshimura
 
     print("\n[Setup] Creating Yoshimura Geometry...")
 
-    setup = ExperimentSetup(DEMO_DIR, overwrite=True)
+    setup = SimulationSetup(DEMO_DIR, overwrite=True)
     setup.set_simulation_params(duration=5.0, dt=0.0001, save_interval=0.01)
     setup.set_physics(gravity=0.0, damping=0.1)
 
@@ -74,7 +74,7 @@ def setup(beta=35, k_facet=0.02):
 
 def find(backend='jax', num_random=30, max_steps=10000, tol=5.0e-5,
          dt=0.0005, damping=0.90, verbose=True):
-    from demlat.analysis.equilibria import EquilibriumFinder
+    from openprc.demlat.analysis.equilibria import EquilibriumFinder
 
     print("\n[Find] Searching for equilibria...")
 
@@ -105,7 +105,7 @@ def find(backend='jax', num_random=30, max_steps=10000, tol=5.0e-5,
 
 def plot_results(results=None):
     """Plot found equilibria."""
-    from demlat.analysis.equilibria import EquilibriumFinder
+    from openprc.demlat.analysis.equilibria import EquilibriumFinder
 
     if results is None:
         results = EquilibriumFinder.load_results(DEMO_DIR / "output" / "equilibria.h5")
@@ -158,7 +158,7 @@ def plot_results(results=None):
 
 def plot_3d(eq_index=0):
     """3D scatter of equilibrium vs reference."""
-    from demlat.analysis.equilibria import EquilibriumFinder
+    from openprc.demlat.analysis.equilibria import EquilibriumFinder
     import h5py
 
     results = EquilibriumFinder.load_results(DEMO_DIR / "output" / "equilibria.h5")

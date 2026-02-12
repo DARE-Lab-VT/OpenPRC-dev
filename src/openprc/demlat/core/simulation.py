@@ -1,5 +1,5 @@
 """
-demlat Experiment
+demlat Simulation
 =================
 """
 
@@ -8,23 +8,23 @@ import h5py
 import shutil
 from pathlib import Path
 from datetime import datetime
-from ..utils.logging import get_logger
+from ..utils.logging import get_logger, setup_file_logging
 
 
-class Experiment:
+class Simulation:
     """
-    Manages the file system interface for a Demlat experiment, including input/output paths,
+    Manages the file system interface for a Demlat simulation, including input/output paths,
     configuration loading, and automatic documentation generation.
     """
 
-    def __init__(self, experiment_dir):
-        """Initializes an Experiment object.
+    def __init__(self, simulation_dir):
+        """Initializes an Simulation object.
 
-        This sets up the experiment's directory structure, loads the configuration,
+        This sets up the simulation's directory structure, loads the configuration,
         and generates a README.md file.
 
         """
-        self.root = Path(experiment_dir)
+        self.root = Path(simulation_dir)
         self.input_dir = self.root / "input"
         self.output_dir = self.root / "output"
         self.log_dir = self.output_dir / "logs"
@@ -37,7 +37,8 @@ class Experiment:
             "visualization": self.input_dir / "visualization.h5",
             "simulation": self.output_dir / "simulation.h5",
             "readme": self.root / "README.md",
-            "log": self.log_dir / "experiment.log"
+            "logs": self.log_dir,
+            "log": self.log_dir / "simulation.log"
         }
 
         # 2. Validate Input Existence
@@ -48,12 +49,13 @@ class Experiment:
         if not self.paths["geometry"].exists():
             raise FileNotFoundError(f"Geometry missing: {self.paths['geometry']}")
 
-        # 3. Setup Output Structure
+        # 3. Setup Output Structure & Logging
         self._setup_outputs()
+        setup_file_logging(self.log_dir)
 
-        # 4. Initialize Logger (Now that log_dir exists)
-        self.logger = get_logger("demlat.experiment", log_dir=self.log_dir)
-        self.logger.info(f"Initialized experiment at: {self.root}")
+        # 4. Initialize Logger (Now that log_dir exists and handler is set)
+        self.logger = get_logger("demlat.simulation")
+        self.logger.info(f"Initialized simulation at: {self.root}")
 
         # 5. Load Configuration
         with open(self.paths["config"], 'r') as f:
@@ -77,8 +79,7 @@ class Experiment:
 
         Removes all files and subdirectories within the output directory, then recreates the necessary structure.
         """
-        if self.logger:
-            self.logger.warning("Resetting output directory.")
+        # No logger here, as it might not be initialized yet if called early
         
         if self.output_dir.exists():
             # Remove all files in output but keep directory structure
@@ -90,12 +91,14 @@ class Experiment:
         self._setup_outputs()
         
         # Re-initialize logger since the log file was deleted
-        self.logger = get_logger("demlat.experiment", log_dir=self.log_dir)
+        setup_file_logging(self.log_dir)
+        # Get a new logger instance after setup
+        self.logger = get_logger("demlat.simulation")
         self.logger.info("Output directory reset complete.")
 
     def _generate_readme(self):
         """
-        Auto-generates a README.md summary of the experiment.
+        Auto-generates a README.md summary of the simulation.
 
         This method gathers information from the configuration and geometry files to create a human-readable summary.
         """
@@ -116,11 +119,11 @@ class Experiment:
 
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        content = f"""# Experiment: {self.root.name}
+        content = f"""# Simulation: {self.root.name}
                 **Generated:** {timestamp}
                 
                 ## 1. Overview
-                This is an auto-generated summary of the **{self.root.name}** experiment.
+                This is an auto-generated summary of the **{self.root.name}** simulation.
                 
                 ## 2. Geometry (Hardware)
                 * **Nodes:** {n_nodes}
@@ -187,7 +190,7 @@ class Experiment:
 
     def get_log_writer(self, log_name):
         """
-        Returns a file object for writing logs within the experiment's log directory.
+        Returns a file object for writing logs within the simulation's log directory.
 
         :param log_name: The name of the log file (e.g., "simulation.log").
         :return: A file object opened in write mode ('w').
@@ -196,7 +199,7 @@ class Experiment:
 
     def get_log_reader(self, log_name):
         """
-        Returns a file object for reading logs from the experiment's log directory.
+        Returns a file object for reading logs from the simulation's log directory.
 
         :param log_name: The name of the log file (e.g., "simulation.log").
         :return: A file object opened in read mode ('r').

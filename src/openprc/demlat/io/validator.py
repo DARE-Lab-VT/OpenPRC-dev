@@ -63,7 +63,7 @@ class ExperimentValidator:
 
             self._validate_config_logic(config_data, n_nodes, available_signals)
 
-        self.logger.info("Validation successful. Experiment is robust.", exc_info=True)
+        self.logger.info("Validation successful. Simulation is robust.", exc_info=True)
 
     def inspect_file(self, file_type: str, show_data: bool = True, max_sample: int = 3):
         """

@@ -8,12 +8,12 @@ from examples.yoshimura_ori_geometry import *
 from pathlib import Path
 import h5py
 
-import demlat
-from demlat.io.experiment_setup import ExperimentSetup
-from demlat.utils.viz_player import visualize_experiment
-from examples.pipeline_yoshimura_test import setup_actuation
-from examples.pipeline_yoshimura_test import show_pe
-from demlat.models.barhinge import BarHingeModel
+import openprc.demlat
+from openprc.demlat.io.simulation_setup import SimulationSetup
+from openprc.demlat.utils.viz_player import visualize_experiment
+from pipeline_yoshimura_test import setup_actuation
+from pipeline_yoshimura_test import show_pe
+from openprc.demlat.models.barhinge import BarHingeModel
 
 EXP_DIR_ROOT = Path("experiments/yoshimura_beta_d_sweep/")
 
@@ -21,7 +21,7 @@ EXP_DIR_ROOT = Path("experiments/yoshimura_beta_d_sweep/")
 def run_and_save_experiment(dir_name, n, beta):
     # setup
     path = EXP_DIR_ROOT / dir_name
-    setup = ExperimentSetup(path, overwrite=True)
+    setup = SimulationSetup(path, overwrite=True)
 
     # Simulation parameters
     duration = 20.0
@@ -140,7 +140,7 @@ def run_and_save_experiment(dir_name, n, beta):
 
     print("\n[Step 2] Running Simulation...")
 
-    exp = demlat.Experiment(path)
+    exp = demlat.Simulation(path)
     eng = demlat.Engine(BarHingeModel, backend='cuda')
     eng.run(exp)
 
