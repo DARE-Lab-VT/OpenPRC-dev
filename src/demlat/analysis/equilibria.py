@@ -68,16 +68,16 @@ class FinderResults:
         return sum(1 for eq in self.equilibria if eq.stability != 'stable')
 
     def summary(self):
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print(f"  Equilibrium Finder Results")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
         print(f"  Total attempts:     {self.n_total_attempts}")
         print(f"  Converged:          {self.n_converged}")
         print(f"  Unique equilibria:  {len(self.equilibria)}")
         print(f"  Stable:             {self.n_stable}")
         print(f"  Unstable:           {self.n_unstable}")
         print(f"  Wall time:          {self.wall_time:.2f}s")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
         for i, eq in enumerate(self.equilibria):
             z_range = eq.positions[:, 2].max() - eq.positions[:, 2].min()
             print(f"  [{i}] stability={eq.stability:<8s}  "
@@ -294,52 +294,52 @@ class EquilibriumFinder:
         # 1. Reference
         add(x_ref, "reference")
 
-        # 2. Z-compression/extension
-        for z_s in [0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
-                    1.1, 1.2, 1.5, 2.0, 2.5, 3.0]:
-            x_m = x_ref.copy()
-            x_m[:, 2] = z_mid_val + (x_m[:, 2] - z_mid_val) * z_s
-            add(x_m, f"z_{z_s:.2f}")
-
-        # 3. Radial breathing
-        if has_mid:
-            for r_s in [-0.4, -0.3, -0.2, -0.15, -0.1, -0.05,
-                        0.05, 0.1, 0.15, 0.2, 0.3, 0.4]:
-                x_m = x_ref.copy()
-                xy = x_m[mid_mask, :2]
-                nrm = np.maximum(np.linalg.norm(xy, axis=1, keepdims=True), 1e-12)
-                x_m[mid_mask, :2] += r_s * (xy / nrm)
-                add(x_m, f"radial_{r_s:+.2f}")
-
-        # 4. Combined z + radial
-        if has_mid:
-            for z_s in [0.1, 0.3, 0.5, 0.7, 1.3, 1.5, 2.0]:
-                for r_s in [-0.3, -0.15, 0.0, 0.15, 0.3]:
-                    x_m = x_ref.copy()
-                    x_m[:, 2] = z_mid_val + (x_m[:, 2] - z_mid_val) * z_s
-                    xy = x_m[mid_mask, :2]
-                    nrm = np.maximum(np.linalg.norm(xy, axis=1, keepdims=True), 1e-12)
-                    x_m[mid_mask, :2] += r_s * (xy / nrm)
-                    add(x_m, f"comb_z{z_s:.1f}_r{r_s:+.2f}")
-
-        # 5. Twist
-        for tw in [0.2, 0.5, 1.0, -0.2, -0.5]:
-            x_m = x_ref.copy()
-            hfrac = (x_m[:, 2] - z_min) / max(z_max - z_min, 1e-12)
-            theta = tw * hfrac
-            xn = x_m[:, 0] * np.cos(theta) - x_m[:, 1] * np.sin(theta)
-            yn = x_m[:, 0] * np.sin(theta) + x_m[:, 1] * np.cos(theta)
-            x_m[:, 0], x_m[:, 1] = xn, yn
-            add(x_m, f"twist_{tw:+.1f}")
-
-        # 6. Inverted
-        x_m = x_ref.copy()
-        x_m[:, 2] = z_max - (x_m[:, 2] - z_min)
-        add(x_m, "inverted")
+        # # 2. Z-compression/extension
+        # for z_s in [0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+        #             1.1, 1.2, 1.5, 2.0, 2.5, 3.0]:
+        #     x_m = x_ref.copy()
+        #     x_m[:, 2] = z_mid_val + (x_m[:, 2] - z_mid_val) * z_s
+        #     add(x_m, f"z_{z_s:.2f}")
+        #
+        # # 3. Radial breathing
+        # if has_mid:
+        #     for r_s in [-0.4, -0.3, -0.2, -0.15, -0.1, -0.05,
+        #                 0.05, 0.1, 0.15, 0.2, 0.3, 0.4]:
+        #         x_m = x_ref.copy()
+        #         xy = x_m[mid_mask, :2]
+        #         nrm = np.maximum(np.linalg.norm(xy, axis=1, keepdims=True), 1e-12)
+        #         x_m[mid_mask, :2] += r_s * (xy / nrm)
+        #         add(x_m, f"radial_{r_s:+.2f}")
+        #
+        # # 4. Combined z + radial
+        # if has_mid:
+        #     for z_s in [0.1, 0.3, 0.5, 0.7, 1.3, 1.5, 2.0]:
+        #         for r_s in [-0.3, -0.15, 0.0, 0.15, 0.3]:
+        #             x_m = x_ref.copy()
+        #             x_m[:, 2] = z_mid_val + (x_m[:, 2] - z_mid_val) * z_s
+        #             xy = x_m[mid_mask, :2]
+        #             nrm = np.maximum(np.linalg.norm(xy, axis=1, keepdims=True), 1e-12)
+        #             x_m[mid_mask, :2] += r_s * (xy / nrm)
+        #             add(x_m, f"comb_z{z_s:.1f}_r{r_s:+.2f}")
+        #
+        # # 5. Twist
+        # for tw in [0.2, 0.5, 1.0, -0.2, -0.5]:
+        #     x_m = x_ref.copy()
+        #     hfrac = (x_m[:, 2] - z_min) / max(z_max - z_min, 1e-12)
+        #     theta = tw * hfrac
+        #     xn = x_m[:, 0] * np.cos(theta) - x_m[:, 1] * np.sin(theta)
+        #     yn = x_m[:, 0] * np.sin(theta) + x_m[:, 1] * np.cos(theta)
+        #     x_m[:, 0], x_m[:, 1] = xn, yn
+        #     add(x_m, f"twist_{tw:+.1f}")
+        #
+        # # 6. Inverted
+        # x_m = x_ref.copy()
+        # x_m[:, 2] = z_max - (x_m[:, 2] - z_min)
+        # add(x_m, "inverted")
 
         # 7. Random perturbations
         rng = np.random.RandomState(42)
-        for scale_name, scale in [("sm", 0.01), ("md", 0.05), ("lg", 0.15)]:
+        for scale_name, scale in [("sm", 0.1), ("md", 0.5), ("lg", 1.5)]:
             for i in range(max(num_random // 3, 1)):
                 add(x_ref + rng.randn(n, 3) * scale, f"rnd_{scale_name}_{i}")
 
@@ -568,6 +568,7 @@ class EquilibriumFinder:
 
 if __name__ == "__main__":
     import sys
+
     exp_dir = sys.argv[1] if len(sys.argv) > 1 else "experiments/yoshimura_equilibrium"
     backend = sys.argv[2] if len(sys.argv) > 2 else "jax"
 

@@ -180,4 +180,9 @@ def visualize_sequence(state=0):
 
 
 if __name__ == "__main__":
-    visualize_sequence(state=42)
+    import sys
+    print(sys.argv)
+
+    visualize_sequence(state=int(sys.argv[1]))
+
+

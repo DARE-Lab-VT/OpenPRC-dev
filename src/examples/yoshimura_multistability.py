@@ -200,6 +200,6 @@ def plot_3d(eq_index=0):
 
 if __name__ == "__main__":
     setup(beta=35, k_facet=0.02)
-    results = find(backend='jax', num_random=30, max_steps=50000)
+    results = find(backend='jax', num_random=500, max_steps=50000)
     plot_results(results)
     # plot_3d(0)
