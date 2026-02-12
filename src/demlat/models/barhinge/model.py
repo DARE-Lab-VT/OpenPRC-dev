@@ -77,10 +77,15 @@ class BarHingeModel(BaseModel):
         elif backend_lower == 'jax':
             if not JAX_AVAILABLE:
                 self.logger.error("Backend 'jax' requested but solver_jax module could not be imported.")
-                raise ConfigurationError(
-                    "Backend 'jax' requested but solver_jax not available. Install with: pip install jax")
-            SolverClass = JaxSolver
-            self.backend_name = 'JAX'
+                # raise ConfigurationError(
+                #     "Backend 'jax' requested but solver_jax not available. Install with: pip install jax")
+                # Fallback to CPU if JAX is not available
+                self.logger.warning("Backend 'jax' requested but solver_jax not available. Falling back to CPU.")
+                SolverClass = CpuSolver
+                self.backend_name = 'CPU'
+            else:
+                SolverClass = JaxSolver
+                self.backend_name = 'JAX'
 
         elif backend_lower == 'auto':
             # Auto-selection priority: CUDA > JAX > CPU
@@ -249,6 +254,42 @@ class BarHingeModel(BaseModel):
             'velocities': v_real,
         }
         return result
+
+    def dynamics_step(self, positions, velocities, dt=0.001):
+        """
+        Pure dynamics step function for black-box analysis.
+        
+        Takes current state (positions, velocities) in physical units,
+        advances the physics by dt (ignoring actuation), and returns
+        the new state.
+
+        Args:
+            positions (np.ndarray): Current positions (N x 3) in physical units.
+            velocities (np.ndarray): Current velocities (N x 3) in physical units.
+            dt (float): Time step size in physical units (default: 0.001).
+
+        Returns:
+            tuple: (new_positions, new_velocities) in physical units.
+        """
+        # 1. Scale Input to Simulation Units
+        x_sim = self.scaler.to_sim(positions, 'length')
+        v_sim = self.scaler.to_sim(velocities, 'velocity')
+        dt_sim = self.scaler.to_sim(dt, 'time')
+
+        # 2. Upload State to Solver
+        self.solver.upload_state(x_sim, v_sim)
+
+        # 3. Step Solver (No Actuation)
+        # We pass an empty actuation map and t=0 (time doesn't matter for autonomous dynamics)
+        self.solver.step(0.0, dt_sim, {})
+
+        # 4. Download & Unscale
+        x_new_sim, v_new_sim = self.solver.download_state()
+        
+        x_new = self.scaler.from_sim(x_new_sim, 'length')
+        v_new = self.scaler.from_sim(v_new_sim, 'velocity')
+
+        return x_new, v_new
 
     def reset(self):
         """

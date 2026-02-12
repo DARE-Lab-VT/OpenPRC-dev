@@ -370,7 +370,7 @@ class Engine:
                     geometry['hinges'] = {
                         'indices': f['elements/hinges/indices'][:].astype(np.int32),
                     }
-                    for attr in ['stiffness', 'rest_angle']:
+                    for attr in ['stiffness', 'angle']:
                         key = f'elements/hinges/{attr}'
                         if key in f:
                             geometry['hinges'][attr] = f[key][:]

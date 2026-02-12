@@ -1,4 +1,3 @@
-# demlat/utils/viz_player.py
 """
 DEMLAT Visualization Player
 ============================
@@ -91,13 +90,11 @@ class ExperimentData:
         print("DEMLAT Visualization Player - Loading Data")
         print("=" * 60)
 
-        # Load geometry (required)
         if not self.geometry_path.exists():
             raise FileNotFoundError(f"Geometry file not found: {self.geometry_path}")
 
         self._load_geometry()
 
-        # Load simulation (optional)
         if self.simulation_path.exists():
             self.mode = 'simulation'
             self._load_simulation()
@@ -106,11 +103,9 @@ class ExperimentData:
             self.mode = 'geometry'
             print(f"[Mode] Geometry Viewer (no simulation data)")
 
-        # Load visualization (optional)
         if self.visualization_path.exists():
             self._load_visualization()
 
-        # Load config (optional)
         if self.config_path.exists():
             self._load_config()
 
@@ -119,44 +114,37 @@ class ExperimentData:
         print(f"\n[Loading] {self.geometry_path.name}")
 
         with h5py.File(self.geometry_path, 'r') as f:
-            # Nodes (required)
             if 'nodes' not in f:
                 raise ValueError("geometry.h5 missing 'nodes' group")
 
             nodes_grp = f['nodes']
 
-            # Positions (required)
             if 'positions' not in nodes_grp:
                 raise ValueError("geometry.h5 missing 'nodes/positions'")
             self.nodes['positions'] = nodes_grp['positions'][:]
             self.n_nodes = self.nodes['positions'].shape[0]
 
-            # Masses (optional, default to 1.0)
             if 'masses' in nodes_grp:
                 self.nodes['masses'] = nodes_grp['masses'][:]
             else:
                 self.nodes['masses'] = np.ones(self.n_nodes, dtype='f4')
 
-            # Attributes (optional, default to 0 = free floating)
             if 'attributes' in nodes_grp:
                 self.nodes['attributes'] = nodes_grp['attributes'][:]
             else:
                 self.nodes['attributes'] = np.zeros(self.n_nodes, dtype='u1')
 
-            # Radius (optional, for visualization)
             if 'radius' in nodes_grp:
                 self.nodes['radius'] = nodes_grp['radius'][:]
             else:
                 self.nodes['radius'] = None
 
-            # Elements
             if 'elements' not in f:
                 print("  [Warning] No elements found in geometry")
                 return
 
             elem_grp = f['elements']
 
-            # Bars (optional)
             if 'bars' in elem_grp:
                 bars_grp = elem_grp['bars']
                 self.elements['bars'] = {
@@ -166,12 +154,10 @@ class ExperimentData:
                     'damping': bars_grp['damping'][:] if 'damping' in bars_grp else None,
                     'prestress': bars_grp['prestress'][:] if 'prestress' in bars_grp else None,
                 }
-
                 if self.elements['bars']['indices'] is not None:
                     self.n_bars = self.elements['bars']['indices'].shape[0]
                     print(f"  [Loaded] {self.n_bars} bars")
 
-            # Hinges (optional)
             if 'hinges' in elem_grp:
                 hinges_grp = elem_grp['hinges']
                 self.elements['hinges'] = {
@@ -179,32 +165,23 @@ class ExperimentData:
                     'stiffness': hinges_grp['stiffness'][:] if 'stiffness' in hinges_grp else None,
                     'rest_angle': hinges_grp['rest_angle'][:] if 'rest_angle' in hinges_grp else None,
                 }
-
                 if self.elements['hinges']['indices'] is not None:
                     self.n_hinges = self.elements['hinges']['indices'].shape[0]
                     print(f"  [Loaded] {self.n_hinges} hinges")
 
-            # Inside _load_geometry, after loading hinges, add:
         if self.elements.get('hinges') and self.elements['hinges']['indices'] is not None:
-            # Compute hinge edge midpoints and normals for visualization
-            hinge_indices = self.elements['hinges']['indices']  # Shape: (n_hinges, 4)
+            hinge_indices = self.elements['hinges']['indices']
             positions = self.nodes['positions']
-
-            # For each hinge: [edge_node1, edge_node2, wing1, wing2]
-            self.elements['hinges']['edge_midpoints'] = (positions[hinge_indices[:, 0]] + positions[
-                hinge_indices[:, 1]]) / 2
-
-            # Compute fold angle direction (cross product of wing vectors)
+            self.elements['hinges']['edge_midpoints'] = (
+                                                                positions[hinge_indices[:, 0]] + positions[hinge_indices[:, 1]]
+                                                        ) / 2
             edge_vec = positions[hinge_indices[:, 1]] - positions[hinge_indices[:, 0]]
             wing1_vec = positions[hinge_indices[:, 2]] - self.elements['hinges']['edge_midpoints']
             wing2_vec = positions[hinge_indices[:, 3]] - self.elements['hinges']['edge_midpoints']
-
-            # Normal to the hinge plane
             normals = np.cross(wing1_vec, wing2_vec)
             norms = np.linalg.norm(normals, axis=1, keepdims=True)
             norms = np.where(norms < 1e-10, 1.0, norms)
             self.elements['hinges']['normals'] = normals / norms
-
             print(f"  [Computed] Hinge visualization data")
 
         print(f"  [Loaded] {self.n_nodes} nodes")
@@ -214,7 +191,6 @@ class ExperimentData:
         print(f"\n[Loading] {self.simulation_path.name}")
 
         with h5py.File(self.simulation_path, 'r') as f:
-            # Metadata
             self.metadata = dict(f.attrs)
 
             if 'time_series' not in f:
@@ -224,7 +200,6 @@ class ExperimentData:
 
             ts_grp = f['time_series']
 
-            # Time array (required for simulation)
             if 'time' in ts_grp:
                 self.time_series['time'] = ts_grp['time'][:]
                 self.n_frames = len(self.time_series['time'])
@@ -234,11 +209,8 @@ class ExperimentData:
                 self.mode = 'geometry'
                 return
 
-            # Node data
             if 'nodes' in ts_grp:
                 nodes_grp = ts_grp['nodes']
-
-                # Positions (required for animation)
                 if 'positions' in nodes_grp:
                     self.time_series['positions'] = nodes_grp['positions'][:]
                     print(f"  [Loaded] Node positions [{self.time_series['positions'].shape}]")
@@ -247,40 +219,30 @@ class ExperimentData:
                     self.mode = 'geometry'
                     return
 
-                # Velocities (optional)
                 if 'velocities' in nodes_grp:
                     self.time_series['velocities'] = nodes_grp['velocities'][:]
                     print(f"  [Loaded] Node velocities")
-
-                # Energies (optional)
                 if 'kinetic_energy' in nodes_grp:
                     self.time_series['node_kinetic'] = nodes_grp['kinetic_energy'][:]
                 if 'potential_energy' in nodes_grp:
                     self.time_series['node_potential'] = nodes_grp['potential_energy'][:]
 
-            # Element data (bars)
             if 'elements' in ts_grp and 'bars' in ts_grp['elements']:
                 bars_grp = ts_grp['elements']['bars']
-
                 if 'strain' in bars_grp:
                     self.time_series['bar_strain'] = bars_grp['strain'][:]
                     print(f"  [Loaded] Bar strains")
-
                 if 'stress' in bars_grp:
                     self.time_series['bar_stress'] = bars_grp['stress'][:]
                     print(f"  [Loaded] Bar stresses")
-
                 if 'potential_energy' in bars_grp:
                     self.time_series['bar_energy'] = bars_grp['potential_energy'][:]
 
-            # Element data (hinges)
             if 'elements' in ts_grp and 'hinges' in ts_grp['elements']:
                 hinges_grp = ts_grp['elements']['hinges']
-
                 if 'angle' in hinges_grp:
                     self.time_series['hinge_angle'] = hinges_grp['angle'][:]
                     print(f"  [Loaded] Hinge angles")
-
                 if 'torsional_strain' in hinges_grp:
                     self.time_series['hinge_strain'] = hinges_grp['torsional_strain'][:]
                     print(f"  [Loaded] Hinge strains")
@@ -290,20 +252,16 @@ class ExperimentData:
         print(f"\n[Loading] {self.visualization_path.name}")
 
         with h5py.File(self.visualization_path, 'r') as f:
-            # Check if 'faces' exists
             if 'faces' in f:
-                # Check if it's a group (new schema) or dataset (legacy)
                 if isinstance(f['faces'], h5py.Group) and 'triangles' in f['faces']:
                     self.visualization['faces'] = f['faces']['triangles'][:]
                     self.has_faces = True
                     print(f"  [Loaded] {len(self.visualization['faces'])} triangular faces")
-
                 elif isinstance(f['faces'], h5py.Dataset):
                     self.visualization['faces'] = f['faces'][:]
                     self.has_faces = True
                     print(f"  [Loaded] {len(self.visualization['faces'])} faces (legacy format)")
 
-            # Appearance data (optional)
             if 'appearance' in f:
                 app_grp = f['appearance']
                 if 'face_colors' in app_grp:
@@ -314,7 +272,6 @@ class ExperimentData:
     def _load_config(self):
         """Load config.json (optional)."""
         print(f"\n[Loading] {self.config_path.name}")
-
         try:
             with open(self.config_path, 'r') as f:
                 self.config = json.load(f)
@@ -324,7 +281,6 @@ class ExperimentData:
 
     def _validate_data(self):
         """Validate loaded data for consistency."""
-        # Check position dimensions
         if self.mode == 'simulation':
             expected_shape = (self.n_frames, self.n_nodes, 3)
             actual_shape = self.time_series['positions'].shape
@@ -335,7 +291,6 @@ class ExperimentData:
 
     def _compute_properties(self):
         """Compute derived properties for visualization."""
-        # Compute rest lengths if not provided
         if self.n_bars > 0 and self.elements['bars']['rest_length'] is None:
             indices = self.elements['bars']['indices']
             pos = self.nodes['positions']
@@ -351,27 +306,18 @@ class ExperimentData:
 # =============================================================================
 
 class VisualizationScales:
-    """
-    Automatically computes optimal visualization scales.
-    """
+    """Automatically computes optimal visualization scales."""
 
     def __init__(self, data: ExperimentData):
         self.data = data
-
-        # Geometric scales
-        self.L_char = 1.0  # Characteristic length
+        self.L_char = 1.0
         self.extent = np.array([1.0, 1.0, 1.0])
         self.center = np.array([0.0, 0.0, 0.0])
-
-        # Element scales
         self.node_radius = 0.1
         self.bar_radius = 0.05
         self.velocity_scale = 1.0
-
-        # Colormap limits
         self.strain_limit = 0.3
         self.stress_limit = None
-
         self._compute_scales()
 
     def _compute_scales(self):
@@ -380,13 +326,11 @@ class VisualizationScales:
         print("Computing Visualization Scales")
         print("=" * 60)
 
-        # Geometric extent
         positions = self.data.nodes['positions']
         self.extent = np.max(positions, axis=0) - np.min(positions, axis=0)
         self.center = np.mean(positions, axis=0)
         self.L_char = np.median(self.extent) if np.any(self.extent > 0) else 1.0
 
-        # Use bar rest lengths if available
         if self.data.n_bars > 0:
             rest_lengths = self.data.elements['bars']['rest_length']
             if rest_lengths is not None:
@@ -398,23 +342,18 @@ class VisualizationScales:
         print(f"Extent: [{self.extent[0]:.2f}, {self.extent[1]:.2f}, {self.extent[2]:.2f}]")
         print(f"Center: [{self.center[0]:.2f}, {self.center[1]:.2f}, {self.center[2]:.2f}]")
 
-        # Node radius
         if self.data.nodes['radius'] is not None:
             self.node_radius = np.median(self.data.nodes['radius'])
         else:
             self.node_radius = self.L_char * 0.05
-
         print(f"Node Radius: {self.node_radius:.4f}")
 
-        # Bar radius
         self.bar_radius = self.L_char * 0.03
         print(f"Bar Radius: {self.bar_radius:.4f}")
 
-        # Velocity scale (if simulation data available)
         if self.data.mode == 'simulation' and 'velocities' in self.data.time_series:
             self._compute_velocity_scale()
 
-        # Strain/stress limits
         if 'bar_strain' in self.data.time_series:
             strains = self.data.time_series['bar_strain']
             self.strain_limit = np.percentile(np.abs(strains), 95)
@@ -428,21 +367,41 @@ class VisualizationScales:
     def _compute_velocity_scale(self):
         """Auto-tune velocity arrow scaling."""
         vels = self.data.time_series['velocities']
-
-        # Sample velocities across time
         sample_indices = np.linspace(0, len(vels) - 1, min(10, len(vels)), dtype=int)
         max_vel = 0.0
-
         for idx in sample_indices:
             v_mag = np.linalg.norm(vels[idx], axis=1)
             max_vel = max(max_vel, np.max(v_mag))
-
         if max_vel > 1e-9:
             self.velocity_scale = (1.5 * self.L_char) / max_vel
         else:
             self.velocity_scale = 1.0
-
         print(f"Velocity Scale: {self.velocity_scale:.4f}")
+
+
+# =============================================================================
+# VECTORIZED COLORMAP HELPERS
+# =============================================================================
+
+def _jet_colormap_batch(t):
+    """
+    Vectorized jet colormap: t in [0, 1] -> (N, 3) float32 RGB.
+    Matches Colormap.jet() behavior but operates on entire arrays.
+    """
+    t = np.clip(t, 0.0, 1.0)
+    r = np.clip(1.5 - np.abs(t - 0.75) * 4, 0, 1)
+    g = np.clip(1.5 - np.abs(t - 0.5) * 4, 0, 1)
+    b = np.clip(1.5 - np.abs(t - 0.25) * 4, 0, 1)
+    return np.column_stack([r, g, b]).astype('f4')
+
+
+def _jet_colormap_batch_rgba(t, alpha=1.0):
+    """Vectorized jet colormap returning (N, 4) RGBA."""
+    rgb = _jet_colormap_batch(t)
+    rgba = np.empty((len(t), 4), dtype='f4')
+    rgba[:, :3] = rgb
+    rgba[:, 3] = alpha
+    return rgba
 
 
 # =============================================================================
@@ -452,7 +411,7 @@ class VisualizationScales:
 class DEMLATVisualizer(PiVizFX):
     """
     High-performance visualizer for DEMLAT simulations.
-    Optimized following the ReservoirAnimator pattern.
+    All rendering paths fully vectorized using bulk batch APIs.
     """
 
     def __init__(self, data: ExperimentData, config: Optional[Dict] = None):
@@ -467,7 +426,7 @@ class DEMLATVisualizer(PiVizFX):
         self.paused = False
         self.speed = 1.0
         self.frame_step = 1
-        self._updating_slider = False  # Flag to prevent feedback loops
+        self._updating_slider = False
 
         # Configuration
         self.config = {
@@ -488,13 +447,13 @@ class DEMLATVisualizer(PiVizFX):
             'strain_limit': None,
             'base_node_radius': None,
             'velocity_scale': None,
-            'hinge_color_mountain': (0.2, 0.6, 1.0),  # Blue for mountain folds (angle > π)
-            'hinge_color_valley': (1.0, 0.4, 0.2),  # Orange for valley folds (angle < π)
-            'hinge_color_flat': (0.5, 0.5, 0.5),  # Gray for flat (angle ≈ π)
-            'hinge_indicator_scale': 0.15,  # Scale for hinge direction indicators
-            'show_hinge_rest_angle': True,  # NEW: toggle rest angle visualization
-            'hinge_force_scale': 0.5,  # Scale for hinge force vectors
-            'hinge_geom_scale': 0.4,  # Scale for localized hinge visualization
+            'hinge_color_mountain': (0.2, 0.6, 1.0),
+            'hinge_color_valley': (1.0, 0.4, 0.2),
+            'hinge_color_flat': (0.5, 0.5, 0.5),
+            'hinge_indicator_scale': 0.15,
+            'show_hinge_rest_angle': True,
+            'hinge_force_scale': 0.5,
+            'hinge_geom_scale': 0.4,
         }
 
         if config:
@@ -505,33 +464,23 @@ class DEMLATVisualizer(PiVizFX):
             self.config['sphere_detail'] = 8
             self.config['cylinder_detail'] = 6
             self.config['use_particles_for_nodes'] = True
-
         if self.data.n_bars > 500:
             self.config['use_lines_for_bars'] = True
 
-        # Set scales from computed values
         if self.config['strain_limit'] is None:
             self.config['strain_limit'] = self.scales.strain_limit
-
         if self.config['base_node_radius'] is None:
             self.config['base_node_radius'] = self.scales.node_radius
-
         if self.config['velocity_scale'] is None:
             self.config['velocity_scale'] = self.scales.velocity_scale
 
-        # Categorize nodes
         self._categorize_nodes()
-
-        # Trails
         self.trails = {i: [] for i in range(self.data.n_nodes)}
-
-        # Pre-allocate batch arrays
         self._preallocate_batch_arrays()
 
     def _categorize_nodes(self):
         """Categorize nodes by type."""
         attrs = self.data.nodes['attributes']
-
         self.fixed_nodes_idx = np.where((attrs & 1) != 0)[0]
         self.position_actuators_idx = np.where((attrs & 2) != 0)[0]
         self.force_actuators_idx = np.where((attrs & 4) != 0)[0]
@@ -544,15 +493,14 @@ class DEMLATVisualizer(PiVizFX):
         print(f"  Floating: {len(self.floating_nodes_idx)}")
 
     def _preallocate_batch_arrays(self):
-        """Pre-allocate all arrays for rendering - no per-frame allocation!"""
+        """Pre-allocate all arrays for rendering — no per-frame allocation."""
         n = self.data.n_nodes
         n_bars = self.data.n_bars
         n_floating = len(self.floating_nodes_idx)
 
-        # Current frame data
         self.all_positions = np.zeros((n, 3), dtype='f4')
 
-        # Bars
+        # Bars — pre-allocated for vectorized rendering
         if n_bars > 0:
             self.bar_indices = self.data.elements['bars']['indices']
             self.bar_rest_lengths = self.data.elements['bars']['rest_length']
@@ -560,27 +508,28 @@ class DEMLATVisualizer(PiVizFX):
             self.bar_start_pos = np.zeros((n_bars, 3), dtype='f4')
             self.bar_end_pos = np.zeros((n_bars, 3), dtype='f4')
 
-        # Particles (for nodes)
+        # Particles
         if n_floating > 0:
             self.particle_positions = np.zeros((n_floating, 3), dtype='f4')
             self.particle_colors = np.full((n_floating, 3), (0.3, 0.3, 0.3), dtype='f4')
             self.particle_sizes = np.full(n_floating, self.scales.node_radius * 80, dtype='f4')
 
-        # Faces
+        # Faces — pre-extract vertex index arrays for fancy indexing
         if self.data.has_faces:
             n_faces = len(self.data.visualization['faces'])
             self.face_indices = self.data.visualization['faces']
+            self.face_idx0 = self.face_indices[:, 0].astype('i4')
+            self.face_idx1 = self.face_indices[:, 1].astype('i4')
+            self.face_idx2 = self.face_indices[:, 2].astype('i4')
             self.face_default_opacity = 0.7
-
-            # Pre-compute vertex strain buffers
             self.vertex_strains = np.zeros(n, dtype='f4')
             self.vertex_counts = np.zeros(n, dtype='f4')
 
-        # Velocity arrows
+        # Velocities
         if 'velocities' in self.data.time_series:
             self.current_velocities = np.zeros((n, 3), dtype='f4')
 
-        # Hinges visualization
+        # Hinges
         if self.data.n_hinges > 0 and self.data.elements.get('hinges'):
             hinges = self.data.elements['hinges']
             self.hinge_indices = hinges['indices']
@@ -616,72 +565,54 @@ class DEMLATVisualizer(PiVizFX):
     # ============ FRAME-BY-FRAME CONTROL METHODS ============
 
     def _on_timeline_change(self, value):
-        """Called when timeline slider is moved."""
         if self._updating_slider:
             return
-
         self.timestep_idx = int(value)
         self.float_timestep = float(self.timestep_idx)
-        # Pause when manually scrubbing
         self.paused = True
         self._update_pause_button()
 
     def _on_step_change(self, value):
-        """Called when step size slider changes."""
         self.frame_step = max(1, int(value))
 
     def _goto_start(self):
-        """Jump to first frame."""
         self.timestep_idx = 0
         self.float_timestep = 0.0
         self._clear_trails()
         self._sync_timeline_slider()
 
     def _goto_end(self):
-        """Jump to last frame."""
         self.timestep_idx = self.data.n_frames - 1
         self.float_timestep = float(self.timestep_idx)
         self._sync_timeline_slider()
 
     def _step_forward(self):
-        """Go to next frame(s)."""
         self.paused = True
         self._update_pause_button()
-
         step = max(1, int(self.frame_step))
-        max_idx = self.data.n_frames - 1
-        new_idx = min(max_idx, self.timestep_idx + step)
-
-        self.timestep_idx = int(new_idx)
+        self.timestep_idx = min(self.data.n_frames - 1, self.timestep_idx + step)
         self.float_timestep = float(self.timestep_idx)
         self._sync_timeline_slider()
 
     def _step_backward(self):
-        """Go to previous frame(s)."""
         self.paused = True
         self._update_pause_button()
-
         step = max(1, int(self.frame_step))
-        new_idx = max(0, self.timestep_idx - step)
-
-        self.timestep_idx = int(new_idx)
+        self.timestep_idx = max(0, self.timestep_idx - step)
         self.float_timestep = float(self.timestep_idx)
         self._sync_timeline_slider()
 
     def _toggle_pause(self):
-        """Toggle play/pause state."""
         self.paused = not self.paused
         self._update_pause_button()
 
     def _update_pause_button(self):
-        """Update pause button text based on state."""
         if hasattr(self, 'ui_manager') and self.ui_manager:
             btn = self.ui_manager.get_widget("btn_pause")
             if btn:
                 btn.text = ">" if self.paused else "||"
 
     def _sync_timeline_slider(self):
-        """Sync timeline slider to current frame."""
         if hasattr(self, 'ui_manager') and self.ui_manager:
             slider = self.ui_manager.get_widget("sld_timeline")
             if slider:
@@ -690,12 +621,10 @@ class DEMLATVisualizer(PiVizFX):
                 self._updating_slider = False
 
     def _clear_trails(self):
-        """Clear all motion trails."""
         for k in self.trails:
             self.trails[k].clear()
 
     def _reset_sim(self):
-        """Reset simulation to start."""
         self._goto_start()
         self.paused = False
         self.timestep_idx = 0
@@ -704,13 +633,12 @@ class DEMLATVisualizer(PiVizFX):
             self.trails[k].clear()
         self._update_pause_button()
 
-        # ========================================================
+    # ============ UI SETUP ============
 
     def _setup_ui(self):
-        """Setup UI controls with explicit layout."""
+        """Setup UI controls."""
         self.ui_manager.set_panel_title("DEMLAT Player")
 
-        # Time display
         if self.data.mode == 'simulation':
             self.lbl_time = Label("Time: 0.00s | Frame: 0")
             self.ui_manager.add_widget("lbl_time", self.lbl_time)
@@ -718,47 +646,27 @@ class DEMLATVisualizer(PiVizFX):
             self.lbl_mode = Label("Geometry Viewer", color=(0.7, 0.9, 1.0))
             self.ui_manager.add_widget("lbl_mode", self.lbl_mode)
 
-        # Performance info
         self.lbl_perf = Label(
             f"Nodes: {self.data.n_nodes} | Bars: {self.data.n_bars}",
             color=(0.7, 0.7, 0.7)
         )
         self.ui_manager.add_widget("lbl_perf", self.lbl_perf)
 
-        # ============ NEW: PLAYBACK CONTROLS ============
         if self.data.mode == 'simulation':
-            # Timeline slider
             self.ui_manager.add_widget("sld_timeline",
                                        Slider("Frame", 0, self.data.n_frames - 1, 0, self._on_timeline_change))
-
-            # Playback buttons row
-            # Note: PiViz widgets don't support explicit positioning in this version.
-            # We rely on the layout manager.
-
-            # In _setup_ui():
-            self.ui_manager.add_widget("btn_start",
-                                       Button("<<", self._goto_start))
-            self.ui_manager.add_widget("btn_prev",
-                                       Button("<-", self._step_backward))  # or "PREV"
-            self.ui_manager.add_widget("btn_pause",
-                                       Button("||", self._toggle_pause))
-            self.ui_manager.add_widget("btn_next",
-                                       Button("->", self._step_forward))  # or "NEXT"
-            self.ui_manager.add_widget("btn_end",
-                                       Button(">>", self._goto_end))
-
-            # Speed control
+            self.ui_manager.add_widget("btn_start", Button("<<", self._goto_start))
+            self.ui_manager.add_widget("btn_prev", Button("<-", self._step_backward))
+            self.ui_manager.add_widget("btn_pause", Button("||", self._toggle_pause))
+            self.ui_manager.add_widget("btn_next", Button("->", self._step_forward))
+            self.ui_manager.add_widget("btn_end", Button(">>", self._goto_end))
             self.ui_manager.add_widget("sld_speed",
                                        Slider("Speed", 10, 500, int(self.speed * 100),
                                               lambda v: setattr(self, 'speed', v / 100.0)))
-
-            # Frame step size (for prev/next buttons)
             self.frame_step = 1
             self.ui_manager.add_widget("sld_step",
                                        Slider("Step", 1, 50, 1, self._on_step_change))
-        # ================================================
 
-        # Toggles
         if self.data.n_hinges > 0:
             self.ui_manager.add_widget("chk_hinges",
                                        Checkbox("Show Hinges", self.config['show_hinges'],
@@ -767,19 +675,15 @@ class DEMLATVisualizer(PiVizFX):
         self.ui_manager.add_widget("chk_hinge_rest",
                                    Checkbox("Show Rest Angle", self.config['show_hinge_rest_angle'],
                                             lambda v: self.config.update({'show_hinge_rest_angle': v})))
-
         self.ui_manager.add_widget("sld_hinge_force",
                                    Slider("Hinge Force Scale", 0.1, 5.0, self.config['hinge_force_scale'],
                                           lambda v: self.config.update({'hinge_force_scale': v})))
-
         self.ui_manager.add_widget("sld_hinge_geom",
                                    Slider("Hinge Size", 0.1, 1.0, self.config['hinge_geom_scale'],
                                           lambda v: self.config.update({'hinge_geom_scale': v})))
-
         self.ui_manager.add_widget("chk_nodes",
                                    Checkbox("Show Nodes", self.config['show_nodes'],
                                             lambda v: self.config.update({'show_nodes': v})))
-
         self.ui_manager.add_widget("chk_bars",
                                    Checkbox("Show Bars", self.config['show_bars'],
                                             lambda v: self.config.update({'show_bars': v})))
@@ -788,480 +692,157 @@ class DEMLATVisualizer(PiVizFX):
             self.ui_manager.add_widget("chk_faces",
                                        Checkbox("Show Faces", self.config['show_faces'],
                                                 lambda v: self.config.update({'show_faces': v})))
-
         if 'bar_strain' in self.data.time_series:
             self.ui_manager.add_widget("chk_strain",
                                        Checkbox("Strain Color", self.config['show_strain'],
                                                 lambda v: self.config.update({'show_strain': v})))
-
         if 'velocities' in self.data.time_series:
             self.ui_manager.add_widget("chk_vel",
                                        Checkbox("Show Velocity", self.config['show_velocity'],
-                                                self._toggle_velocity))
+                                                lambda v: self.config.update({'show_velocity': v})))
 
         self.ui_manager.add_widget("chk_trails",
                                    Checkbox("Show Trails", self.config['show_trails'],
                                             lambda v: self.config.update({'show_trails': v})))
-
         self.ui_manager.add_widget("chk_lines",
                                    Checkbox("Fast Lines", self.config['use_lines_for_bars'],
                                             lambda v: self.config.update({'use_lines_for_bars': v})))
-
         self.ui_manager.add_widget("chk_particles",
                                    Checkbox("Particle Nodes", self.config['use_particles_for_nodes'],
                                             lambda v: self.config.update({'use_particles_for_nodes': v})))
 
-    def _toggle_velocity(self, v):
-        self.config['show_velocity'] = v
+    # ====================================================================
+    # RENDER — fully vectorized, zero per-element Python loops
+    # ====================================================================
 
     def render(self, time_val, dt):
-        """Main render loop - optimized like ReservoirAnimator."""
-
-        # Update playback (only when not paused)
+        """Main render loop."""
+        # Update playback
         if self.data.mode == 'simulation' and not self.paused:
             self.float_timestep += dt * 60 * self.speed
-
             if self.float_timestep >= self.data.n_frames:
                 self.float_timestep = 0.0
                 self._clear_trails()
-
             self.timestep_idx = int(self.float_timestep)
-
-            # Sync slider during playback
             self._sync_timeline_slider()
 
         idx = self.timestep_idx
 
-        # Get current frame data
+        # Get current frame
         if self.data.mode == 'simulation':
             x_curr = self.data.time_series['positions'][idx]
         else:
             x_curr = self.data.nodes['positions']
-
         self.all_positions[:] = x_curr
 
-        # Calculate velocities (if needed)
+        # Velocities
         vels = None
         if self.config['show_velocity'] and idx > 0 and 'velocities' in self.data.time_series:
             self.current_velocities[:] = self.data.time_series['velocities'][idx]
             vels = self.current_velocities
 
         # --- DRAWING LAYERS ---
-
-        # 1. Trails
         if self.config['show_trails']:
             self._render_trails(x_curr)
-
-        # 2. Faces
         if self.config['show_faces']:
             self._render_faces()
-
-        # 3. Bars
         if self.config['show_bars']:
             self._render_bars()
-
-        # 3.5 Hinges (geometry mode or always)
         if self.config['show_hinges'] and self.data.n_hinges > 0:
             self._render_hinges()
-
-        # 4. Nodes
         if self.config['show_nodes']:
             self._render_nodes()
-
-        # 5. Velocity arrows
         if vels is not None:
             self._render_velocity_arrows(vels)
 
-        # 6. UI Updates
-        if self.data.mode == 'simulation' and hasattr(self, 'lbl_time'):
-            t_display = self.data.time_series['time'][idx]
-            self.lbl_time.text = f"Time: {t_display:.2f}s | Frame: {idx}/{self.data.n_frames - 1}"
-
+        # UI Updates
         if self.data.mode == 'simulation' and hasattr(self, 'lbl_time'):
             t_display = self.data.time_series['time'][idx]
             status = "PAUSED" if self.paused else "PLAYING"
             self.lbl_time.text = f"Time: {t_display:.3f}s | Frame: {idx}/{self.data.n_frames - 1} | {status}"
 
-    def _render_trails(self, x_curr):
-        """Render motion trails for floating nodes."""
-        limit = self.config['trail_length']
-        for i in self.floating_nodes_idx:
-            pos = tuple(x_curr[i])
-            self.trails[i].append(pos)
-            if len(self.trails[i]) > limit:
-                self.trails[i].pop(0)
-
-            if len(self.trails[i]) > 1:
-                pgfx.draw_path(
-                    points=self.trails[i],
-                    color=(1.0, 0.5, 0.0, 0.6),
-                    width=2.0
-                )
-
-    def _render_hinges(self):
-        """
-        New hinge visualization:
-        - Colored faces based on angular deviation.
-        - Force vectors at wings showing restoring torque.
-        """
-        if self.data.n_hinges == 0 or not hasattr(self, 'hinge_indices'):
-            return
-
-        # Vectorized calculation
-        idx = self.hinge_indices
-        p_j = self.all_positions[idx[:, 0]]
-        p_k = self.all_positions[idx[:, 1]]
-        p_i = self.all_positions[idx[:, 2]]
-        p_l = self.all_positions[idx[:, 3]]
-
-        # Vectors (matching kernel logic)
-        r_ij = p_i - p_j
-        r_kj = p_k - p_j
-        r_kl = p_k - p_l  # Kernel uses xk - xl
-
-        # Normals
-        m = np.cross(r_ij, r_kj)
-        n = np.cross(r_kj, r_kl)
-
-        len_m = np.linalg.norm(m, axis=1)
-        len_n = np.linalg.norm(n, axis=1)
-
-        # Avoid division by zero
-        valid = (len_m > 1e-9) & (len_n > 1e-9)
-
-        # Debug print once
-        if not hasattr(self, '_debug_hinge_printed'):
-            print(f"DEBUG: Hinge render. Valid hinges: {np.sum(valid)}/{len(valid)}")
-            self._debug_hinge_printed = True
-
-        if not np.any(valid): return
-
-        # Normalize normals
-        m_hat = np.zeros_like(m)
-        n_hat = np.zeros_like(n)
-        m_hat[valid] = m[valid] / len_m[valid, None]
-        n_hat[valid] = n[valid] / len_n[valid, None]
-
-        # Cosine of angle
-        dot_mn = np.einsum('ij,ij->i', m_hat, n_hat)
-        cos_phi = np.clip(dot_mn, -1.0, 1.0)
-        phi = np.arccos(cos_phi)
-
-        # Sign (Orientation)
-        # dot(m, r_kl) < 0 means convex vs concave
-        # Kernel: if (dot3(m, r_kl) < 0) phi = -phi;
-        dot_m_rkl = np.einsum('ij,ij->i', m, r_kl)
-        mask_neg = dot_m_rkl < 0
-        phi[mask_neg] = -phi[mask_neg]
-
-        # Deviation
-        if self.hinge_rest_angles is not None:
-            phi0 = self.hinge_rest_angles
-            delta = phi - phi0
-            # Wrap delta to [-pi, pi]
-            delta = (delta + np.pi) % (2 * np.pi) - np.pi
-        else:
-            delta = np.zeros_like(phi)
-
-        # Render
-        scale = self.config.get('hinge_force_scale', 0.5) * self.scales.L_char
-        geom_scale = self.config.get('hinge_geom_scale', 0.4)
-        limit = np.deg2rad(45)  # 45 degrees limit for color
-
-        # Arrow sizing
-        L = self.scales.L_char
-        arrow_head = 0.2 * L
-        arrow_width = 0.04 * L
-
-        for i in np.where(valid)[0]:
-            d = delta[i]
-
-            # Color based on deviation
-            # Blue (-limit) -> Green (0) -> Red (+limit)
-            t = np.clip((d + limit) / (2 * limit), 0.0, 1.0)
-            color = Colormap.jet(t)
-
-            # Draw Faces (semi-transparent)
-            c_face = (color[0], color[1], color[2], 0.4)
-
-            # Calculate midpoint
-            mid = (p_j[i] + p_k[i]) * 0.5
-
-            # Scaled positions relative to midpoint
-            pj_s = mid + (p_j[i] - mid) * geom_scale
-            pk_s = mid + (p_k[i] - mid) * geom_scale
-            pi_s = mid + (p_i[i] - mid) * geom_scale
-            pl_s = mid + (p_l[i] - mid) * geom_scale
-
-            # Convert to tuples
-            pt_j = tuple(map(float, pj_s))
-            pt_k = tuple(map(float, pk_s))
-            pt_i = tuple(map(float, pi_s))
-            pt_l = tuple(map(float, pl_s))
-
-            # Draw Faces
-            pgfx.draw_triangle(pt_j, pt_k, pt_i, c_face)
-            pgfx.draw_triangle(pt_j, pt_k, pt_l, c_face)
-
-            # Draw Spine
-            pgfx.draw_line(pt_j, pt_k, color=(1.0, 1.0, 1.0), width=2.0)  # White spine for visibility
-
-            # Draw Wing edges (to make the shape clear)
-            pgfx.draw_line(pt_j, pt_i, color=c_face[:3], width=1.0)
-            pgfx.draw_line(pt_k, pt_i, color=c_face[:3], width=1.0)
-            pgfx.draw_line(pt_j, pt_l, color=c_face[:3], width=1.0)
-            pgfx.draw_line(pt_k, pt_l, color=c_face[:3], width=1.0)
-
-            # Draw Force Vectors at Wings
-            # F_i direction: -sign(d) * m_hat
-            # F_l direction: sign(d) * n_hat
-            # Magnitude proportional to |d|
-
-            mag = abs(d) / limit  # Normalized magnitude 0..1 (can go >1)
-            mag = min(mag, 2.0)  # Cap visual length
-
-            # Always draw a small sphere at center to prove we are here
-            # mid = ((p_j[i] + p_k[i]) * 0.5)
-            # pgfx.draw_sphere(tuple(map(float, mid)), radius=self.scales.node_radius * 0.5, color=color, detail=4)
-
-            if mag > 0.01:  # Lower threshold for visibility
-                # Wing i
-                dir_i = -np.sign(d) * m_hat[i]
-                start_i = pt_i
-                end_i = tuple(map(float, pi_s + dir_i * scale * mag))
-                pgfx.draw_arrow(start_i, end_i, color=(1.0, 1.0, 0.0), head_size=arrow_head, width_radius=arrow_width)
-
-                # Wing l
-                dir_l = np.sign(d) * n_hat[i]
-                start_l = pt_l
-                end_l = tuple(map(float, pl_s + dir_l * scale * mag))
-                pgfx.draw_arrow(start_l, end_l, color=(1.0, 1.0, 0.0), head_size=arrow_head, width_radius=arrow_width)
-
-    def _draw_dashed_line(self, start, end, color, width, dash_length):
-        """Draw a dashed line."""
-        start = np.array(start)
-        end = np.array(end)
-        vec = end - start
-        length = np.linalg.norm(vec)
-
-        if length < 1e-10:
-            return
-
-        direction = vec / length
-        num_dashes = int(length / (2 * dash_length))
-
-        for i in range(num_dashes):
-            t0 = (2 * i * dash_length) / length
-            t1 = ((2 * i + 1) * dash_length) / length
-            if t1 > 1.0:
-                t1 = 1.0
-
-            p0 = start + t0 * vec
-            p1 = start + t1 * vec
-
-            pgfx.draw_line(
-                tuple(p0),
-                tuple(p1),
-                color=color,
-                width=width
-            )
-
-    def _draw_angle_arc(self, center, axis, start_vec, angle, radius, color, segments=16):
-        """Draw an arc to visualize an angle around an axis."""
-        center = np.array(center)
-        axis = np.array(axis)
-        start_vec = np.array(start_vec)
-
-        # Normalize
-        axis = axis / (np.linalg.norm(axis) + 1e-10)
-        start_vec = start_vec / (np.linalg.norm(start_vec) + 1e-10)
-
-        # Generate arc points using Rodrigues rotation
-        points = []
-        for i in range(segments + 1):
-            theta = angle * i / segments
-            cos_t = np.cos(theta)
-            sin_t = np.sin(theta)
-
-            # Rodrigues rotation formula
-            rotated = (start_vec * cos_t +
-                       np.cross(axis, start_vec) * sin_t +
-                       axis * np.dot(axis, start_vec) * (1 - cos_t))
-
-            point = center + rotated * radius
-            points.append(tuple(point))
-
-        # Draw arc as connected line segments
-        if len(points) > 1:
-            pgfx.draw_path(
-                points=points,
-                color=color,
-                width=2.0
-            )
-
-    def _render_hinge_angles_overlay(self):
-        """
-        Optional: Render current vs rest angle as arc indicators.
-        Useful for debugging hinge behavior during simulation.
-        """
-        if self.data.n_hinges == 0 or self.hinge_rest_angles is None:
-            return
-
-        for i in range(min(self.data.n_hinges, 50)):  # Limit for performance
-            idx = self.hinge_indices[i]
-
-            p_edge1 = self.all_positions[idx[0]]
-            p_edge2 = self.all_positions[idx[1]]
-            p_wing1 = self.all_positions[idx[2]]
-            p_wing2 = self.all_positions[idx[3]]
-
-            edge_mid = (p_edge1 + p_edge2) / 2
-
-            # Compute current dihedral angle
-            edge_vec = p_edge2 - p_edge1
-            edge_vec = edge_vec / (np.linalg.norm(edge_vec) + 1e-10)
-
-            v1 = p_wing1 - edge_mid
-            v2 = p_wing2 - edge_mid
-
-            # Project onto plane perpendicular to edge
-            v1_perp = v1 - np.dot(v1, edge_vec) * edge_vec
-            v2_perp = v2 - np.dot(v2, edge_vec) * edge_vec
-
-            n1 = np.linalg.norm(v1_perp)
-            n2 = np.linalg.norm(v2_perp)
-
-            if n1 > 1e-10 and n2 > 1e-10:
-                v1_perp /= n1
-                v2_perp /= n2
-
-                cos_angle = np.clip(np.dot(v1_perp, v2_perp), -1, 1)
-                current_angle = np.arccos(cos_angle)
-
-                # Color based on deviation from rest
-                rest_angle = self.hinge_rest_angles[i]
-                deviation = abs(current_angle - (2 * np.pi - rest_angle))
-
-                # Green = at rest, Red = strained
-                strain_color = min(deviation / 0.5, 1.0)
-                color = (strain_color, 1.0 - strain_color, 0.0)
-
-                # Draw small arc indicator
-                arc_radius = self.scales.L_char * 0.1
-                pgfx.draw_sphere(
-                    center=tuple(edge_mid + edge_vec * arc_radius * 0.5),
-                    radius=arc_radius * 0.3,
-                    color=color,
-                    detail=4
-                )
+    # ====================================================================
+    # VECTORIZED RENDER METHODS
+    # ====================================================================
 
     def _render_bars(self):
-        """Render bars with strain coloring - vectorized."""
+        """Render bars — fully vectorized with bulk batch API."""
         if self.data.n_bars == 0:
             return
 
-        # Update positions (vectorized)
+        # Vectorized position gather
         self.bar_start_pos[:] = self.all_positions[self.bar_indices[:, 0]]
         self.bar_end_pos[:] = self.all_positions[self.bar_indices[:, 1]]
 
-        # Compute strain colors (vectorized)
+        # Vectorized strain coloring
         if self.config['show_strain'] and 'bar_strain' in self.data.time_series:
             strains = self.data.time_series['bar_strain'][self.timestep_idx]
             limit = self.config['strain_limit']
             t = np.clip((strains + limit) / (2 * limit), 0.0, 1.0)
-
-            self.bar_colors[:, 0] = np.clip(1.5 - np.abs(t - 0.75) * 4, 0, 1)
-            self.bar_colors[:, 1] = np.clip(1.5 - np.abs(t - 0.5) * 4, 0, 1)
-            self.bar_colors[:, 2] = np.clip(1.5 - np.abs(t - 0.25) * 4, 0, 1)
+            self.bar_colors[:] = _jet_colormap_batch(t)
         else:
             self.bar_colors[:] = (0.5, 0.5, 0.5)
 
-        # Render
-        use_lines = self.config['use_lines_for_bars']
-
-        if use_lines:
-            for i in range(self.data.n_bars):
-                pgfx.draw_line(
-                    tuple(self.bar_start_pos[i]),
-                    tuple(self.bar_end_pos[i]),
-                    color=tuple(self.bar_colors[i]),
-                    width=2.0
-                )
+        # Bulk render — single call, zero per-bar loop
+        if self.config['use_lines_for_bars']:
+            pgfx.draw_lines_batch(
+                self.bar_start_pos, self.bar_end_pos,
+                self.bar_colors, width=2.0
+            )
         else:
-            radius = self.scales.bar_radius
-            detail = self.config['cylinder_detail']
-            for i in range(self.data.n_bars):
-                pgfx.draw_cylinder(
-                    start=tuple(self.bar_start_pos[i]),
-                    end=tuple(self.bar_end_pos[i]),
-                    radius=radius,
-                    color=tuple(self.bar_colors[i]),
-                    detail=detail
-                )
+            pgfx.draw_cylinders_batch(
+                starts=self.bar_start_pos,
+                ends=self.bar_end_pos,
+                radii=self.scales.bar_radius,
+                colors=self.bar_colors,
+                detail=self.config['cylinder_detail']
+            )
 
     def _render_faces(self):
-        """Render faces with smooth per-vertex strain coloring."""
+        """Render faces — fully vectorized with bulk batch API."""
         if not self.data.has_faces:
             return
 
-        # Compute per-vertex strains (vectorized)
+        # Gather vertex positions via fancy indexing (vectorized)
+        v0 = self.all_positions[self.face_idx0]  # (n_faces, 3)
+        v1 = self.all_positions[self.face_idx1]
+        v2 = self.all_positions[self.face_idx2]
+
         if self.config['show_strain'] and 'bar_strain' in self.data.time_series:
             strains = self.data.time_series['bar_strain'][self.timestep_idx]
 
-            # Reset buffers
+            # Vectorized per-vertex strain accumulation
             self.vertex_strains[:] = 0
             self.vertex_counts[:] = 0
-
-            # Accumulate strains (vectorized)
             np.add.at(self.vertex_strains, self.bar_indices[:, 0], strains)
             np.add.at(self.vertex_strains, self.bar_indices[:, 1], strains)
             np.add.at(self.vertex_counts, self.bar_indices[:, 0], 1)
             np.add.at(self.vertex_counts, self.bar_indices[:, 1], 1)
-
-            # Average
             mask = self.vertex_counts > 0
             self.vertex_strains[mask] /= self.vertex_counts[mask]
 
-            # Render with per-vertex colors
+            # Vectorized colormap for all vertices at once
             limit = self.config['strain_limit']
-            for face in self.face_indices:
-                v0_pos = tuple(self.all_positions[face[0]])
-                v1_pos = tuple(self.all_positions[face[1]])
-                v2_pos = tuple(self.all_positions[face[2]])
+            t_all = np.clip((self.vertex_strains + limit) / (2 * limit), 0.0, 1.0)
+            all_colors_rgba = _jet_colormap_batch_rgba(t_all, self.face_default_opacity)
 
-                # Compute colors
-                s0 = self.vertex_strains[face[0]]
-                s1 = self.vertex_strains[face[1]]
-                s2 = self.vertex_strains[face[2]]
+            # Gather per-face vertex colors
+            c0 = all_colors_rgba[self.face_idx0]  # (n_faces, 4)
+            c1 = all_colors_rgba[self.face_idx1]
+            c2 = all_colors_rgba[self.face_idx2]
 
-                c0 = self._strain_to_color(s0, limit)
-                c1 = self._strain_to_color(s1, limit)
-                c2 = self._strain_to_color(s2, limit)
-
-                pgfx.draw_face(v0_pos, v1_pos, v2_pos, c0, c1, c2)
+            pgfx.draw_faces_batch(v0, v1, v2, c0, c1, c2)
         else:
-            # Static color
-            color = (0.85, 0.85, 0.85, self.face_default_opacity)
-            for face in self.face_indices:
-                v0 = tuple(self.all_positions[face[0]])
-                v1 = tuple(self.all_positions[face[1]])
-                v2 = tuple(self.all_positions[face[2]])
-                pgfx.draw_triangle(v0, v1, v2, color)
-
-    def _strain_to_color(self, strain, limit):
-        """Convert strain to color tuple with opacity."""
-        t = np.clip((strain + limit) / (2 * limit), 0.0, 1.0)
-        # r = float(np.clip(1.5 - np.abs(t - 0.75) * 4, 0, 1))
-        # g = float(np.clip(1.5 - np.abs(t - 0.5) * 4, 0, 1))
-        # b = float(np.clip(1.5 - np.abs(t - 0.25) * 4, 0, 1))
-        clr = Colormap.jet(t, self.face_default_opacity)
-        # return (r, g, b, self.face_default_opacity)
-        return clr
+            # Static color — single flat color for all faces
+            n_faces = len(self.face_idx0)
+            static_color = np.full((n_faces, 4), (0.85, 0.85, 0.85, self.face_default_opacity), dtype='f4')
+            pgfx.draw_triangles_batch(v0, v1, v2, static_color)
 
     def _render_nodes(self):
-        """Render nodes - spheres or particles."""
+        """Render nodes — vectorized with bulk batch APIs."""
         n_floating = len(self.floating_nodes_idx)
-        use_particles = self.config['use_particles_for_nodes'] or n_floating > self.config['particle_threshold']
+        use_particles = (self.config['use_particles_for_nodes'] or
+                         n_floating > self.config['particle_threshold'])
 
         # Floating nodes
         if n_floating > 0:
@@ -1274,15 +855,16 @@ class DEMLATVisualizer(PiVizFX):
                     sizes=self.particle_sizes
                 )
             else:
-                for local_idx, global_idx in enumerate(self.floating_nodes_idx):
-                    pgfx.draw_sphere(
-                        center=tuple(self.particle_positions[local_idx]),
-                        radius=self.scales.node_radius,
-                        color=(0.3, 0.3, 0.3),
-                        detail=self.config['sphere_detail']
-                    )
+                # Bulk sphere rendering
+                radii = np.full(n_floating, self.scales.node_radius, dtype='f4')
+                pgfx.draw_spheres_batch(
+                    centers=self.particle_positions,
+                    radii=radii,
+                    colors=self.particle_colors,
+                    detail=self.config['sphere_detail']
+                )
 
-        # Fixed nodes (cubes)
+        # Fixed nodes (cubes) — small count, loop is fine
         s_fixed = self.scales.node_radius * 2.0
         for i in self.fixed_nodes_idx:
             pgfx.draw_cube(
@@ -1291,7 +873,7 @@ class DEMLATVisualizer(PiVizFX):
                 color=Palette.Standard10[3]
             )
 
-        # Actuators
+        # Position actuators
         s_act = self.scales.node_radius * 2.0
         for i in self.position_actuators_idx:
             pgfx.draw_cube(
@@ -1300,6 +882,7 @@ class DEMLATVisualizer(PiVizFX):
                 color=Palette.Standard10[2]
             )
 
+        # Force actuators
         s_force = self.scales.node_radius * 1.5
         for i in self.force_actuators_idx:
             pgfx.draw_cube(
@@ -1309,25 +892,239 @@ class DEMLATVisualizer(PiVizFX):
             )
 
     def _render_velocity_arrows(self, vels):
-        """Render velocity arrows for floating nodes."""
+        """Render velocity arrows — vectorized for floating nodes."""
+        idx = self.floating_nodes_idx
+        if len(idx) == 0:
+            return
+
+        positions = self.all_positions[idx]      # (n, 3)
+        velocities = vels[idx]                   # (n, 3)
+        v_mag = np.linalg.norm(velocities, axis=1)
+
+        # Filter: only draw arrows with significant velocity
+        valid = v_mag > 1e-6
+        if not np.any(valid):
+            return
+
+        starts = positions[valid]
         scale = self.config['velocity_scale']
-        head_size = self.scales.L_char * 0.1
-        width_radius = self.scales.L_char * 0.02
-        min_vel_threshold = 1e-6
+        ends = starts + velocities[valid] * scale
 
-        for idx in self.floating_nodes_idx:
-            pos = self.all_positions[idx]
-            vel = vels[idx]
-            v_mag = np.linalg.norm(vel)
+        # Use cylinders for arrow shafts + cones for heads
+        # For simplicity and performance, use lines for many arrows
+        n_arrows = len(starts)
+        arrow_colors = np.full((n_arrows, 3), (0.0, 1.0, 1.0), dtype='f4')
 
-            if v_mag > min_vel_threshold:
+        if n_arrows > 200:
+            # Many arrows: use fast lines
+            pgfx.draw_lines_batch(starts, ends, arrow_colors, width=2.0)
+        else:
+            # Fewer arrows: use proper arrow geometry
+            head_size = self.scales.L_char * 0.1
+            width_radius = self.scales.L_char * 0.02
+            for i in range(n_arrows):
                 pgfx.draw_arrow(
-                    start=tuple(pos),
-                    end=tuple(pos + vel * scale),
+                    start=tuple(starts[i]),
+                    end=tuple(ends[i]),
                     color=(0.0, 1.0, 1.0),
                     head_size=head_size,
                     width_radius=width_radius
                 )
+
+    def _render_trails(self, x_curr):
+        """Render motion trails — uses batch line API for accumulated trails."""
+        limit = self.config['trail_length']
+
+        # Update trail buffers (this must be per-node, but it's just list.append)
+        for i in self.floating_nodes_idx:
+            pos = tuple(x_curr[i])
+            trail = self.trails[i]
+            trail.append(pos)
+            if len(trail) > limit:
+                trail.pop(0)
+
+        # Collect all trail segments into a single batch
+        all_starts = []
+        all_ends = []
+        for i in self.floating_nodes_idx:
+            trail = self.trails[i]
+            if len(trail) > 1:
+                for j in range(len(trail) - 1):
+                    all_starts.append(trail[j])
+                    all_ends.append(trail[j + 1])
+
+        if all_starts:
+            starts = np.array(all_starts, dtype='f4')
+            ends = np.array(all_ends, dtype='f4')
+            colors = np.full((len(starts), 4), (1.0, 0.5, 0.0, 0.6), dtype='f4')
+            pgfx.draw_lines_batch(starts, ends, colors, width=2.0)
+
+    def _render_hinges(self):
+        """
+        Render hinges — vectorized geometry computation, batched drawing.
+        Colored faces based on angular deviation + force vectors.
+        """
+        if self.data.n_hinges == 0 or not hasattr(self, 'hinge_indices'):
+            return
+
+        idx = self.hinge_indices
+        p_j = self.all_positions[idx[:, 0]]
+        p_k = self.all_positions[idx[:, 1]]
+        p_i = self.all_positions[idx[:, 2]]
+        p_l = self.all_positions[idx[:, 3]]
+
+        # Vectorized angle computation
+        r_ij = p_i - p_j
+        r_kj = p_k - p_j
+        r_kl = p_k - p_l
+
+        m = np.cross(r_ij, r_kj)
+        n = np.cross(r_kj, r_kl)
+
+        len_m = np.linalg.norm(m, axis=1)
+        len_n = np.linalg.norm(n, axis=1)
+        valid = (len_m > 1e-9) & (len_n > 1e-9)
+
+        if not np.any(valid):
+            return
+
+        m_hat = np.zeros_like(m)
+        n_hat = np.zeros_like(n)
+        m_hat[valid] = m[valid] / len_m[valid, None]
+        n_hat[valid] = n[valid] / len_n[valid, None]
+
+        dot_mn = np.einsum('ij,ij->i', m_hat, n_hat)
+        cos_phi = np.clip(dot_mn, -1.0, 1.0)
+        phi = np.arccos(cos_phi)
+
+        dot_m_rkl = np.einsum('ij,ij->i', m, r_kl)
+        mask_neg = dot_m_rkl < 0
+        phi[mask_neg] = -phi[mask_neg]
+
+        if self.hinge_rest_angles is not None:
+            phi0 = self.hinge_rest_angles
+            delta = phi - phi0
+            delta = (delta + np.pi) % (2 * np.pi) - np.pi
+        else:
+            delta = np.zeros_like(phi)
+
+        # Vectorized color computation
+        limit_rad = np.deg2rad(45)
+        t = np.clip((delta + limit_rad) / (2 * limit_rad), 0.0, 1.0)
+        hinge_rgb = _jet_colormap_batch(t)  # (n_hinges, 3)
+
+        # Vectorized geometry scaling
+        geom_scale = self.config.get('hinge_geom_scale', 0.4)
+        mid = (p_j + p_k) * 0.5  # (n_hinges, 3)
+
+        pj_s = mid + (p_j - mid) * geom_scale
+        pk_s = mid + (p_k - mid) * geom_scale
+        pi_s = mid + (p_i - mid) * geom_scale
+        pl_s = mid + (p_l - mid) * geom_scale
+
+        # Filter to valid hinges
+        v_idx = np.where(valid)[0]
+        n_valid = len(v_idx)
+
+        # --- Batch triangles: 2 per hinge (wing1 + wing2) ---
+        tri_v1 = np.empty((n_valid * 2, 3), dtype='f4')
+        tri_v2 = np.empty((n_valid * 2, 3), dtype='f4')
+        tri_v3 = np.empty((n_valid * 2, 3), dtype='f4')
+        tri_colors = np.empty((n_valid * 2, 4), dtype='f4')
+
+        tri_v1[0::2] = pj_s[v_idx]
+        tri_v2[0::2] = pk_s[v_idx]
+        tri_v3[0::2] = pi_s[v_idx]
+        tri_v1[1::2] = pj_s[v_idx]
+        tri_v2[1::2] = pk_s[v_idx]
+        tri_v3[1::2] = pl_s[v_idx]
+
+        tri_colors[0::2, :3] = hinge_rgb[v_idx]
+        tri_colors[0::2, 3] = 0.4
+        tri_colors[1::2, :3] = hinge_rgb[v_idx]
+        tri_colors[1::2, 3] = 0.4
+
+        pgfx.draw_triangles_batch(tri_v1, tri_v2, tri_v3, tri_colors)
+
+        # --- Batch lines: spine + 4 wing edges per hinge = 5 lines ---
+        n_lines = n_valid * 5
+        line_starts = np.empty((n_lines, 3), dtype='f4')
+        line_ends = np.empty((n_lines, 3), dtype='f4')
+        line_colors = np.empty((n_lines, 4), dtype='f4')
+
+        # Spine (white)
+        line_starts[0::5] = pj_s[v_idx]
+        line_ends[0::5] = pk_s[v_idx]
+        line_colors[0::5] = (1.0, 1.0, 1.0, 1.0)
+
+        # Wing edges (face color)
+        wing_c = np.empty((n_valid, 4), dtype='f4')
+        wing_c[:, :3] = hinge_rgb[v_idx]
+        wing_c[:, 3] = 0.4
+
+        line_starts[1::5] = pj_s[v_idx]
+        line_ends[1::5] = pi_s[v_idx]
+        line_colors[1::5] = wing_c
+
+        line_starts[2::5] = pk_s[v_idx]
+        line_ends[2::5] = pi_s[v_idx]
+        line_colors[2::5] = wing_c
+
+        line_starts[3::5] = pj_s[v_idx]
+        line_ends[3::5] = pl_s[v_idx]
+        line_colors[3::5] = wing_c
+
+        line_starts[4::5] = pk_s[v_idx]
+        line_ends[4::5] = pl_s[v_idx]
+        line_colors[4::5] = wing_c
+
+        pgfx.draw_lines_batch(line_starts, line_ends, line_colors, width=2.0)
+
+        # --- Force vectors (arrows) — only for significant deviations ---
+        scale = self.config.get('hinge_force_scale', 0.5) * self.scales.L_char
+        mag = np.abs(delta[v_idx]) / limit_rad
+        mag = np.minimum(mag, 2.0)
+        significant = mag > 0.01
+        sig_idx = np.where(significant)[0]
+
+        if len(sig_idx) > 0:
+            # For significant hinges, use bulk lines for force vectors
+            g_idx = v_idx[sig_idx]  # global hinge indices
+
+            sign_d = np.sign(delta[g_idx])
+            arrow_mag = mag[sig_idx]
+
+            # Wing i force: -sign(d) * m_hat * scale * mag
+            dir_i = -sign_d[:, None] * m_hat[g_idx]
+            arrow_start_i = pi_s[g_idx]
+            arrow_end_i = pi_s[g_idx] + dir_i * scale * arrow_mag[:, None]
+
+            # Wing l force: +sign(d) * n_hat * scale * mag
+            dir_l = sign_d[:, None] * n_hat[g_idx]
+            arrow_start_l = pl_s[g_idx]
+            arrow_end_l = pl_s[g_idx] + dir_l * scale * arrow_mag[:, None]
+
+            # Combine both wings
+            all_arrow_starts = np.concatenate([arrow_start_i, arrow_start_l], axis=0)
+            all_arrow_ends = np.concatenate([arrow_end_i, arrow_end_l], axis=0)
+            n_arrows = len(all_arrow_starts)
+            arrow_color = np.full((n_arrows, 3), (1.0, 1.0, 0.0), dtype='f4')
+
+            if n_arrows > 100:
+                # Many arrows: use lines for speed
+                pgfx.draw_lines_batch(all_arrow_starts, all_arrow_ends, arrow_color, width=2.0)
+            else:
+                # Fewer: use proper arrows
+                head_size = 0.2 * self.scales.L_char
+                width_radius = 0.04 * self.scales.L_char
+                for i in range(n_arrows):
+                    pgfx.draw_arrow(
+                        tuple(all_arrow_starts[i]),
+                        tuple(all_arrow_ends[i]),
+                        color=(1.0, 1.0, 0.0),
+                        head_size=head_size,
+                        width_radius=width_radius
+                    )
 
 
 # =============================================================================
@@ -1335,18 +1132,10 @@ class DEMLATVisualizer(PiVizFX):
 # =============================================================================
 
 def visualize_experiment(experiment_path: str, config: Optional[Dict] = None):
-    """
-    Main entry point for visualizing DEMLAT experiments.
-    """
-    # Load data
+    """Main entry point for visualizing DEMLAT experiments."""
     data = ExperimentData(experiment_path)
-
-    # Create visualizer
     viz = DEMLATVisualizer(data, config)
 
-    # Launch studio
-    # PiVizStudio (via moderngl_window) parses sys.argv, so we need to clear it
-    # to avoid "unrecognized arguments" errors for our custom args.
     argv_backup = sys.argv
     sys.argv = [sys.argv[0]]
 
@@ -1362,7 +1151,6 @@ def visualize_experiment(experiment_path: str, config: Optional[Dict] = None):
 # =============================================================================
 
 if __name__ == '__main__':
-    # Separate user args from PiViz args BEFORE any processing
     experiment_path = None
     user_flags = []
     piviz_args = []
@@ -1370,12 +1158,9 @@ if __name__ == '__main__':
     i = 1
     while i < len(sys.argv):
         arg = sys.argv[i]
-
-        # User-specific flags
         if arg in ['--no-strain', '--velocity', '--trails', '--particles', '--lines']:
             user_flags.append(arg)
             i += 1
-        # PiViz flags that take arguments
         elif arg in ['-wnd', '-vs', '-hd', '-s', '-c', '--size', '--size_mult', '--backend']:
             piviz_args.append(arg)
             if i + 1 < len(sys.argv):
@@ -1383,20 +1168,16 @@ if __name__ == '__main__':
                 i += 2
             else:
                 i += 1
-        # PiViz boolean flags
         elif arg in ['-fs', '-r', '-h', '--help']:
             piviz_args.append(arg)
             i += 1
-        # Experiment path (first non-flag argument)
         elif not arg.startswith('-') and experiment_path is None:
             experiment_path = arg
             i += 1
         else:
-            # Unknown arg, assume it's for PiViz
             piviz_args.append(arg)
             i += 1
 
-    # Update sys.argv for PiViz (remove user args)
     sys.argv = [sys.argv[0]] + piviz_args
 
     if experiment_path is None:
@@ -1411,7 +1192,6 @@ if __name__ == '__main__':
         print("  --lines        Use lines instead of cylinders")
         sys.exit(1)
 
-    # Parse config options
     config = {}
     if '--no-strain' in user_flags:
         config['show_strain'] = False

@@ -35,8 +35,8 @@ def setup(beta, drivers, force=False, amplitude=4.0):
     n = 3
     d = np.tan(beta)
     k_axial = 1000.0
-    k_fold = 0.0
-    k_facet = 0.01
+    k_fold = 0.00
+    k_facet = 0.02
     mass = 0.01
     damping = 2.0
 
@@ -213,6 +213,6 @@ def show(pe):
 
 
 if __name__ == "__main__":
-    setup(beta=35, drivers=1, force=True, amplitude=5.6)
+    setup(beta=35, drivers=3, force=True, amplitude=5.6)
     run()
     show(0)
