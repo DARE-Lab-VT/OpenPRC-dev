@@ -294,7 +294,7 @@ class CudaSolver:
 
         # 3. Physics Params
         grav = self.options.get('gravity', -9.81)
-        damp = self.options.get('global_damping', 0.1)
+        damp = self.options.get('global_damping', 0.0)
 
         def compute_forces(x_ptr, v_ptr, f_ptr):
             self.k_zero(np.int32(self.n_nodes), f_ptr, block=self.block, grid=self.grid_nodes)
