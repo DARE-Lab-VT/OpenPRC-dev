@@ -15,18 +15,20 @@ def setup():
 
     setup = SimulationSetup(DEMO_DIR, overwrite=True)
 
-    setup.set_simulation_params(duration=30.0, dt=0.001, save_interval=0.01)
-    setup.set_physics(gravity=-3.0, damping=0.0)
+    setup.set_simulation_params(duration=60, dt=0.001, save_interval=0.01)
+    setup.set_physics(gravity=0.0, damping=0.0)
 
-    # nodes
-    setup.add_node([0.0, 0.0, 0.0], mass=1.0, fixed=True)
-    # setup.add_node([0.5454540, 0.854545, 0.323215541212], mass=2.0, fixed=False)
-    setup.add_node([0.5, 0, 0], mass=5.0, fixed=False)
+    # Equilibrium positions: 0, 1.5, 3.0, 4.5 (rest_length = 1.5)
+    # Displaced by x0 = (0.489, -0.218, -0.150, -0.268)
+    setup.add_node([0.489, 0.0, 0.0], mass=1.0, fixed=False)  # node 0
+    setup.add_node([1.282, 0.0, 0.0], mass=0.6, fixed=False)  # node 1
+    setup.add_node([2.850, 0.0, 0.0], mass=0.6, fixed=False)  # node 2
+    setup.add_node([4.232, 0.0, 0.0], mass=1.0, fixed=False)  # node 3
 
-    # bars
-    # setup.add_bar(0, 1, stiffness=10.0, rest_length=2.0, damping=0.1)
-    setup.add_bar(0, 1, stiffness=-0.5, rest_length=0.5, damping=0.0)
-    # setup.add_bar(1, 2, stiffness=1.0, rest_length=0.5, damping=0.0)
+    # Springs (symmetric outer, different center)
+    setup.add_bar(0, 1, stiffness=1.5, rest_length=1.5, damping=0.0)
+    setup.add_bar(1, 2, stiffness=1.8, rest_length=1.5, damping=0.0)
+    setup.add_bar(2, 3, stiffness=1.5, rest_length=1.5, damping=0.0)
 
     # hinges
     # setup.add_hinge(nodes=[0, 1, 2, 3], stiffness=1.0, rest_angle=np.pi / 2)
@@ -37,7 +39,6 @@ def setup():
     # setup.add_face([0, 1, 3])
 
     # actuation
-    pass
 
     setup.save()
 
@@ -56,8 +57,6 @@ def run():
     print("\nSimulation complete!")
 
 
-
-
 def show_stats():
     from openprc.demlat.utils.data_parser import SimulationData
     import matplotlib.pyplot as plt
@@ -69,12 +68,13 @@ def show_stats():
     potential_energy, _ = plotter.get_dataset("system/potential_energy")
     kinetic_energy, _ = plotter.get_dataset("system/kinetic_energy")
 
-    pes, _ = plotter.get_dataset("elements/bars/potential_energy")
+    strains, _ = plotter.get_dataset("elements/bars/strain")
     kes, _ = plotter.get_dataset("nodes/kinetic_energy")
     te, _ = plotter.get_dataset("system/total_energy")
 
-    plt.plot(time, potential_energy, '-b', label='potential energy')
-    plt.plot(time, kinetic_energy, '-y', label='kinetic energy')
+    # plt.plot(time, potential_energy, '-b', label='potential energy')
+    # plt.plot(time, kinetic_energy, '-y', label='kinetic energy')
+    plt.plot(time, strains, '-y', label='strains')
 
     plt.plot(time, te.flatten(), '--r', label='total energy')
 
@@ -82,6 +82,17 @@ def show_stats():
     plt.ylabel('Energy (J)')
     plt.legend()
     plt.show()
+
+    from openprc.analysis import correlation as corr
+    red = corr.Redundancy(strains)
+
+    print(red.correlation)  # N×N Pearson matrix (Result with p-values)
+    print(red.partial)  # N×N partial correlation (direct connections)
+    print(red.acf)  # per-channel autocorrelation
+
+    print(red.rank)  # effective rank via Shannon entropy of eigenspectrum
+    print(red.condition)  # condition number (high = redundant)
+    print(red.eigenvalues)  # raw eigenvalues, sorted descending
 
 
 if __name__ == "__main__":
