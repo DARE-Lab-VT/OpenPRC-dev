@@ -15,36 +15,21 @@ def setup():
 
     setup = SimulationSetup(DEMO_DIR, overwrite=True)
 
-    setup.set_simulation_params(duration=2 * np.pi, dt=0.0001, save_interval=0.01)
-    setup.set_physics(gravity=0.0, damping=0.0)
+    setup.set_simulation_params(duration=60.0, dt=0.001, save_interval=0.01)
+    setup.set_physics(gravity=0.0, damping=0.1)
 
-    setup.add_node([0.000000, 0.0, 0.0], mass=1.0, fixed=False)
-    setup.add_node([1.500000, 0.0, 0.0], mass=1.0, fixed=False)
-    setup.add_node([3.000000, 0.0, 0.0], mass=1.0, fixed=False)
-    setup.add_node([4.500000, 0.0, 0.0], mass=1.0, fixed=False)
-    setup.add_node([6.000000, 0.0, 0.0], mass=1.0, fixed=False)
-    setup.add_node([7.500000, 0.0, 0.0], mass=1.0, fixed=False)
-    setup.add_node([9.000000, 0.0, 0.0], mass=1.0, fixed=False)
-    setup.add_node([10.500000, 0.0, 0.0], mass=1.0, fixed=False)
-    setup.add_node([12.000000, 0.0, 0.0], mass=1.0, fixed=False)
-    setup.add_node([13.500000, 0.0, 0.0], mass=1.0, fixed=False)
-    setup.add_node([15.000000, 0.0, 0.0], mass=1.0, fixed=False)
+    setup.add_node([0, 0, 0], 5.0, True)
+    setup.add_node([1, -0.5, 0], 2.5, False)
+    setup.add_node([1, 0.5, 0], 2.5, False)
+    setup.add_node([2, 0, 0], 5.0, False)
 
-    # Designed springs (material properties)
-    setup.add_bar(0, 1, stiffness=18.6935467411, rest_length=1.4605268928, damping=0.0)
-    setup.add_bar(1, 2, stiffness=21.3768914187, rest_length=1.5073930448, damping=0.0)
-    setup.add_bar(2, 3, stiffness=14.2320551208, rest_length=1.4965072664, damping=0.0)
-    setup.add_bar(3, 4, stiffness=39.9769985396, rest_length=1.5102938493, damping=0.0)
-    setup.add_bar(4, 5, stiffness=17.7300860720, rest_length=1.4725502149, damping=0.0)
-    setup.add_bar(5, 6, stiffness=8.6141863717, rest_length=1.4483881234, damping=0.0)
-    setup.add_bar(6, 7, stiffness=36.6758241498, rest_length=1.5078897916, damping=0.0)
-    setup.add_bar(7, 8, stiffness=4.9410746039, rest_length=1.4747220074, damping=0.0)
-    setup.add_bar(8, 9, stiffness=8.9110854393, rest_length=1.5209853006, damping=0.0)
-    setup.add_bar(9, 10, stiffness=21.3482515431, rest_length=1.5303193287, damping=0.0)
+    setup.add_bar(0, 1, 10.0, 2.0)
+    setup.add_bar(0, 2, 10.0, 2.0)
+    setup.add_bar(1, 3, 10.0, 2.0)
+    setup.add_bar(2, 3, 10.0, 2.0)
+    setup.add_bar(1, 2, 10.0, 2.0)
 
-    # hinges
-    # setup.add_hinge(nodes=[0, 1, 2, 3], stiffness=1.0, rest_angle=np.pi / 2)
-    # setup.add_hinge(nodes=[2, 3, 0, 1], stiffness=2.0, rest_angle=np.pi / 2)
+    setup.add_hinge([1, 2, 0, 3], 0.5, 0.0, np.pi / 2)
 
     # faces
     # setup.add_face([0, 1, 2])
@@ -62,7 +47,7 @@ def run():
     from openprc.demlat.models.barhinge import BarHingeModel
 
     sim = openprc.demlat.Simulation(DEMO_DIR)
-    eng = openprc.demlat.Engine(BarHingeModel, backend='cuda')
+    eng = openprc.demlat.Engine(BarHingeModel, backend='jax')
     eng.run(sim)
     sim.show()
 
@@ -100,7 +85,6 @@ def show_stats():
 
     print(red.correlation)  # N×N Pearson matrix (Result with p-values)
     print(red.rank)  # effective rank via Shannon entropy of eigenspectrum
-
 
 
 if __name__ == "__main__":
