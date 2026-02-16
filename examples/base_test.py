@@ -15,20 +15,32 @@ def setup():
 
     setup = SimulationSetup(DEMO_DIR, overwrite=True)
 
-    setup.set_simulation_params(duration=60, dt=0.001, save_interval=0.01)
+    setup.set_simulation_params(duration=2 * np.pi, dt=0.0001, save_interval=0.01)
     setup.set_physics(gravity=0.0, damping=0.0)
 
-    # Equilibrium positions: 0, 1.5, 3.0, 4.5 (rest_length = 1.5)
-    # Displaced by x0 = (0.489, -0.218, -0.150, -0.268)
-    setup.add_node([0.489, 0.0, 0.0], mass=1.0, fixed=False)  # node 0
-    setup.add_node([1.282, 0.0, 0.0], mass=0.6, fixed=False)  # node 1
-    setup.add_node([2.850, 0.0, 0.0], mass=0.6, fixed=False)  # node 2
-    setup.add_node([4.232, 0.0, 0.0], mass=1.0, fixed=False)  # node 3
+    setup.add_node([0.000000, 0.0, 0.0], mass=1.0, fixed=False)
+    setup.add_node([1.500000, 0.0, 0.0], mass=1.0, fixed=False)
+    setup.add_node([3.000000, 0.0, 0.0], mass=1.0, fixed=False)
+    setup.add_node([4.500000, 0.0, 0.0], mass=1.0, fixed=False)
+    setup.add_node([6.000000, 0.0, 0.0], mass=1.0, fixed=False)
+    setup.add_node([7.500000, 0.0, 0.0], mass=1.0, fixed=False)
+    setup.add_node([9.000000, 0.0, 0.0], mass=1.0, fixed=False)
+    setup.add_node([10.500000, 0.0, 0.0], mass=1.0, fixed=False)
+    setup.add_node([12.000000, 0.0, 0.0], mass=1.0, fixed=False)
+    setup.add_node([13.500000, 0.0, 0.0], mass=1.0, fixed=False)
+    setup.add_node([15.000000, 0.0, 0.0], mass=1.0, fixed=False)
 
-    # Springs (symmetric outer, different center)
-    setup.add_bar(0, 1, stiffness=1.5, rest_length=1.5, damping=0.0)
-    setup.add_bar(1, 2, stiffness=1.8, rest_length=1.5, damping=0.0)
-    setup.add_bar(2, 3, stiffness=1.5, rest_length=1.5, damping=0.0)
+    # Designed springs (material properties)
+    setup.add_bar(0, 1, stiffness=18.6935467411, rest_length=1.4605268928, damping=0.0)
+    setup.add_bar(1, 2, stiffness=21.3768914187, rest_length=1.5073930448, damping=0.0)
+    setup.add_bar(2, 3, stiffness=14.2320551208, rest_length=1.4965072664, damping=0.0)
+    setup.add_bar(3, 4, stiffness=39.9769985396, rest_length=1.5102938493, damping=0.0)
+    setup.add_bar(4, 5, stiffness=17.7300860720, rest_length=1.4725502149, damping=0.0)
+    setup.add_bar(5, 6, stiffness=8.6141863717, rest_length=1.4483881234, damping=0.0)
+    setup.add_bar(6, 7, stiffness=36.6758241498, rest_length=1.5078897916, damping=0.0)
+    setup.add_bar(7, 8, stiffness=4.9410746039, rest_length=1.4747220074, damping=0.0)
+    setup.add_bar(8, 9, stiffness=8.9110854393, rest_length=1.5209853006, damping=0.0)
+    setup.add_bar(9, 10, stiffness=21.3482515431, rest_length=1.5303193287, damping=0.0)
 
     # hinges
     # setup.add_hinge(nodes=[0, 1, 2, 3], stiffness=1.0, rest_angle=np.pi / 2)
@@ -74,7 +86,7 @@ def show_stats():
 
     # plt.plot(time, potential_energy, '-b', label='potential energy')
     # plt.plot(time, kinetic_energy, '-y', label='kinetic energy')
-    plt.plot(time, strains, '-y', label='strains')
+    plt.plot(time, strains, label='strains')
 
     plt.plot(time, te.flatten(), '--r', label='total energy')
 
@@ -87,12 +99,8 @@ def show_stats():
     red = corr.Redundancy(strains)
 
     print(red.correlation)  # N×N Pearson matrix (Result with p-values)
-    print(red.partial)  # N×N partial correlation (direct connections)
-    print(red.acf)  # per-channel autocorrelation
-
     print(red.rank)  # effective rank via Shannon entropy of eigenspectrum
-    print(red.condition)  # condition number (high = redundant)
-    print(red.eigenvalues)  # raw eigenvalues, sorted descending
+
 
 
 if __name__ == "__main__":
