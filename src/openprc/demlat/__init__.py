@@ -10,7 +10,7 @@ from .core.simulation import Simulation
 from .core.engine import Engine
 from .models.barhinge import BarHingeModel
 from .io.simulation_setup import SimulationSetup
-from .utils.animator import ShowSimulation
+# from .utils.animator import ShowSimulation
 from .utils.data_parser import SimulationData
 
 # Define package version
@@ -21,6 +21,5 @@ __all__ = ["Simulation",
            "Engine",
            "BarHingeModel",
            "SimulationSetup",
-           "ShowSimulation",
            "SimulationData",
            ]
