@@ -3,12 +3,11 @@ demlat Core Module
 ==================
 
 This module exposes the core components of the DEMLat physics engine.
-It includes the main Engine, Experiment management, Base Model definitions,
+It includes the main Engine, Simulation management, Base Model definitions,
 Scaling utilities, and custom Exceptions.
 """
 
-import logging
-from ..utils.logging import get_logger
+from openprc.schemas.logging import get_logger
 
 # Initialize module-level logger
 logger = get_logger("demlat.core")
@@ -23,7 +22,7 @@ try:
     )
     from ..core.base_model import BaseModel
     from ..core.engine import Engine
-    from ..core.experiment import Experiment
+    from ..core.simulation import Simulation
     from ..core.scaler import SimulationScaler
 
     logger.debug("Successfully imported core components.")

@@ -18,7 +18,7 @@ from openprc.reservoir.io.state_loader import StateLoader
 from openprc.reservoir.features.node_features import NodePositions
 from openprc.reservoir.training.trainer import Trainer
 from openprc.reservoir.readout.ridge import Ridge
-from openprc.demlat.utils.viz_player import visualize_experiment
+from openprc.demlat.utils.animator import ShowSimulation
 
 # --- GA-specific Imports ---
 from openprc.optimization.search_spaces.fourier_series_2D import FourierSeries2D
@@ -229,7 +229,7 @@ def main():
     # Launch interactive visualizer for the 'after' simulation
     if after_exp_path and after_exp_path.exists():
         print(f"\n[INFO] Opening interactive visualizer for the optimized run...")
-        visualize_experiment(str(after_exp_path))
+        ShowSimulation(str(after_exp_path))
     else:
         print("[Warning] Could not find experiment path for the 'after' run to visualize.")
 

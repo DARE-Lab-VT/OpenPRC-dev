@@ -16,7 +16,7 @@ sys.path.insert(0, str(src_dir))
 from openprc import demlat
 from openprc.demlat.models.barhinge import BarHingeModel
 from openprc.demlat.io.simulation_setup import SimulationSetup
-from openprc.demlat.utils.viz_player import visualize_experiment
+from openprc.demlat.utils.animator import ShowSimulation
 
 
 def run_pipeline(
@@ -46,7 +46,7 @@ def run_pipeline(
 
     # --- 2. Configure Simulation and Physics ---
     setup.set_simulation_params(duration=30.0, dt=0.001, save_interval=0.01)
-    setup.set_physics(gravity=-9.8, damping=0.5)
+    setup.set_physics(gravity=-9.8, damping=0.5, enable_collision=True)
 
     # --- 3. Generate Geometry and Actuation ---
     node_indices = np.zeros((ROWS, COLS), dtype=int)
@@ -227,4 +227,4 @@ if __name__ == "__main__":
     if output_dir:
         print(f"\n[Step 4] Visualizing experiment: {output_dir}")
         # FIX: Convert Path object to string for the visualizer
-        visualize_experiment(str(output_dir))
+        ShowSimulation(str(output_dir))

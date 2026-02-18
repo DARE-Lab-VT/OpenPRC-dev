@@ -21,7 +21,7 @@ try:
     from openprc.analysis.utils.training_utils import compute_ipc_components
     from openprc.optimization.search_spaces.fourier_series_2D import FourierSeries2D
     from openprc.examples.spring_mass_2D import run_pipeline
-    from openprc.demlat.utils.viz_player import visualize_experiment
+    from openprc.demlat.utils.animator import ShowSimulation
 except ImportError as e:
     print(f"Import failed: {e}")
     sys.exit(1)
@@ -240,11 +240,11 @@ def main():
     
     print(f"\n[Opening Visualizer for {best_dir}]")
     if best_dir.exists():
-        visualize_experiment(str(best_dir))
+        ShowSimulation(str(best_dir))
     else:
         # Re-run if missing for some reason
         run_pipeline(k_mat=K_opt, c_mat=A_opt*0.4, ga_generation=last_gen, rows=ROWS, cols=COLS)
-        visualize_experiment(str(best_dir))
+        ShowSimulation(str(best_dir))
 
 if __name__ == "__main__":
     main()

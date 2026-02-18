@@ -413,7 +413,7 @@ class SimulationSetup:
 
         # 1. Save Config
         with open(self.input_dir / "config.json", 'w') as f:
-            json.dump(self.config, f, indent=4)
+            json.dump(self.config, f, indent=4, cls=NumpyJSONEncoder)
 
         # 2. Save Geometry
         with h5py.File(self.input_dir / "geometry.h5", 'w') as f:
