@@ -33,7 +33,7 @@ def run_pipeline(
     ROWS, COLS = rows, cols
     SPACING = 0.053  # meters
     STIFFNESS = 222.15  # N/m
-    DAMPING = 0.4
+    DAMPING = 0.8
     NODE_MASS = 0.01  # kg
     
     # STRICT Directory Naming: experiments/spring_mass_{R}x{C}_test/generation_{gen}
@@ -194,7 +194,34 @@ def run_pipeline(
 
 if __name__ == "__main__":
     # Test Run
-    result = run_pipeline(rows=4, cols=4)
+    # High Stiffness (Stiff)
+    H = 222.15
+    # Low Stiffness (Soft)
+    L = 65.0
+
+    # 16x16 Weighted Adjacency Matrix
+    # Rows/Cols correspond to Nodes 0-15
+    K_mat = np.array([
+        # 0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
+        [ 0,  L,  0,  0,  H,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0], # Node 0
+        [ L,  0,  H,  0,  0,  H,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0], # Node 1
+        [ 0,  H,  0,  H,  0,  0,  L,  0,  0,  0,  0,  0,  0,  0,  0,  0], # Node 2
+        [ 0,  0,  H,  0,  0,  0,  0,  L,  0,  0,  0,  0,  0,  0,  0,  0], # Node 3
+        [ H,  0,  0,  0,  0,  L,  0,  0,  L,  0,  0,  0,  0,  0,  0,  0], # Node 4
+        [ 0,  H,  0,  0,  L,  0,  H,  0,  0,  L,  0,  0,  0,  0,  0,  0], # Node 5
+        [ 0,  0,  L,  0,  0,  H,  0,  H,  0,  0,  H,  0,  0,  0,  0,  0], # Node 6
+        [ 0,  0,  0,  L,  0,  0,  H,  0,  0,  0,  0,  H,  0,  0,  0,  0], # Node 7
+        [ 0,  0,  0,  0,  L,  0,  0,  0,  0,  H,  0,  0,  L,  0,  0,  0], # Node 8
+        [ 0,  0,  0,  0,  0,  L,  0,  0,  H,  0,  L,  0,  0,  L,  0,  0], # Node 9
+        [ 0,  0,  0,  0,  0,  0,  H,  0,  0,  L,  0,  L,  0,  0,  H,  0], # Node 10
+        [ 0,  0,  0,  0,  0,  0,  0,  H,  0,  0,  L,  0,  0,  0,  0,  H], # Node 11
+        [ 0,  0,  0,  0,  0,  0,  0,  0,  L,  0,  0,  0,  0,  H,  0,  0], # Node 12
+        [ 0,  0,  0,  0,  0,  0,  0,  0,  0,  L,  0,  0,  H,  0,  L,  0], # Node 13
+        [ 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  H,  0,  0,  L,  0,  L], # Node 14
+        [ 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  H,  0,  0,  L,  0]  # Node 15
+    ])
+
+    result = run_pipeline(rows=4, cols=4, k_mat=K_mat)
     data, output_dir = result
     
     if output_dir:

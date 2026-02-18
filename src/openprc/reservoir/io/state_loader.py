@@ -35,12 +35,18 @@ class StateLoader:
             self.input_dir = base_dir / "input"
             self.signal_path = self.input_dir / "signals.h5"
 
-    def get_node_positions(self, node_ids="all"):
+    def get_node_positions(self, node_ids="all", dims="all", reshape_output=True):
         with h5py.File(self.sim_path, 'r') as f:
             data = f['time_series/nodes/positions']
-            if node_ids == "all":
-                return data[:].reshape(self.total_frames, -1)
-            return data[:, node_ids, :].reshape(self.total_frames, -1)
+            
+            nodes_slice = slice(None) if node_ids == "all" else node_ids
+            dims_slice = slice(None) if dims == "all" else dims
+
+            positions = data[:, nodes_slice, dims_slice]
+            
+            if reshape_output:
+                return positions.reshape(self.total_frames, -1)
+            return positions
 
     def get_bar_lengths(self, bar_ids="all"):
         with h5py.File(self.sim_path, 'r') as f:

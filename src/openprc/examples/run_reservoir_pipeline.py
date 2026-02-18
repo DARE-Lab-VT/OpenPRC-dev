@@ -9,7 +9,7 @@ sys.path.insert(0, str(src_dir))
 
 # --- Core Library Imports ---
 from openprc.reservoir.io.state_loader import StateLoader
-from openprc.reservoir.features.node_features import NodePositions
+from openprc.reservoir.features.node_features import NodePositions, NodeDisplacements
 from openprc.reservoir.features.bar_features import BarExtensions, BarLengths
 from openprc.reservoir.readout.ridge import Ridge
 from openprc.reservoir.training.trainer import Trainer
@@ -29,7 +29,7 @@ def main():
     """
     
     # 1. Define the Experiment Path
-    experiment_subpath = "spring_mass_3x3_test/generation_0"
+    experiment_subpath = "spring_mass_4x4_test/generation_0"
     experiments_dir = src_dir / "experiments"
     experiment_dir = experiments_dir / experiment_subpath
     sim_path = experiment_dir / "output" / "simulation.h5"
@@ -39,7 +39,75 @@ def main():
     
     # 2. Shared Setup
     loader = StateLoader(sim_path)
-    features = NodePositions()
+    
+    # =========================================================================================
+    # --- Feature Selection: How to choose which DOFs to use ---
+    #
+    # The `Trainer` gets its features from the `features` object. The `X_full` matrix you asked about
+    # is the direct output of `features.transform(loader)`.
+    #
+    # To select which degrees of freedom (DOFs) to use, you configure the feature extractor
+    # here, before passing it to the Trainer. This follows good software design by separating
+    # the concern of feature engineering from the training process.
+    #
+    # Below are examples of how to select features.
+    #
+    # By default, without any arguments, all available features are used.
+    # For `NodePositions()`, this means the X, Y, and Z positions of all nodes, flattened.
+    features = NodeDisplacements(reference_node=0, dims=[0])
+
+    # --- Example 1: Select specific nodes for features ---
+    #
+    # If you want to use only the positions of a subset of nodes, you can pass
+    # their IDs to the constructor. For example, to use nodes 0, 2, and 4:
+    #
+    # features = NodePositions(node_ids=[0, 2, 4])
+    #
+    # The resulting `X_full` will have shape [num_frames, 9] (3 nodes * 3 coordinates).
+    #
+    # How to find available node IDs?
+    # You can inspect your `simulation.h5` file. The node positions are typically stored
+    # under the path `time_series/nodes/positions`. The shape of this dataset will be
+    # [num_frames, num_nodes, num_dimensions]. `num_nodes` gives you the range of
+    # available node IDs (from 0 to num_nodes - 1).
+
+    # --- Example 2: Select specific bars for features ---
+    #
+    # The same principle applies to other feature types, like `BarExtensions`.
+    # To use the extensions of bars 10, 20, and 30:
+    #
+    # features = BarExtensions(bar_ids=[10, 20, 30])
+    #
+    # To find available bar IDs, inspect the `time_series/elements/bars/lengths`
+    # dataset in your `simulation.h5` file.
+    
+    # --- Example 3: Select specific degrees of freedom (DOFs) ---
+    #
+    # You can also specify which dimensions (DOFs) to use. For 3D simulations,
+    # the dimensions are typically 0=x, 1=y, 2=z.
+    #
+    # To get ONLY the x-coordinates of ALL nodes:
+    # features = NodePositions(dims=[0])
+    #
+    # To get the x and z coordinates of nodes 0, 2, and 4:
+    # features = NodePositions(node_ids=[0, 2, 4], dims=[0, 2])
+    #
+    # The resulting `X_full` would have a shape of [num_frames, 6] (3 nodes * 2 coordinates).
+
+    # --- Example 4: Use relative displacements to a reference node ---
+    #
+    # The `NodeDisplacements` feature calculates positions relative to a specified `reference_node`.
+    # This is useful for creating a translation-invariant feature space.
+    #
+    # To get the displacements of all other nodes relative to node 0:
+    # features = NodeDisplacements(reference_node=0)
+    #
+    # You can combine this with `node_ids` and `dims` as well. For example, to get the 
+    # Y and Z displacements of nodes 5, 6, and 7 relative to node 0:
+    #
+    # features = NodeDisplacements(reference_node=0, node_ids=[5, 6, 7], dims=[1, 2])
+    # =========================================================================================
+
     u_input = loader.get_actuation_signal(actuator_idx=0, dof=0)
     
     print(f"Loaded {loader.total_frames} frames from {sim_path.name}")
@@ -90,8 +158,8 @@ def main():
             readout=Ridge(1e-5),
             experiment_dir=experiment_dir,
             washout=5.0,
-            train_duration=20.0,
-            test_duration=5.0,
+            train_duration=10.0,
+            test_duration=10.0,
         )
         benchmark = NARMABenchmark(group_name="narma_benchmark")
         benchmark_args = {"order": 2}

@@ -9,12 +9,13 @@ np.set_printoptions(linewidth=240)
 
 
 class TrainingResult:
-    def __init__(self, readout, cache, metadata, experiment_dir, feature_config, scaler_params):
+    def __init__(self, readout, cache, metadata, experiment_dir, feature_config, scaler_params, feature_info=None):
         self.readout = readout
         self.cache = cache
         self.meta = metadata
         self.feature_config = feature_config
         self.scaler_params = scaler_params
+        self.feature_info = feature_info
         
         safe_task_name = self.meta['task'].lower()
         self.output_path = Path(experiment_dir) / "readout" / f"readout_{safe_task_name}.h5"
@@ -39,7 +40,26 @@ class TrainingResult:
             mg = f.create_group('model')
             mg.create_dataset('weights', data=self.readout.weights)
             mg.create_dataset('regularization', data=getattr(self.readout.model, 'alpha', 0.0))
-            mg.create_dataset('feature_indices', data=np.arange(self.cache['train'][0].shape[1]))
+            
+            if self.feature_info is not None and self.feature_info:
+                # Store feature mapping in a structured, matrix-based format
+                first_feature = self.feature_info[0]
+                feature_type = first_feature.get('type', 'unknown')
+                
+                # Dynamically get the column keys (e.g., 'node_id', 'dim') from the dict
+                matrix_keys = sorted([k for k in first_feature.keys() if k != 'type'])
+                
+                # Create a matrix where each row corresponds to a feature
+                feature_map_matrix = np.array([[fi[k] for k in matrix_keys] for fi in self.feature_info], dtype=np.int32)
+                
+                # Save to a dedicated group for clarity
+                f_group = mg.create_group('feature_map')
+                f_group.attrs['type'] = feature_type
+                f_group.attrs['keys'] = json.dumps(matrix_keys)
+                f_group.create_dataset('dof_map', data=feature_map_matrix)
+            else:
+                # Fallback for older feature extractors or if info is missing
+                mg.create_dataset('feature_indices', data=np.arange(self.cache['train'][0].shape[1]))
 
             # Training Data
             tg = f.create_group('training')
@@ -135,4 +155,6 @@ class Trainer:
             'y_mean': scaler_y.mean_, 'y_scale': scaler_y.scale_
         }
         
-        return TrainingResult(self.readout, cache, meta, self.experiment_dir, feature_config, scaler_params)
+        feature_info = self.features.get_feature_info(self.loader)
+        
+        return TrainingResult(self.readout, cache, meta, self.experiment_dir, feature_config, scaler_params, feature_info)
