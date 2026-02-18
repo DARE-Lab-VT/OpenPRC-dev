@@ -15,7 +15,7 @@ sys.path.insert(0, str(src_dir))
 
 from openprc import demlat
 from openprc.demlat.models.barhinge import BarHingeModel
-from openprc.demlat.io.experiment_setup import ExperimentSetup
+from openprc.demlat.io.simulation_setup import SimulationSetup
 from openprc.demlat.utils.viz_player import visualize_experiment
 
 
@@ -42,7 +42,7 @@ def run_pipeline(
     print(f"[Step 1] Setting up {ROWS}x{COLS} spring-mass grid in {OUTPUT_DIR}")
 
     # Initialize the setup helper, overwriting if it exists
-    setup = ExperimentSetup(OUTPUT_DIR, overwrite=True)
+    setup = SimulationSetup(OUTPUT_DIR, overwrite=True)
 
     # --- 2. Configure Simulation and Physics ---
     setup.set_simulation_params(duration=30.0, dt=0.001, save_interval=0.01)
@@ -161,7 +161,7 @@ def run_pipeline(
 
     # --- 7. Run Simulation ---
     print("\n[Step 3] Running simulation...")
-    exp = demlat.Experiment(OUTPUT_DIR)
+    exp = demlat.Simulation(OUTPUT_DIR)
     
     try:
         import pycuda.driver

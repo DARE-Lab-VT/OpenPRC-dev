@@ -15,6 +15,20 @@ from typing import List, Optional, Union
 from openprc.schemas.logging import get_logger
 
 
+class NumpyJSONEncoder(json.JSONEncoder):
+    """
+    A JSON encoder that can handle numpy data types.
+    """
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NumpyJSONEncoder, self).default(obj)
+
+
 class SimulationSetup:
     """
     A setup class to programmatically create and modify DEMLat experiments.
