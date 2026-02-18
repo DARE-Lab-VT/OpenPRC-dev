@@ -42,7 +42,7 @@ def setup_ground_truth():
     setup.add_bar(1, 2, stiffness=10.0, damping=2.0)
 
     # Ground truth hinge stiffness: 0.5
-    setup.add_hinge([1, 2, 0, 3], stiffness=0.5, damping=0.0, rest_angle=np.pi / 2)
+    setup.add_hinge([1, 2, 0, 3], stiffness=0.1, damping=0.0, rest_angle=np.pi / 2)
 
     setup.save()
 
@@ -124,7 +124,7 @@ def calibrate():
 
     # Run
     result = cal.run(
-        max_iterations=300,
+        max_iterations=1000,
         lr=1.0,
         cost='mse',
         optimizer='adam',
@@ -144,7 +144,7 @@ def calibrate():
     print(f"    Calibrated bar_k   : {np.array(result.theta_optimized['bar_stiffness'])}")
     print(f"    Ground truth hinge_k: 0.5")
     print(f"    Initial guess hinge_k: 5.0")
-    print(f"    Calibrated hinge_k  : {float(result.theta_optimized['hinge_stiffness'])}")
+    print(f"    Calibrated hinge_k  : {np.array(result.theta_optimized['hinge_stiffness'])}")
 
     return result
 
