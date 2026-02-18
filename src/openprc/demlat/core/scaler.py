@@ -5,6 +5,7 @@ Handles non-dimensionalization to improve numerical stability.
 
 """
 import numpy as np
+from openprc.schemas.logging import get_logger
 
 
 class SimulationScaler:
@@ -26,6 +27,7 @@ class SimulationScaler:
             positions (np.ndarray): Array of particle positions (N x D).
             stiffnesses (np.ndarray): Array of stiffness values.
         """
+        self.logger = get_logger("demlat.scaler")
         # 1. Mass Scale (M*)
         # Mean of non-zero masses
         valid_m = masses[masses > 0]
@@ -57,7 +59,7 @@ class SimulationScaler:
         self.Torque_star = self.F_star * self.L_star  # Torque (Force * Dist)
         self.Accel_star = self.L_star / (self.T_star ** 2)  # Acceleration (Gravity)
 
-        print(f"[Scaler] L*={self.L_star:.2e}, M*={self.M_star:.2e}, T*={self.T_star:.2e}")
+        self.logger.info(f"Characteristic Scales: L*={self.L_star:.2e}, M*={self.M_star:.2e}, T*={self.T_star:.2e}")
 
     def to_sim(self, val, type_str):
         """
