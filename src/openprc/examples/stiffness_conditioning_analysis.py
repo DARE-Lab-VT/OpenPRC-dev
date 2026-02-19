@@ -99,7 +99,7 @@ def main():
         # features = NodeDisplacements(reference_node=0, dims=[0])
         features = NodeDisplacements(reference_node=0, dims=[0])
         X_full = features.transform(loader)
-        X_full = X_full[:, 1:]
+        print(X_full.shape)
         scaler_X = StandardScaler()
         X_std = scaler_X.fit_transform(X_full)
         

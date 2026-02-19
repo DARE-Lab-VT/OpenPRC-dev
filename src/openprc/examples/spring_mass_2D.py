@@ -46,7 +46,7 @@ def run_pipeline(
 
     # --- 2. Configure Simulation and Physics ---
     setup.set_simulation_params(duration=30.0, dt=0.001, save_interval=0.01)
-    setup.set_physics(gravity=-9.8, damping=0.5, enable_collision=True)
+    setup.set_physics(gravity=-9.8, damping=0.1, enable_collision=True)
 
     # --- 3. Generate Geometry and Actuation ---
     node_indices = np.zeros((ROWS, COLS), dtype=int)
@@ -144,7 +144,7 @@ def run_pipeline(
     if len(act_indices) != 0:
         for i, act_idx in enumerate(act_indices):
             p0 = setup.nodes['positions'][act_idx]
-            amp = 0.02  # 2 cm
+            amp = 0.02  # 1 cm
             f1 = 2.11   # 2.11 Hz
             f2 = 3.73   # 3.73 Hz
             f3 = 4.33   # 4.33 Hz
@@ -192,12 +192,113 @@ def run_pipeline(
     return data, OUTPUT_DIR
 
 
+def compute_global_effective_stiffness(adj_matrix, nx=4, ny=4):
+    """
+    Computes effective stiffness via a virtual uniaxial tensile test.
+    """
+    num_nodes = nx * ny
+    dof = 2 * num_nodes  # 2 Degrees of Freedom per node (x, y)
+    
+    # 1. Initialize Global Stiffness Matrix K (Size: 32x32)
+    K = np.zeros((dof, dof))
+    
+    # Generate geometric coordinates for a unit grid
+    coords = []
+    for r in range(ny):
+        for c in range(nx):
+            coords.append(np.array([c, r])) # Unit distance = 1.0
+            
+    # 2. Assemble K from Adjacency Matrix
+    for i in range(num_nodes):
+        for j in range(i + 1, num_nodes):
+            k_val = adj_matrix[i, j]
+            
+            if k_val > 0: # If connected
+                # Calculate vector direction (Cosine/Sine)
+                vec = coords[j] - coords[i]
+                length = np.linalg.norm(vec)
+                c = vec[0] / length # Cosine
+                s = vec[1] / length # Sine
+                
+                # Element Stiffness Matrix (2D Truss Element)
+                block = k_val * np.array([
+                    [c*c, c*s],
+                    [c*s, s*s]
+                ])
+                
+                # Indices in the large matrix
+                ix, iy = 2*i, 2*i+1
+                jx, jy = 2*j, 2*j+1
+                
+                # Diagonal (Positive)
+                K[ix:ix+2, ix:ix+2] += block
+                K[jx:jx+2, jx:jx+2] += block
+                
+                # Off-Diagonal (Negative)
+                K[ix:ix+2, jx:jx+2] -= block
+                K[jx:jx+2, ix:ix+2] -= block
+
+    # --- THE FIX STARTS HERE ---
+    # Add a tiny stiffness (epsilon) to the diagonal.
+    # This prevents the "Singular Matrix" error by ensuring every node 
+    # has a tiny resistance to motion in all directions (like air resistance or weak hinges).
+    epsilon = 1e-6 * np.max(np.abs(K))  # Scale epsilon relative to your stiffness
+    indices = np.arange(dof)
+    K[indices, indices] += epsilon
+    # --- THE FIX ENDS HERE ---
+
+    # 3. Apply Boundary Conditions (Virtual Pull Test)
+    # Left Nodes (Fixed): Indices 0, 4, 8, 12
+    fixed_nodes = [0, 4, 8, 12]
+    fixed_dofs = []
+    for n in fixed_nodes:
+        fixed_dofs.extend([2*n, 2*n+1]) # Fix X and Y
+        
+    # Right Nodes (Pulled): Indices 3, 7, 11, 15
+    pulled_nodes = [3, 7, 11, 15]
+    pulled_dofs_x = [2*n for n in pulled_nodes]
+    
+    # 4. Partition the Matrix
+    # We want to solve F = K * u
+    all_dofs = np.arange(dof)
+    prescribed_dofs = fixed_dofs + pulled_dofs_x
+    free_dofs = np.setdiff1d(all_dofs, prescribed_dofs)
+    
+    # Construct Force Vector F (initially zero)
+    # Construct Displacement Vector u
+    u = np.zeros(dof)
+    
+    # Set defined displacement (delta = 1.0)
+    delta = 1.0
+    u[pulled_dofs_x] = delta
+    
+    # 5. Solve for Free DOFs
+    # K_free_free * u_free = - K_free_prescribed * u_prescribed
+    K_ff = K[np.ix_(free_dofs, free_dofs)]
+    K_fp = K[np.ix_(free_dofs, prescribed_dofs)]
+    u_p = u[prescribed_dofs]
+    
+    # Solve linear system
+    u_free = np.linalg.solve(K_ff, -K_fp @ u_p)
+    u[free_dofs] = u_free
+    
+    # 6. Calculate Reaction Force
+    total_reaction_force = 0
+    for dof_idx in pulled_dofs_x:
+        force = K[dof_idx, :] @ u
+        total_reaction_force += force
+        
+    K_eff = total_reaction_force / delta
+    
+    return K_eff, K
+
+
 if __name__ == "__main__":
     # Test Run
     # High Stiffness (Stiff)
     H = 222.15
     # Low Stiffness (Soft)
-    L = 65.0
+    L = 65.08
 
     # 16x16 Weighted Adjacency Matrix
     # Rows/Cols correspond to Nodes 0-15
@@ -220,6 +321,10 @@ if __name__ == "__main__":
         [ 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  H,  0,  0,  L,  0,  L], # Node 14
         [ 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  H,  0,  0,  L,  0]  # Node 15
     ])
+
+    K_eff, K_global = compute_global_effective_stiffness(K_mat)
+
+    print(f"Global Effective Stiffness (X-direction): {K_eff:.2f} N/m")
 
     result = run_pipeline(rows=4, cols=4, k_mat=K_mat)
     data, output_dir = result
