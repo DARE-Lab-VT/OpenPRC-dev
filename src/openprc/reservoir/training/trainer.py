@@ -110,9 +110,6 @@ class Trainer:
         # 4. Standardize X and y
         scaler_X = StandardScaler()
         X_std = scaler_X.fit_transform(X_full)
-        
-        scaler_y = StandardScaler()
-        y_std = scaler_y.fit_transform(y_full.reshape(-1, 1)).flatten()
 
         # 5. Construct Design Matrix L = [1, X_std]
         ones = np.ones((X_std.shape[0], 1))
@@ -125,10 +122,10 @@ class Trainer:
         end_test    = end_train + test_len_frames
 
         L_train = L_full[start_train:end_train]
-        y_train = y_std[start_train:end_train]
+        y_train = y_full[start_train:end_train]
 
         L_test  = L_full[start_test:end_test]
-        y_test  = y_std[start_test:end_test]
+        y_test  = y_full[start_test:end_test]
 
         print(f"Training with {train_len_frames} frames ({self.train_duration:.2f}s) | "
               f"Testing with {test_len_frames} frames ({self.test_duration:.2f}s)")
@@ -152,7 +149,6 @@ class Trainer:
         
         scaler_params = {
             'X_mean': scaler_X.mean_, 'X_scale': scaler_X.scale_,
-            'y_mean': scaler_y.mean_, 'y_scale': scaler_y.scale_
         }
         
         feature_info = self.features.get_feature_info(self.loader)
