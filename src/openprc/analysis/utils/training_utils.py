@@ -15,6 +15,7 @@ def compute_ipc_components(X, u_iid_input, tau_s, n_s, washout, train_stop, test
 
     if interp_factor > 1:
         X = X[::interp_factor]
+        u = u[::interp_factor]
     
     min_len = min(len(X), len(u))
     X = X[:min_len]
