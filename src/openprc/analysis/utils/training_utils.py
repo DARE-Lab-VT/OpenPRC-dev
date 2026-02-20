@@ -5,38 +5,32 @@ from numpy.lib.stride_tricks import sliding_window_view
 
 
 def compute_ipc_components(X, u_iid_input, tau_s, n_s, washout, train_stop, test_duration, k_delay,
-                          interp_factor: int = 1, # <-- Added to handle spline downsampling
-                          return_names: bool = True,
-                          u_low: float = -1.0, u_high: float = 1.0, # Assumes uniform [-1, 1]
-                          epsilon: float = 1E-4): # <-- Replaced ridge with Heaviside threshold
-    """
-    Computes IPC components by training ONE target at a time.
-    
-    IMPORTANT: `washout`, `train_stop`, and `test_duration` must be defined 
-    in terms of the MACRO steps (the original i.i.d. sequence length), 
-    not the high-resolution interpolated spline length.
-    """
+                          interp_factor: int = 1, 
+                          epsilon: float = 1E-4,
+                          ridge: float = 1e-6,
+                          return_names: bool = True,): 
+                          
     u = np.asarray(u_iid_input, dtype=np.float32).flatten()
     X = np.asarray(X, dtype=np.float32)
 
-    # --- MODIFICATION 1: Downsample X to match the i.i.d. anchor points ---
     if interp_factor > 1:
         X = X[::interp_factor]
     
-    # Ensure X and u are now the same length before proceeding
     min_len = min(len(X), len(u))
     X = X[:min_len]
     u = u[:min_len]
-    # ----------------------------------------------------------------------
 
     t_test_end = train_stop + test_duration
     lag_indices = [j * k_delay for j in range(tau_s + 1)]
     Lvars = len(lag_indices)
     
-    # Scale input to strictly [-1, 1] for Legendre orthogonality
-    u_leg = (2.0 * (u - u_low) / (u_high - u_low) - 1.0).astype(np.float32)
+    # --- FIX 1: Auto-detect bounds to strictly enforce [-1, 1] Legendre scaling ---
+    u_min, u_max = np.min(u), np.max(u)
+    if abs(u_max - u_min) < 1e-12:
+        raise ValueError("Input signal u is constant. Cannot scale to [-1,1].")
+    u_leg = (2.0 * (u - u_min) / (u_max - u_min) - 1.0).astype(np.float32)
 
-    # 1. Generate Basis Exponents (d=1 to n_s)
+    # 1. Generate Basis Exponents
     exps = []
     def rec(rem, i, vec):
         if i == Lvars - 1:
@@ -51,12 +45,9 @@ def compute_ipc_components(X, u_iid_input, tau_s, n_s, washout, train_stop, test
         rec(d, 0, np.zeros(Lvars, dtype=np.int16))
     exps = np.asarray(exps)
 
-    # 2. Capacity Calculation: One Target at a Time
     capacities = np.zeros(len(exps), dtype=np.float32)
     
-    np.random.seed(42)
-    
-    # --- HELPER: Legendre Normalization ---
+    # Normalized Legendre
     def legendre_P_normalized(n, x):
         if n == 0: return np.ones_like(x)
         pm2, pm1 = np.ones_like(x), x
@@ -81,29 +72,35 @@ def compute_ipc_components(X, u_iid_input, tau_s, n_s, washout, train_stop, test
             if deg > 0:
                 lag = lag_indices[j]
                 y_tr *= legendre_P_normalized(deg, u_leg[t_start-lag : train_stop-lag])
-                y_te *= legendre_P_normalized(deg, u_te_leg := u_leg[train_stop-lag : t_test_end-lag])
+                y_te *= legendre_P_normalized(deg, u_leg[train_stop-lag : t_test_end-lag])
 
-        X_tr_c = X_tr - X_tr.mean(axis=0)
-        y_tr_c = y_tr - y_tr.mean()
+        # --- Stable Ridge Regression with native Bias Term ---
+        X_tr_b = np.concatenate([np.ones((len(X_tr), 1), dtype=np.float32), X_tr], axis=1)
+        X_te_b = np.concatenate([np.ones((len(X_te), 1), dtype=np.float32), X_te], axis=1)
         
-        # --- MODIFICATION 2: Strict Ordinary Least Squares (OLS) ---
-        # Replaced Ridge pseudo-inverse with numerically stable lstsq
-        w, _, _, _ = np.linalg.lstsq(X_tr_c, y_tr_c, rcond=None)
-        # -----------------------------------------------------------
+        p1 = X_tr_b.shape[1]
+        DtD = X_tr_b.T @ X_tr_b
+        trace = np.trace(DtD)
+        lam = ridge * (trace / p1) 
         
-        y_te_c = y_te - y_te.mean()
-        y_pred = (X_te - X_tr.mean(axis=0)) @ w
+        I = np.eye(p1, dtype=np.float32)
+        I[0, 0] = 0.0  # Mathematically crucial: do not regularize the bias term
         
-        sst = np.sum(y_te_c**2) + 1e-12
-        sse = np.sum((y_te_c - y_pred)**2)
+        try:
+            w = np.linalg.solve(DtD + lam * I, X_tr_b.T @ y_tr)
+        except np.linalg.LinAlgError:
+            w = np.linalg.pinv(DtD + lam * I) @ (X_tr_b.T @ y_tr)
+            
+        y_pred = X_te_b @ w
+        # ----------------------------------------------------
         
-        # --- MODIFICATION 3: Heaviside Step Function Truncation ---
+        # Capacity Evaluation
+        sst = np.sum((y_te - y_te.mean())**2) + 1e-12
+        sse = np.sum((y_te - y_pred)**2)
+        
         raw_capacity = 1.0 - (sse / sst)
-        threshold = epsilon if epsilon is not None else (X_tr.shape[1] / len(X_te))
-        capacities[idx] = raw_capacity if raw_capacity > threshold else 0.0
-        # ----------------------------------------------------------
+        capacities[idx] = raw_capacity if raw_capacity > epsilon else 0.0
 
-    # 3. Format Names
     basis_names = []
     if return_names:
         for e in exps:

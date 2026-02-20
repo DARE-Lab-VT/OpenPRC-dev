@@ -71,7 +71,8 @@ class MemoryBenchmark(BaseBenchmark):
             tau_s=benchmark_args['tau_s'],
             n_s=benchmark_args['n_s'],
             k_delay=benchmark_args['k_delay'],
-            eps=benchmark_args['eps']
+            eps=benchmark_args['eps'],
+            ridge=benchmark_args.get('ridge', 1e-6)
         )
         
         # 4. Populate metrics and metadata
