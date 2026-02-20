@@ -111,6 +111,113 @@ def compute_ipc_components(X, u_iid_input, tau_s, n_s, washout, train_stop, test
     return basis_names, capacities, exps
 
 
+def compute_ipc_components_gpu(X, u_input, tau_s, n_s, washout, train_stop, test_duration, k_delay, 
+                         chunk_size: int = 512, ridge: float = 1e-6, epsilon: float = 1e-4, 
+                         device: str | None = None, return_names: bool = True):
+    """
+    High-fidelity GPU IPC computation using Normalized Legendre Polynomials.
+    Matches CPU logic: Stable Ridge (unpenalized bias) + Orthogonal [-1, 1] scaling.
+    """
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = torch.device(device)
+
+    u = np.asarray(u_input, dtype=np.float32).flatten()
+    X = np.asarray(X, dtype=np.float32)
+    
+    # 1. Strict Domain Scaling [-1, 1] (Crucial for Legendre Orthogonality)
+    u_min, u_max = np.min(u), np.max(u)
+    u_leg = (2.0 * (u - u_min) / (u_max - u_min) - 1.0).astype(np.float32)
+
+    max_lag = tau_s * k_delay
+    t_start = max(washout, max_lag)
+    t_test_end = train_stop + test_duration
+
+    # 2. Construct Lag Matrix (CPU -> GPU)
+    U_full = sliding_window_view(u_leg, max_lag + 1)[:, ::-1]
+    lag_indices = [j * k_delay for j in range(tau_s + 1)]
+    U_sub = U_full[:, lag_indices]
+    Lvars = U_sub.shape[1]
+    
+    U_train = torch.from_numpy(U_sub[t_start - max_lag : train_stop - max_lag]).to(device, dtype=torch.float32)
+    U_test  = torch.from_numpy(U_sub[train_stop - max_lag : t_test_end - max_lag]).to(device, dtype=torch.float32)
+    X_train = torch.from_numpy(X[t_start:train_stop]).to(device, dtype=torch.float32)
+    X_test  = torch.from_numpy(X[train_stop:t_test_end]).to(device, dtype=torch.float32)
+
+    # 3. Stable Ridge Solver (Unpenalized Bias)
+    D_train = torch.cat([torch.ones((U_train.shape[0], 1), device=device), X_train], dim=1)
+    D_test  = torch.cat([torch.ones((U_test.shape[0], 1), device=device), X_test], dim=1)
+    
+    DtD = D_train.T @ D_train
+    lam = ridge * (torch.trace(DtD) / D_train.shape[1]).clamp(min=1e-12)
+    I = torch.eye(D_train.shape[1], device=device)
+    I[0, 0] = 0.0 
+    
+    try:
+        P = torch.linalg.solve(DtD + lam * I, D_train.T)
+    except RuntimeError:
+        P = torch.linalg.pinv(DtD + lam * I) @ D_train.T
+
+    # 4. Normalized Legendre Generator for GPU
+    def get_legendre_gpu(n, x_tensor):
+        if n == 0: return torch.ones_like(x_tensor)
+        pm2, pm1 = torch.ones_like(x_tensor), x_tensor
+        for k in range(1, n):
+            curr = ((2*k + 1) * x_tensor * pm1 - k * pm2) / (k + 1)
+            pm2, pm1 = pm1, curr
+        return np.sqrt(2*n + 1) * pm1
+
+    # 5. Exponent Enumeration (Stars & Bars)
+    exps = []
+    vec = np.zeros(Lvars, dtype=np.int16)
+    def rec(rem, i):
+        if i == Lvars - 1:
+            vec[i] = rem
+            exps.append(vec.copy())
+        else:
+            for v in range(rem + 1):
+                vec[i] = v
+                rec(rem - v, i + 1)
+    for d in range(1, n_s + 1): # Start at 1 to skip constant degree
+        rec(d, 0)
+    
+    exps = np.asarray(exps, dtype=np.int16)
+    K = len(exps)
+    capacities = torch.zeros(K, device=device)
+
+    # 6. Chunked Execution
+    for start in range(0, K, chunk_size):
+        end = min(start + chunk_size, K)
+        chunk_exps = exps[start:end]
+        
+        # Build Polynomial targets on GPU
+        Y_train = torch.ones((U_train.shape[0], end-start), device=device)
+        Y_test  = torch.ones((U_test.shape[0], end-start), device=device)
+        
+        for idx, exp_vec in enumerate(chunk_exps):
+            for j, deg in enumerate(exp_vec):
+                if deg > 0:
+                    Y_train[:, idx] *= get_legendre_gpu(deg, U_train[:, j])
+                    Y_test[:, idx]  *= get_legendre_gpu(deg, U_test[:, j])
+
+        # Batch Prediction & R2 Evaluation
+        SST = torch.sum((Y_test - Y_test.mean(dim=0))**2, dim=0) + 1e-12
+        W = P @ Y_train
+        SSE = torch.sum((Y_test - D_test @ W)**2, dim=0)
+        
+        raw_cap = 1.0 - (SSE / SST)
+        capacities[start:end] = torch.where(raw_cap > epsilon, raw_cap, 0.0)
+
+    # 7. Generate Basis Names (Post-Processing on CPU)
+    basis_names = []
+    if return_names:
+        for e in exps:
+            parts = [f"P{d}(u(t-{lag_indices[j]}))" for j, d in enumerate(e) if d > 0]
+            basis_names.append(" * ".join(parts))
+
+    return basis_names, capacities.cpu().numpy(), exps
+
+
 def compute_R2(X, u_input, tau_s, n_s, washout, train_stop, test_duration, k_delay, 
                          ridge: float = 1e-6, return_names: bool = True):
     """
@@ -237,189 +344,3 @@ def compute_R2(X, u_input, tau_s, n_s, washout, train_stop, test_duration, k_del
             basis_names.append(" ".join(parts))
 
     return basis_names, capacities, exps
-
-
-def compute_ipc_components_gpu(X, u_input, tau_s, n_s, washout, train_stop, test_duration, k_delay, 
-                         chunk_size: int = 512, ridge: float = 1e-6, device: str | None = None, return_names: bool = True
-    ):
-    """
-    Fast + robust GPU computation of per-monomial test R^2 (Capacity) for the cumulative multinomial basis.
-    
-    Key Features:
-    - Stable Solver: Uses standard Solve/Pseudo-Inverse instead of adaptive regularization loops.
-      This ensures results match CPU precision and prevents capacity collapse.
-    - Engineering Definition: Uses centered variance and bias term (matches Dambre's IPC correctly).
-    - Returns: Basis names, Capacities (R2), and Exponents matrix.
-
-    Parameters
-    ----------
-    X : (T, N_units) Reservoir states
-    u_input : (T,) Input signal
-    tau_s : Memory depth (max delays)
-    n_s : Max polynomial degree
-    k_delay : Stride for delays
-    """
-
-    # -------------------------
-    # 1. Device & Input Setup
-    # -------------------------
-    if device is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-    device = torch.device(device)
-
-    u = np.asarray(u_input, dtype=np.float32).flatten()
-    X = np.asarray(X, dtype=np.float32)
-
-    T = u.shape[0]
-    if X.shape[0] != T:
-        raise ValueError(f"X and u_input must have same length. Got X:{X.shape[0]} u:{T}")
-
-    # Validation
-    if tau_s < 0 or n_s < 0: raise ValueError("tau_s and n_s must be nonnegative.")
-    if k_delay <= 0: raise ValueError("k_delay must be positive.")
-    
-    max_lag = tau_s * k_delay
-    t_start = max(washout, max_lag)
-    t_test_end = train_stop + test_duration
-
-    if train_stop <= t_start: raise ValueError("train_stop must be > washout and max_lag.")
-    if t_test_end > T: raise ValueError("Total duration exceeds signal length.")
-
-    # Clean NaNs
-    if not np.isfinite(u).all():
-        u = np.nan_to_num(u, nan=0.0, posinf=0.0, neginf=0.0)
-    if not np.isfinite(X).all():
-        X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
-
-    # -------------------------
-    # 2. Construct Lag Matrix (CPU -> GPU)
-    # -------------------------
-    # Sliding window on CPU first to save VRAM
-    U_full = sliding_window_view(u, max_lag + 1)[:, ::-1]
-    
-    lag_indices = [j * k_delay for j in range(tau_s + 1)]
-    U_sub = U_full[:, lag_indices]
-    Lvars = U_sub.shape[1]
-
-    # Map time indices
-    r_train_start, r_train_end = t_start - max_lag, train_stop - max_lag
-    r_test_start, r_test_end   = train_stop - max_lag, t_test_end - max_lag
-
-    # Move to GPU
-    U_train = torch.from_numpy(U_sub[r_train_start:r_train_end]).to(device=device, dtype=torch.float32)
-    U_test  = torch.from_numpy(U_sub[r_test_start:r_test_end]).to(device=device, dtype=torch.float32)
-    
-    X_train = torch.from_numpy(X[t_start:train_stop]).to(device=device, dtype=torch.float32)
-    X_test  = torch.from_numpy(X[train_stop:t_test_end]).to(device=device, dtype=torch.float32)
-
-    N_train = U_train.shape[0]
-    N_test  = U_test.shape[0]
-
-    # -------------------------
-    # 3. Reservoir Design Matrix (with Bias)
-    # -------------------------
-    ones_train = torch.ones((N_train, 1), device=device, dtype=torch.float32)
-    ones_test  = torch.ones((N_test,  1), device=device, dtype=torch.float32)
-
-    D_train = torch.cat([ones_train, X_train], dim=1)
-    D_test  = torch.cat([ones_test,  X_test],  dim=1)
-    p1 = D_train.shape[1]
-
-    # -------------------------
-    # 4. Readout Weights (STABLE SOLVER)
-    # -------------------------
-    DtD = D_train.T @ D_train
-    trace = torch.trace(DtD)
-    
-    # Calculate Ridge Lambda ONCE (Strict adherence to input parameter)
-    lam = ridge * (trace / p1).clamp(min=1e-12)
-    I = torch.eye(p1, device=device, dtype=torch.float32)
-    
-    # Try fast solve, fallback to stable pseudo-inverse immediately if unstable
-    # This prevents the "Adaptive Lambda" loop from artificially lowering scores
-    try:
-        # Cholesky/Solve is fast but can fail on singular matrices
-        P = torch.linalg.solve(DtD + lam * I, D_train.T)
-    except RuntimeError:
-        # Fallback to SVD-based Pseudoinverse (Slower, but robust like CPU)
-        P = torch.linalg.pinv(DtD + lam * I) @ D_train.T
-
-    # -------------------------
-    # 5. Exponent Enumeration (Stars & Bars)
-    # -------------------------
-    exps = []
-    vec = np.zeros(Lvars, dtype=np.int16)
-    def rec(rem, i):
-        if i == Lvars - 1:
-            vec[i] = rem
-            exps.append(vec.copy())
-        else:
-            for v in range(rem + 1):
-                vec[i] = v
-                rec(rem - v, i + 1)
-    for d in range(0, n_s + 1):
-        rec(d, 0)
-    
-    exps = np.asarray(exps, dtype=np.int16)
-    K = exps.shape[0]
-    exps_t = torch.from_numpy(exps).to(device=device, dtype=torch.float32)
-
-    # -------------------------
-    # 6. Chunked Capacity Calculation
-    # -------------------------
-    R2_cols = torch.full((K,), float("nan"), device=device, dtype=torch.float32)
-    eps = 1e-12
-
-    for start_idx in range(0, K, chunk_size):
-        end_idx = min(start_idx + chunk_size, K)
-        exps_chunk = exps_t[start_idx:end_idx] # (chunkK, Lvars)
-        chunkK = exps_chunk.shape[0]
-
-        # A. Target Monomials Y (Broadcasting for speed)
-        # U: (N, 1, Lvars) ^ Exps: (1, K, Lvars) -> (N, K, Lvars) -> Prod -> (N, K)
-        u_tr_exp = U_train.unsqueeze(1)
-        u_te_exp = U_test.unsqueeze(1)
-        e_exp    = exps_chunk.unsqueeze(0)
-
-        Y_train = torch.prod(torch.pow(u_tr_exp, e_exp), dim=2)
-        Y_test  = torch.prod(torch.pow(u_te_exp, e_exp), dim=2)
-
-        # B. Variance (SST) - Centered
-        y_mean = Y_test.mean(dim=0, keepdim=True)
-        SST = ((Y_test - y_mean) ** 2).sum(dim=0)
-
-        # C. Prediction & Error
-        W = P @ Y_train        # (p1, chunkK)
-        Y_pred = D_test @ W    # (N_test, chunkK)
-        SSE = ((Y_test - Y_pred) ** 2).sum(dim=0)
-
-        # D. R^2 Capacity
-        chunk_caps = torch.full((chunkK,), float("nan"), device=device, dtype=torch.float32)
-        valid = SST > eps
-        
-        chunk_caps[valid] = 1.0 - (SSE[valid] / SST[valid])
-        chunk_caps = torch.clamp(chunk_caps, 0.0, 1.0)
-        
-        R2_cols[start_idx:end_idx] = chunk_caps
-
-    # Set degree 0 (constant) to NaN
-    if K > 0 and np.all(exps[0] == 0):
-        R2_cols[0] = float("nan")
-
-    # -------------------------
-    # 7. Generate Names
-    # -------------------------
-    basis_names = []
-    if return_names:
-        for e in exps:
-            if np.all(e == 0):
-                basis_names.append("1")
-                continue
-            parts = []
-            for coeff, lag in zip(e, lag_indices):
-                if coeff == 0: continue
-                nm = "u(t)" if lag == 0 else f"u(t-{lag})"
-                parts.append(nm if coeff == 1 else f"{nm}^{int(coeff)}")
-            basis_names.append(" ".join(parts))
-
-    return basis_names, R2_cols.detach().cpu().numpy(), exps
