@@ -4,11 +4,120 @@ import torch
 from numpy.lib.stride_tricks import sliding_window_view
 
 
-def compute_ipc_components(X, u_input, tau_s, n_s, washout, train_stop, test_duration, k_delay, 
-                         chunk_size: int = 512, ridge: float = 1e-6, return_names: bool = True):
+def compute_ipc_components(X, u_iid_input, tau_s, n_s, washout, train_stop, test_duration, k_delay,
+                          interp_factor: int = 1, # <-- Added to handle spline downsampling
+                          return_names: bool = True,
+                          u_low: float = -1.0, u_high: float = 1.0, # Assumes uniform [-1, 1]
+                          epsilon: float = 1E-4): # <-- Replaced ridge with Heaviside threshold
+    """
+    Computes IPC components by training ONE target at a time.
+    
+    IMPORTANT: `washout`, `train_stop`, and `test_duration` must be defined 
+    in terms of the MACRO steps (the original i.i.d. sequence length), 
+    not the high-resolution interpolated spline length.
+    """
+    u = np.asarray(u_iid_input, dtype=np.float32).flatten()
+    X = np.asarray(X, dtype=np.float32)
+
+    # --- MODIFICATION 1: Downsample X to match the i.i.d. anchor points ---
+    if interp_factor > 1:
+        X = X[::interp_factor]
+    
+    # Ensure X and u are now the same length before proceeding
+    min_len = min(len(X), len(u))
+    X = X[:min_len]
+    u = u[:min_len]
+    # ----------------------------------------------------------------------
+
+    t_test_end = train_stop + test_duration
+    lag_indices = [j * k_delay for j in range(tau_s + 1)]
+    Lvars = len(lag_indices)
+    
+    # Scale input to strictly [-1, 1] for Legendre orthogonality
+    u_leg = (2.0 * (u - u_low) / (u_high - u_low) - 1.0).astype(np.float32)
+
+    # 1. Generate Basis Exponents (d=1 to n_s)
+    exps = []
+    def rec(rem, i, vec):
+        if i == Lvars - 1:
+            vec[i] = rem
+            exps.append(vec.copy())
+        else:
+            for v in range(rem + 1):
+                vec[i] = v
+                rec(rem - v, i + 1, vec)
+
+    for d in range(1, n_s + 1):
+        rec(d, 0, np.zeros(Lvars, dtype=np.int16))
+    exps = np.asarray(exps)
+
+    # 2. Capacity Calculation: One Target at a Time
+    capacities = np.zeros(len(exps), dtype=np.float32)
+    
+    np.random.seed(42)
+    
+    # --- HELPER: Legendre Normalization ---
+    def legendre_P_normalized(n, x):
+        if n == 0: return np.ones_like(x)
+        pm2, pm1 = np.ones_like(x), x
+        for k in range(1, n):
+            curr = ((2*k + 1) * x * pm1 - k * pm2) / (k + 1)
+            pm2, pm1 = pm1, curr
+        return np.sqrt(2*n + 1) * pm1
+
+    for idx, exp_vec in enumerate(exps):
+        active_lags = [lag_indices[j] for j, d in enumerate(exp_vec) if d > 0]
+        max_lag_i = max(active_lags) if active_lags else 0
+        
+        t_start = max(washout, max_lag_i)
+        if t_start >= train_stop: continue 
+
+        X_tr = X[t_start:train_stop]
+        X_te = X[train_stop:t_test_end]
+        
+        y_tr = np.ones(len(X_tr))
+        y_te = np.ones(len(X_te))
+        for j, deg in enumerate(exp_vec):
+            if deg > 0:
+                lag = lag_indices[j]
+                y_tr *= legendre_P_normalized(deg, u_leg[t_start-lag : train_stop-lag])
+                y_te *= legendre_P_normalized(deg, u_te_leg := u_leg[train_stop-lag : t_test_end-lag])
+
+        X_tr_c = X_tr - X_tr.mean(axis=0)
+        y_tr_c = y_tr - y_tr.mean()
+        
+        # --- MODIFICATION 2: Strict Ordinary Least Squares (OLS) ---
+        # Replaced Ridge pseudo-inverse with numerically stable lstsq
+        w, _, _, _ = np.linalg.lstsq(X_tr_c, y_tr_c, rcond=None)
+        # -----------------------------------------------------------
+        
+        y_te_c = y_te - y_te.mean()
+        y_pred = (X_te - X_tr.mean(axis=0)) @ w
+        
+        sst = np.sum(y_te_c**2) + 1e-12
+        sse = np.sum((y_te_c - y_pred)**2)
+        
+        # --- MODIFICATION 3: Heaviside Step Function Truncation ---
+        raw_capacity = 1.0 - (sse / sst)
+        threshold = epsilon if epsilon is not None else (X_tr.shape[1] / len(X_te))
+        capacities[idx] = raw_capacity if raw_capacity > threshold else 0.0
+        # ----------------------------------------------------------
+
+    # 3. Format Names
+    basis_names = []
+    if return_names:
+        for e in exps:
+            parts = [f"P{d}(u(t-{l}))" for d, l in zip(e, lag_indices) if d > 0]
+            basis_names.append(" * ".join(parts))
+
+    return basis_names, capacities, exps
+
+
+def compute_R2(X, u_input, tau_s, n_s, washout, train_stop, test_duration, k_delay, 
+                         ridge: float = 1e-6, return_names: bool = True):
     """
     Computes the Information Processing Capacity (Capacity = 1 - NMSE) for the 
-    cumulative multinomial basis of the input.
+    cumulative multinomial basis of the input, processed one target at a time.
     """
 
     u = np.asarray(u_input, dtype=np.float32)
@@ -18,7 +127,6 @@ def compute_ipc_components(X, u_input, tau_s, n_s, washout, train_stop, test_dur
     if X.shape[0] != T:
         raise ValueError(f"X and u_input must have same length. Got X:{X.shape[0]} u:{T}")
 
-    # [Validation checks omitted for brevity - same as before]
     max_lag = tau_s * k_delay
     t_start = max(washout, max_lag)
     t_test_end = train_stop + test_duration
@@ -42,20 +150,18 @@ def compute_ipc_components(X, u_input, tau_s, n_s, washout, train_stop, test_dur
     N_test  = U_test.shape[0]
 
     # --- 2. Prepare Reservoir States (Features) ---
-    # Add bias column for affine readout
     ones_train = np.ones((N_train, 1), dtype=np.float32)
     ones_test  = np.ones((N_test,  1), dtype=np.float32)
 
     D_train = np.concatenate([ones_train, X_train], axis=1)
     D_test  = np.concatenate([ones_test,  X_test],  axis=1)
     
-    # --- 3. Compute Readout Weights (Ridge Regression) ---
-    # P = (X^T X + lambda I)^-1 X^T
-    # This projects the reservoir states onto the target space
+    # --- 3. Compute Readout Projection Matrix (P) ---
+    # Since P only depends on the reservoir states, we still only compute it once.
     p1 = D_train.shape[1]
     DtD = D_train.T @ D_train
     trace = np.trace(DtD)
-    lam = ridge * (trace / p1) # Adaptive regularization
+    lam = ridge * (trace / p1) 
     I = np.eye(p1, dtype=np.float32)
     
     try:
@@ -63,8 +169,7 @@ def compute_ipc_components(X, u_input, tau_s, n_s, washout, train_stop, test_dur
     except np.linalg.LinAlgError:
         P = np.linalg.pinv(DtD + lam * I) @ D_train.T
 
-    # --- 4. Generate Basis & Compute Capacity ---
-    # Recursive exponent generation for polynomial basis
+    # --- 4. Generate Basis ---
     exps = []
     vec = np.zeros(Lvars, dtype=np.int16)
     def rec(rem, i):
@@ -80,60 +185,45 @@ def compute_ipc_components(X, u_input, tau_s, n_s, washout, train_stop, test_dur
     
     exps = np.asarray(exps, dtype=np.int16)
     K = exps.shape[0]
-    exps_t = exps.astype(np.float32)
-
-    # Capacity Storage
-    # Dambre's C corresponds to R2_cols in your previous code
-    capacities = np.full((K,), np.nan, dtype=np.float32)
     
-    # Processing in chunks to save memory
+    # --- 5. Compute Capacity One Target at a Time ---
+    capacities = np.full((K,), np.nan, dtype=np.float32)
     eps = 1e-12
-    for start_idx in range(0, K, chunk_size):
-        end_idx = min(start_idx + chunk_size, K)
-        exps_chunk = exps_t[start_idx:end_idx]
-        chunkK = exps_chunk.shape[0]
 
-        # A. Construct Target Basis Functions Y (Ground Truth)
-        # Y = Product of delayed inputs raised to powers
-        Y_train = np.ones((N_train, chunkK), dtype=np.float32)
-        Y_test  = np.ones((N_test,  chunkK), dtype=np.float32)
+    for idx in range(K):
+        exp_vec = exps[idx]
+        
+        # A. Construct Single Target Basis Function (1D Vector)
+        Y_train_i = np.ones(N_train, dtype=np.float32)
+        Y_test_i  = np.ones(N_test,  dtype=np.float32)
 
         for j in range(Lvars):
-            u_tr_j = U_train[:, j].reshape(N_train, 1)
-            u_te_j = U_test[:,  j].reshape(N_test,  1)
-            e_j    = exps_chunk[:, j].reshape(1, chunkK)
-            Y_train *= np.power(u_tr_j, e_j)
-            Y_test  *= np.power(u_te_j, e_j)
+            e_j = exp_vec[j]
+            if e_j > 0:  # Only multiply if the exponent is non-zero
+                Y_train_i *= np.power(U_train[:, j], e_j)
+                Y_test_i  *= np.power(U_test[:, j], e_j)
 
-        # B. Calculate Variance of Targets (SST)
-        y_mean = Y_test.mean(axis=0, keepdims=True)
-        SST = ((Y_test - y_mean) ** 2).sum(axis=0)
+        # B. Calculate Variance of Target (SST)
+        y_mean = Y_test_i.mean()
+        SST = np.sum((Y_test_i - y_mean) ** 2)
 
-        # C. Predict using Reservoir (Y_pred)
-        # W = P @ Y_train (Training weights)
-        W = P @ Y_train
-        Y_pred = D_test @ W
+        # C. Predict using Reservoir
+        W_i = P @ Y_train_i
+        Y_pred_i = D_test @ W_i
         
         # D. Calculate Error (SSE)
-        SSE = ((Y_test - Y_pred) ** 2).sum(axis=0)
+        SSE = np.sum((Y_test_i - Y_pred_i) ** 2)
 
-        # E. Calculate Dambre's Capacity: C = 1 - NMSE
-        # NMSE = SSE / SST
-        chunk_caps = np.full((chunkK,), np.nan, dtype=np.float32)
-        valid = SST > eps
-        
-        chunk_caps[valid] = 1.0 - (SSE[valid] / SST[valid])
-        
-        # STRICT REQUIREMENT: Capacity must be in [0, 1]
-        chunk_caps = np.clip(chunk_caps, 0.0, 1.0)
-        
-        capacities[start_idx:end_idx] = chunk_caps
+        # E. Calculate Capacity
+        if SST > eps:
+            cap = 1.0 - (SSE / SST)
+            capacities[idx] = np.clip(cap, 0.0, 1.0)
 
-    # Remove degree 0 (Constant term has 0 variance, capacity undefined or 0)
+    # Remove degree 0
     if K > 0 and np.all(exps[0] == 0):
         capacities[0] = np.nan
 
-    # (Optional) Generate Names
+    # --- 6. Generate Names ---
     basis_names = []
     if return_names:
         for e in exps:

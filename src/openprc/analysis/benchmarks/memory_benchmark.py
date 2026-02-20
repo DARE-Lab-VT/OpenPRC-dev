@@ -2,6 +2,7 @@ import numpy as np
 import h5py
 from pathlib import Path
 from numpy.lib.stride_tricks import sliding_window_view
+from sklearn.preprocessing import StandardScaler
 
 from openprc.analysis.benchmarks.base import BaseBenchmark
 from openprc.analysis.tasks.imitation import memory_task
@@ -37,6 +38,8 @@ class MemoryBenchmark(BaseBenchmark):
 
         # 1. Get X_full from trainer
         X_full = trainer.features.transform(trainer.loader)
+        scaler_X = StandardScaler()
+        X_std = scaler_X.fit_transform(X_full)
 
         # 2. Get params for memory_task from trainer and benchmark_args
         dt = trainer.loader.dt
@@ -51,16 +54,16 @@ class MemoryBenchmark(BaseBenchmark):
         train_stop = washout_frames + train_frames
         
         required_len = washout_frames + train_frames + test_frames
-        if len(X_full) < required_len:
+        if len(X_std) < required_len:
             raise ValueError(
                 f"Simulation too short! Need {required_len} frames "
                 f"({washout_duration + train_duration + test_duration:.2f}s), "
-                f"but simulation only has {len(X_full)} frames ({len(X_full) * dt:.2f}s)."
+                f"but simulation only has {len(X_std)} frames ({len(X_std) * dt:.2f}s)."
             )
 
         # 3. Run memory task
         results = memory_task(
-            X=X_full,
+            X=X_std,
             u_input=u_input,
             washout=washout_frames,
             train_stop=train_stop,
@@ -68,7 +71,7 @@ class MemoryBenchmark(BaseBenchmark):
             tau_s=benchmark_args['tau_s'],
             n_s=benchmark_args['n_s'],
             k_delay=benchmark_args['k_delay'],
-            ridge=benchmark_args.get('ridge', 1e-6)
+            eps=benchmark_args['eps']
         )
         
         # 4. Populate metrics and metadata

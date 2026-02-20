@@ -33,8 +33,6 @@ class TrainingResult:
             # Save Scaler Stats
             f.create_dataset('preprocessing/X_mean', data=self.scaler_params['X_mean'])
             f.create_dataset('preprocessing/X_scale', data=self.scaler_params['X_scale'])
-            f.create_dataset('preprocessing/y_mean', data=self.scaler_params['y_mean'])
-            f.create_dataset('preprocessing/y_scale', data=self.scaler_params['y_scale'])
             
             # Model
             mg = f.create_group('model')

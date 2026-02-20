@@ -44,7 +44,7 @@ def NARMA_task(u_input, order=2, a=0.3, b=0.05, c=1.5, d=0.1):
 
 
 def memory_task(X, u_input, washout: int, train_stop: int, test_duration: int,
-                tau_s: int, n_s: int, k_delay: int = 1, ridge: float = 1e-6):
+                tau_s: int, n_s: int, k_delay: int = 1, eps: float = 1e-6):
     """
     Computes Dambre's Information Processing Capacity (IPC) components.
     
@@ -59,14 +59,14 @@ def memory_task(X, u_input, washout: int, train_stop: int, test_duration: int,
     
     basis_names, capacities, exps = compute_ipc_components(
         X=X,
-        u_input=u_input,
+        u_iid_input=u_input,
         tau_s=tau_s,
         n_s=n_s,
         washout=washout,
         train_stop=train_stop,
         test_duration=test_duration,
         k_delay=k_delay,
-        ridge=ridge,
+        epsilon=eps,
         return_names=True
     )
     
