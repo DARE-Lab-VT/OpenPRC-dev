@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.stats import chi2
 
 # --- Path Setup ---
 current_dir = Path(__file__).parent
@@ -15,6 +16,9 @@ from openprc.reservoir.features.node_features import NodePositions
 from openprc.reservoir.training.trainer import Trainer
 from openprc.reservoir.readout.ridge import Ridge
 
+
+N = 1.5            # Your effective rank
+T = 300        # Assuming 300 test steps (adjust to your actual test_duration)
 
 def main():
     """
@@ -41,14 +45,17 @@ def main():
     u_input = loader.get_actuation_signal(actuator_idx=0, dof=0)
     
     print(f"Loaded {loader.total_frames} frames from {sim_path.name}")
+
+    eps = calculate_dambre_epsilon(effective_rank=N, test_duration=T)
     
     # 3. Define Benchmark and its arguments
     benchmark = MemoryBenchmark(group_name="memory_benchmark")
     benchmark_args = {
-        "tau_s": 5,
+        "tau_s": 500,
         "n_s": 2,
-        "k_delay": 100,
-        "ridge": 1e-6
+        "k_delay": 17,
+        "ridge": 1e-6,
+        "eps": eps
     }
 
     trainer = Trainer(
@@ -71,11 +78,6 @@ def main():
     if not score.metrics:
         print("Benchmark did not produce any metrics. Exiting.")
         return
-
-    print("\n[Benchmark Results]")
-    print(f"  >> Total Capacity: {score.metrics.get('total_capacity', 0):.4f}")
-    print(f"  >> Linear Memory Capacity: {score.metrics.get('linear_memory_capacity', 0):.4f}")
-    print(f"  >> Nonlinear Memory Capacity: {score.metrics.get('nonlinear_memory_capacity', 0):.4f}")
 
     capacities = score.metrics.get('capacities')
     basis_names_bytes = score.metrics.get('basis_names', [])
@@ -122,6 +124,12 @@ def main():
     except EOFError:
         print("\nNon-interactive mode detected (e.g., CI/CD). Skipping readout saving.")
 
+    print("\n[Benchmark Results]")
+    print(f"  >> Total Capacity: {score.metrics.get('total_capacity', 0):.4f}")
+    print(f"  >> Linear Memory Capacity: {score.metrics.get('linear_memory_capacity', 0):.4f}")
+    print(f"  >> Nonlinear Memory Capacity: {score.metrics.get('nonlinear_memory_capacity', 0):.4f}")
+    print(f"Your strict theoretical threshold is: {eps:.6f}")
+
     # 7. Visualize the capacities
     print("\n[Visualizing Benchmark Results]")
     # ... (Visualization code remains the same, but let's uncomment it)
@@ -155,6 +163,31 @@ def main():
         plt.savefig(plot_path)
         plt.close()
         print(f"  >> Plot saved to: {plot_path}")
+
+def calculate_dambre_epsilon(effective_rank: int, test_duration: int, p_value: float = 1e-4) -> float:
+    """
+    Calculates the exact theoretical threshold (epsilon) for IPC 
+    based on Dambre et al.'s chi-squared method.
+    
+    Parameters:
+    - effective_rank (N): The number of independent state variables (e.g., 9).
+    - test_duration (T): The number of samples in your test set.
+    - p_value (p): The acceptable probability of a false positive (default 10^-4).
+    
+    Returns:
+    - epsilon: The strict cutoff value to use in the Heaviside step function.
+    """
+    # 1. Find the threshold 't' using the Inverse Survival Function (ISF) 
+    # of the chi-squared distribution with N degrees of freedom.
+    # This finds 't' such that P(chi^2(N) >= t) = p
+    t = chi2.isf(p_value, df=effective_rank)
+    
+    # 2. Calculate the final epsilon: 2t / T
+    # The factor of 2 is the intentional doubling to account for 
+    # non-independent variables in real dynamical systems.
+    epsilon = (2.0 * t) / test_duration
+    
+    return epsilon
 
 if __name__ == "__main__":
     main()

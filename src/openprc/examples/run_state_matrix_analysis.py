@@ -51,7 +51,7 @@ def main():
     """
     
     # 1. Define the Experiment Path
-    experiment_subpath = "spring_mass_4x4_test/generation_0"
+    experiment_subpath = "spring_mass_4x4_test/generation_1"
     experiments_dir = src_dir / "experiments"
     experiment_dir = experiments_dir / experiment_subpath
     sim_path = experiment_dir / "output" / "simulation.h5"
@@ -74,7 +74,7 @@ def main():
     trainer = Trainer(
         loader=loader,
         features=features,
-        readout=Ridge(1e-5), # Dummy readout, not used in this benchmark
+        readout=Ridge(1e-3), # Dummy readout, not used in this benchmark
         experiment_dir=experiment_dir
     )
 
