@@ -48,7 +48,7 @@ def main():
     # ==========================================
     # 3. Setup Trainer
     # ==========================================
-    features = NodePositions()
+    features = NodeDisplacements(reference_node=0, dims=[0])
     
     # The Trainer automatically standardizes (Z-score) the features (X) internally.
     trainer = Trainer(

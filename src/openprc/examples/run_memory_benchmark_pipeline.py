@@ -24,7 +24,7 @@ def main():
     """
     
     # 1. Define the Experiment Path
-    experiment_subpath = "spring_mass_3x3_test/generation_0"
+    experiment_subpath = "spring_mass_4x4_test/generation_1"
     experiments_dir = src_dir / "experiments"
     experiment_dir = experiments_dir / experiment_subpath
     sim_path = experiment_dir / "output" / "simulation.h5"
@@ -57,8 +57,8 @@ def main():
         readout=Ridge(benchmark_args.get("ridge")),
         experiment_dir=experiment_dir,
         washout=5.0,
-        train_duration=20.0,
-        test_duration=5.0,
+        train_duration=10.0,
+        test_duration=10.0,
     )
     
     # 4. First Run: Calculate all capacities
@@ -126,7 +126,7 @@ def main():
     print("\n[Visualizing Benchmark Results]")
     # ... (Visualization code remains the same, but let's uncomment it)
     if capacities is not None and basis_names is not None:
-        threshold = 1e-9
+        threshold = 0
         filtered_indices = [i for i, c in enumerate(capacities) if c > threshold]
         
         if not filtered_indices:

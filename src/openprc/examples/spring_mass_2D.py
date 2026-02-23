@@ -7,6 +7,7 @@ import sys
 import h5py
 from pathlib import Path
 import numpy as np
+from scipy.interpolate import CubicSpline
 
 # Ensure we can import demlat modules
 current_dir = Path(__file__).parent
@@ -141,16 +142,47 @@ def run_pipeline(
     act_indices = [idx for idx in act_indices if idx not in fixed_indices]
     print(f"Adding dynamic actuation to nodes: {act_indices}")
 
+    # --- NARMA Input ---
+    # if len(act_indices) != 0:
+    #     for i, act_idx in enumerate(act_indices):
+    #         p0 = setup.nodes['positions'][act_idx]
+    #         amp = 0.02  # 1 cm
+    #         f1 = 2.11   # 2.11 Hz
+    #         f2 = 3.73   # 3.73 Hz
+    #         f3 = 4.33   # 4.33 Hz
+            
+    #         sig = np.tile(p0, (len(t_), 1))
+    #         sig[:, 0] += amp * np.sin(2 * np.pi * f1 * t_) * np.sin(2 * np.pi * f2 * t_) * np.sin(2 * np.pi * f3 * t_)
+            
+    #         setup.add_signal(f"sig_actuator_{i}", sig, dt=dt_sig)
+    #         setup.add_actuator(act_idx, f"sig_actuator_{i}", type='position')
+
+    # --- IID Input ---
     if len(act_indices) != 0:
+        # 1. Generate the shared i.i.d. signal for all actuators
+        sim_duration = sim_params['duration']
+        sample_interval = 0.05
+        
+        # Create coarse time steps (add interval to the end to cover the full duration)
+        t_coarse = np.arange(0, sim_duration + sample_interval, sample_interval)
+        
+        # Generate random uniform points [0.0, 0.5]
+        u_coarse = np.random.uniform(low=-1, high=1, size=len(t_coarse))
+        
+        # Fit Cubic Spline and evaluate at fine simulation time steps
+        cs = CubicSpline(t_coarse, u_coarse)
+        u_fine = cs(t_)
+        
+        # 2. Scale down to physical coordinates to prevent spring explosions
+        physical_amp = 0.02  # Maximum stretch of 2 cm
+        physical_displacement = u_fine * physical_amp
+
         for i, act_idx in enumerate(act_indices):
             p0 = setup.nodes['positions'][act_idx]
-            amp = 0.02  # 1 cm
-            f1 = 2.11   # 2.11 Hz
-            f2 = 3.73   # 3.73 Hz
-            f3 = 4.33   # 4.33 Hz
-            
             sig = np.tile(p0, (len(t_), 1))
-            sig[:, 0] += amp * np.sin(2 * np.pi * f1 * t_) * np.sin(2 * np.pi * f2 * t_) * np.sin(2 * np.pi * f3 * t_)
+            
+            # Apply the smooth, random displacement to the X-axis
+            sig[:, 0] += physical_displacement
             
             setup.add_signal(f"sig_actuator_{i}", sig, dt=dt_sig)
             setup.add_actuator(act_idx, f"sig_actuator_{i}", type='position')
@@ -326,7 +358,7 @@ if __name__ == "__main__":
 
     print(f"Global Effective Stiffness (X-direction): {K_eff:.2f} N/m")
 
-    result = run_pipeline(rows=4, cols=4, k_mat=K_mat)
+    result = run_pipeline(rows=4, cols=4, k_mat=K_mat, ga_generation=1)
     data, output_dir = result
     
     if output_dir:
