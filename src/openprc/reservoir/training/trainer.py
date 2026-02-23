@@ -133,8 +133,8 @@ class Trainer:
         
         # 8. Store Results
         cache = {
-            "train": (L_train, y_train, self.readout.predict(L_train)),
-            "test":  (L_test, y_test, self.readout.predict(L_test))
+            "train": (L_train, y_train.flatten(), self.readout.predict(L_train)),
+            "test":  (L_test, y_test.flatten(), self.readout.predict(L_test))
         }
         
         meta = {'sim': str(self.loader.sim_path), 'task': task_name}
