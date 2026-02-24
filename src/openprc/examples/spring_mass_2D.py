@@ -161,7 +161,7 @@ def run_pipeline(
     if len(act_indices) != 0:
         # 1. Generate the shared i.i.d. signal for all actuators
         sim_duration = sim_params['duration']
-        sample_interval = 0.05
+        sample_interval = 0.1
         
         # Create coarse time steps (add interval to the end to cover the full duration)
         t_coarse = np.arange(0, sim_duration + sample_interval, sample_interval)

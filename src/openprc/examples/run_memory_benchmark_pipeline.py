@@ -53,7 +53,7 @@ def main():
     benchmark_args = {
         "tau_s": 500,
         "n_s": 2,
-        "k_delay": 17,
+        "k_delay": 10,
         "ridge": 1e-6,
         "eps": eps
     }
