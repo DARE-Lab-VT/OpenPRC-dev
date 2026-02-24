@@ -12,7 +12,7 @@ sys.path.insert(0, str(src_dir))
 # --- Core Library Imports ---
 from openprc.analysis.benchmarks.memory_benchmark import MemoryBenchmark
 from openprc.reservoir.io.state_loader import StateLoader
-from openprc.reservoir.features.node_features import NodePositions
+from openprc.reservoir.features.node_features import NodePositions, NodeDisplacements
 from openprc.reservoir.training.trainer import Trainer
 from openprc.reservoir.readout.ridge import Ridge
 
@@ -41,7 +41,7 @@ def main():
     
     # 2. Shared Setup
     loader = StateLoader(sim_path)
-    features = NodePositions()
+    features = NodeDisplacements(reference_node=0, dims=[0])
     u_input = loader.get_actuation_signal(actuator_idx=0, dof=0)
     
     print(f"Loaded {loader.total_frames} frames from {sim_path.name}")
