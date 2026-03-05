@@ -240,11 +240,11 @@ def main():
     
     print(f"\n[Opening Visualizer for {best_dir}]")
     if best_dir.exists():
-        ShowSimulation(str(best_dir))
+        pass#ShowSimulation(str(best_dir))
     else:
         # Re-run if missing for some reason
         run_pipeline(k_mat=K_opt, c_mat=A_opt*0.4, ga_generation=last_gen, rows=ROWS, cols=COLS)
-        ShowSimulation(str(best_dir))
+        #ShowSimulation(str(best_dir))
 
 if __name__ == "__main__":
     main()
