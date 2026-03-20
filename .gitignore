@@ -21,9 +21,9 @@ sdist/
 var/
 wheels/
 share/python-wheels/
-# *experiments/
-*spring_mass_3x3_test/
-*spring_mass_4x4_test/
+*experiments/
+# *spring_mass_3x3_test/
+# *spring_mass_4x4_test/
 media/
 *.egg-info/
 .installed.cfg
