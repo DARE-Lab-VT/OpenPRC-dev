@@ -32,7 +32,8 @@ def run_pipeline(
     """
     # --- 1. Define Grid and Simulation Parameters ---
     ROWS, COLS = rows, cols
-    SPACING = 0.053  # meters
+    REST_LENGTH = 0.053
+    SPACING = 0.059  # meters
     STIFFNESS = 222.15  # N/m
     DAMPING = 0.8
     NODE_MASS = 0.01  # kg
@@ -73,23 +74,30 @@ def run_pipeline(
                 stiffness = k_mat[i, j]
                 if stiffness > 0:
                     damping = c_mat[i, j] if c_mat is not None else DAMPING
-                    setup.add_bar(i, j, stiffness=stiffness, damping=damping)
+                    setup.add_bar(i, j, stiffness=stiffness, damping=damping, rest_length=REST_LENGTH)
     else:
-        print("Generating default fully connected grid topology.")
+        # removal = {(5, 6), (6, 7), (8, 9)}
+        removal = {(1, 5), (2, 6), (5, 9), (6, 10), (9, 13), (10, 14)}
+
         # Horizontal
         for r in range(ROWS):
             for c in range(COLS - 1):
                 idx1 = node_indices[r, c]
                 idx2 = node_indices[r, c + 1]
-                setup.add_bar(idx1, idx2, stiffness=STIFFNESS, damping=DAMPING)
+                # if (idx1, idx2) in removal or (idx2, idx1) in removal:
+                #     continue
+                setup.add_bar(idx1, idx2, stiffness=STIFFNESS, damping=DAMPING, rest_length=REST_LENGTH)
+
         # Vertical
         for r in range(ROWS - 1):
             for c in range(COLS):
                 idx1 = node_indices[r, c]
                 idx2 = node_indices[r + 1, c]
-                setup.add_bar(idx1, idx2, stiffness=STIFFNESS, damping=DAMPING)
-            
-    print(f"Added {len(setup.bars['indices'])} bars.")
+                # if (idx1, idx2) in removal or (idx2, idx1) in removal:
+                #     continue
+                setup.add_bar(idx1, idx2, stiffness=STIFFNESS, damping=DAMPING, rest_length=REST_LENGTH)
+                    
+            print(f"Added {len(setup.bars['indices'])} bars.")
 
     # --- 4. Add Hinges for Bending Resistance ---
     HINGE_STIFFNESS = 0.01  # N-m/rad. Kept low as a precaution.
@@ -118,7 +126,11 @@ def run_pipeline(
 
 
     # --- 5. Define Fixed Nodes ---
-    fixed_indices = []
+    fixed_indices = [
+        node_indices[0, COLS - 1], 
+        node_indices[ROWS - 1, 0], 
+        node_indices[ROWS - 1, COLS - 1]
+    ]
     print(f"Fixing nodes via actuation: {fixed_indices}")
 
     sim_params = setup.config['simulation']
@@ -135,9 +147,9 @@ def run_pipeline(
     # --- 6. Define Actuated Nodes ---
     act_indices = [
         node_indices[0, 0], 
-        node_indices[0, COLS - 1], 
-        node_indices[ROWS - 1, 0], 
-        node_indices[ROWS - 1, COLS - 1]
+        # node_indices[0, COLS - 1], 
+        # node_indices[ROWS - 1, 0], 
+        # node_indices[ROWS - 1, COLS - 1]
     ]
     act_indices = [idx for idx in act_indices if idx not in fixed_indices]
     print(f"Adding dynamic actuation to nodes: {act_indices}")
@@ -161,13 +173,14 @@ def run_pipeline(
     if len(act_indices) != 0:
         # 1. Generate the shared i.i.d. signal for all actuators
         sim_duration = sim_params['duration']
-        sample_interval = 0.1
+        sample_interval = 0.033  # 30 Hz
         
         # Create coarse time steps (add interval to the end to cover the full duration)
         t_coarse = np.arange(0, sim_duration + sample_interval, sample_interval)
         
         # Generate random uniform points [0.0, 0.5]
-        u_coarse = np.random.uniform(low=-1, high=1, size=len(t_coarse))
+        rng = np.random.default_rng(42)
+        u_coarse = rng.uniform(low=-1, high=1, size=len(t_coarse))
         
         # Fit Cubic Spline and evaluate at fine simulation time steps
         cs = CubicSpline(t_coarse, u_coarse)
@@ -354,11 +367,11 @@ if __name__ == "__main__":
         [ 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  H,  0,  0,  L,  0]  # Node 15
     ])
 
-    K_eff, K_global = compute_global_effective_stiffness(K_mat)
+    # K_eff, K_global = compute_global_effective_stiffness(K_mat)
 
-    print(f"Global Effective Stiffness (X-direction): {K_eff:.2f} N/m")
+    # print(f"Global Effective Stiffness (X-direction): {K_eff:.2f} N/m")
 
-    result = run_pipeline(rows=4, cols=4, k_mat=K_mat, ga_generation=1)
+    result = run_pipeline(rows=4, cols=4, ga_generation=0)
     data, output_dir = result
     
     if output_dir:

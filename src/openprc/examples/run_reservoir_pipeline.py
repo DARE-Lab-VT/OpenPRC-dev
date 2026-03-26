@@ -54,7 +54,7 @@ def main():
     #
     # By default, without any arguments, all available features are used.
     # For `NodePositions()`, this means the X, Y, and Z positions of all nodes, flattened.
-    features = NodeDisplacements(reference_node=0, dims=[0])
+    features = NodeDisplacements(reference_node=0, dims=[0, 1])
 
     # --- Example 1: Select specific nodes for features ---
     #
