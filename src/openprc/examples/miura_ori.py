@@ -357,7 +357,7 @@ def run_pipeline(
         dt_sig=sim_params["dt_base"],
         input_mode=input_mode,
         physical_amp=0.02,
-        coarse_step=0.033,
+        coarse_step=0.01,
         seed=42,
         sine_freqs=(2.11, 3.73, 4.33),
         sine_phases=(0.0, 0.0, 0.0),

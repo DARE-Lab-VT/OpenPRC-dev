@@ -56,7 +56,7 @@ class Engine:
             if dt is None:
                 dt = simulation.config['physics'].get('dt', 0.001)
 
-            dt_save = sim_cfg.get('save_interval', 0.01)
+            dt_save = sim_cfg.get('dt_save', 0.01)
             duration = sim_cfg['duration']
 
             save_interval = max(1, int(dt_save / dt))

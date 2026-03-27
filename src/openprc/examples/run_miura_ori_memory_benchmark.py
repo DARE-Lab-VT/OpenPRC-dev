@@ -194,7 +194,7 @@ def main():
         plt.ylabel("Capacity ($R^2$)")
         plt.title(
             f"IPC — Miura-ori {XN}x{YN} gen{GENERATION}",
-            color=VT_MAROON, fontweight='bold'
+            color='black', fontweight='bold'
         )
         plt.ylim(0, 1.05)
         plt.gca().spines['top'].set_visible(False)
@@ -260,7 +260,7 @@ def main():
 
         plt.suptitle(
             f"IPC — Miura-ori {XN}x{YN} | $N_{{rank}}={N}$ | $\\epsilon={eps:.4f}$",
-            fontsize=14, color=VT_MAROON, fontweight='bold'
+            fontsize=14, color='black', fontweight='bold'
         )
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
         plt.savefig(plot_dir / "unified_ipc_analysis.svg")
