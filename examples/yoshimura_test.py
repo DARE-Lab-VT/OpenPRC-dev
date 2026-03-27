@@ -25,7 +25,7 @@ def setup(beta, drivers, force=False, amplitude=4.0):
 
     # Simulation parameters
     duration = 5.0
-    dt = 0.0005
+    dt = 0.0001
     save_interval = 0.005
     setup.set_simulation_params(duration=duration, dt=dt, save_interval=save_interval)
     setup.set_physics(gravity=0.0, damping=0.1)
@@ -82,7 +82,7 @@ def setup(beta, drivers, force=False, amplitude=4.0):
     # Setup Actuation
     min_pos = 0.0
     max_pos = d
-    frequency = 1.5
+    frequency = 0.5
     duration = duration
     drivers = drivers
 
@@ -209,6 +209,6 @@ def show_pe():
 
 
 if __name__ == "__main__":
-    setup(beta=35, drivers=3, force=True, amplitude=5.6)
+    setup(beta=35, drivers=1, force=True, amplitude=5.6)
     run()
     show_pe()

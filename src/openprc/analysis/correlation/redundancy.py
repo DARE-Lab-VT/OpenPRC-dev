@@ -27,6 +27,7 @@ Example
 from __future__ import annotations
 
 import warnings
+from collections import deque
 from typing import Optional, Sequence
 
 import numpy as np
@@ -70,21 +71,33 @@ def _validate_y(y: np.ndarray):
 def _pairwise_pearson(y: np.ndarray):
     """Full N×N Pearson correlation matrix with p-values.
 
+    Optimisation notes
+    ------------------
+    * ``np.corrcoef`` computes the full matrix in one BLAS call — O(T·N²).
+    * P-values are derived analytically from the t-distribution on the
+      whole matrix at once, replacing the original O(N²) Python loop of
+      ``stats.pearsonr`` calls.
+
     Returns
     -------
     r_matrix : (N, N)
     p_matrix : (N, N)
     """
-    N = y.shape[1]
-    r_matrix = np.corrcoef(y, rowvar=False)  # fast path
-    p_matrix = np.zeros((N, N))
+    T = y.shape[0]
 
-    for i in range(N):
-        for j in range(i + 1, N):
-            _, p = stats.pearsonr(y[:, i], y[:, j])
-            p_matrix[i, j] = p
-            p_matrix[j, i] = p
-    # diagonal p = 0 (perfect self-correlation)
+    r_matrix = np.corrcoef(y, rowvar=False)
+
+    # Clip to (-1, 1) to avoid NaN in sqrt; keep diagonal at 0 p-value.
+    r_clipped = np.clip(r_matrix, -1.0 + 1e-15, 1.0 - 1e-15)
+
+    # t-statistic for Pearson r under H0: ρ=0, df = T-2
+    # t = r * sqrt(T-2) / sqrt(1 - r²)
+    t_stat = r_clipped * np.sqrt(T - 2) / np.sqrt(1.0 - r_clipped ** 2)
+
+    # Two-tailed p-value — fully vectorised, single scipy call
+    p_matrix = 2.0 * stats.t.sf(np.abs(t_stat), df=T - 2)
+    np.fill_diagonal(p_matrix, 0.0)   # self-correlation: p = 0
+
     return r_matrix, p_matrix
 
 
@@ -120,7 +133,38 @@ def _partial_correlation_matrix(y: np.ndarray):
     return pcorr
 
 
-def _acf_single(y_col: np.ndarray, n_lags: int):
+def _acf_all_channels(y: np.ndarray, n_lags: int) -> np.ndarray:
+    """Batched FFT-based auto-correlation for **all** channels at once.
+
+    Replaces the original per-channel loop, performing a single forward
+    and inverse FFT across the entire (T, N) matrix.  The FFT dimension
+    is padded to the next power-of-two for efficiency; the channel
+    dimension rides along for free.
+
+    Returns
+    -------
+    acf_mat : (N, n_lags + 1)
+    """
+    T, N = y.shape
+    ym = y - y.mean(axis=0)          # (T, N) — zero-mean each channel
+
+    fft_len = 1 << int(np.ceil(np.log2(2 * T - 1)))   # next power-of-two
+
+    # Single batched FFT along axis=0; all N channels in one call
+    F = np.fft.rfft(ym, n=fft_len, axis=0)            # (fft_len//2+1, N)
+    acf_full = np.fft.irfft(F * np.conj(F), n=fft_len, axis=0)[:T]  # (T, N)
+
+    # Transpose to (N, T) and normalise each channel by its zero-lag value
+    acf_mat = acf_full.T.copy()                        # (N, T)
+    norms = acf_mat[:, 0]                              # (N,)
+    norms[norms == 0] = 1.0
+    acf_mat /= norms[:, np.newaxis]
+
+    return acf_mat[:, : n_lags + 1]
+
+
+# Kept for backward compatibility if anything imports it directly
+def _acf_single(y_col: np.ndarray, n_lags: int) -> np.ndarray:
     """FFT-based auto-correlation of a single channel.
 
     Returns
@@ -129,7 +173,7 @@ def _acf_single(y_col: np.ndarray, n_lags: int):
     """
     ym = y_col - y_col.mean()
     T = len(ym)
-    fft_len = 2 ** int(np.ceil(np.log2(2 * T - 1)))
+    fft_len = 1 << int(np.ceil(np.log2(2 * T - 1)))
     F = np.fft.rfft(ym, n=fft_len)
     acf_full = np.fft.irfft(F * np.conj(F), n=fft_len)[:T]
     if acf_full[0] > 0:
@@ -183,29 +227,38 @@ def _channel_groups(corr_matrix: np.ndarray, threshold: float):
     Two channels are in the same group if there exists a path of
     pairwise |r| >= threshold between them (single-linkage).
 
+    Optimisation: uses ``collections.deque`` for O(1) pops and
+    pre-computes an adjacency list from the thresholded matrix to
+    avoid re-scanning all N columns at every BFS step.
+
     Returns
     -------
     groups : list[list[int]]
         Each inner list contains channel indices in one cluster.
     """
     N = corr_matrix.shape[0]
-    visited = [False] * N
+
+    # Build adjacency list once — O(N²) but avoids repeated scanning
+    abs_corr = np.abs(corr_matrix)
+    np.fill_diagonal(abs_corr, 0.0)   # ignore self-loops
+    adj = [list(np.where(abs_corr[i] >= threshold)[0]) for i in range(N)]
+
+    visited = np.zeros(N, dtype=bool)
     groups = []
 
     for i in range(N):
         if visited[i]:
             continue
-        # BFS from channel i
         group = []
-        queue = [i]
+        queue = deque([i])
         while queue:
-            node = queue.pop(0)
+            node = queue.popleft()          # O(1) with deque
             if visited[node]:
                 continue
             visited[node] = True
             group.append(node)
-            for j in range(N):
-                if not visited[j] and abs(corr_matrix[node, j]) >= threshold:
+            for j in adj[node]:
+                if not visited[j]:
                     queue.append(j)
         groups.append(sorted(group))
 
@@ -317,15 +370,12 @@ class Redundancy:
     def acf(self) -> Result:
         """Per-channel auto-correlation, shape ``(N, n_lags+1)``."""
         if self._acf is None:
-            n_lags = self._max_lag
-            acf_mat = np.empty((self._N, n_lags + 1))
-            for i in range(self._N):
-                acf_mat[i] = _acf_single(self._y[:, i], n_lags)
+            acf_mat = _acf_all_channels(self._y, self._max_lag)
             self._acf = Result(
                 metric="acf",
                 values=acf_mat,
                 channel_names=self._channel_names,
-                extra={"lag_axis": np.arange(n_lags + 1)},
+                extra={"lag_axis": np.arange(self._max_lag + 1)},
             )
         return self._acf
 
