@@ -38,16 +38,61 @@ VT_ORANGE_LIGHT = '#F0A875'
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
-def calculate_dambre_epsilon(N: int, test_duration: int, p_value: float = 1e-4) -> float:
-    t = chi2.isf(p_value, df=N)
-    return float(t / test_duration)
+def calculate_dambre_epsilon(effective_rank: int, test_duration: int, p_value: float = 1e-4) -> float:
+    """
+    Calculates the exact theoretical threshold (epsilon) for IPC 
+    based on Dambre et al.'s chi-squared method.
+    
+    Parameters:
+    - effective_rank (N): The number of independent state variables (e.g., 9).
+    - test_duration (T): The number of samples in your test set.
+    - p_value (p): The acceptable probability of a false positive (default 10^-4).
+    
+    Returns:
+    - epsilon: The strict cutoff value to use in the Heaviside step function.
+    """
+    # 1. Find the threshold 't' using the Inverse Survival Function (ISF) 
+    # of the chi-squared distribution with N degrees of freedom.
+    # This finds 't' such that P(chi^2(N) >= t) = p
+    t = chi2.isf(p_value, df=effective_rank)
+    
+    # 2. Calculate the final epsilon: 2t / T
+    # The factor of 2 is the intentional doubling to account for 
+    # non-independent variables in real dynamical systems.
+    epsilon = (2.0 * t) / test_duration
+    
+    return epsilon
 
 
-def compute_rank(loader, features, tol: float = 1e-10) -> int:
-    X = features.transform(loader)
-    X = StandardScaler().fit_transform(X)
-    s = np.linalg.svd(X, compute_uv=False)
-    return int(np.sum(s > tol * s[0]))
+def compute_effective_rank(loader, features) -> float:
+    """
+    Entropy-based effective rank (standard in reservoir computing).
+
+    Uses the Shannon entropy of normalised singular values:
+        s_norm         = s / sum(s)
+        effective_rank = exp( -sum(s_norm * log(s_norm)) )
+
+    Computed on the full state matrix with no washout stripping,
+    matching state_matrix_analysis_logic() exactly.
+
+    Parameters
+    ----------
+    loader   : StateLoader
+    features : feature extractor (e.g. NodeDisplacements)
+
+    Returns
+    -------
+    effective_rank : float
+    """
+    state_matrix = features.transform(loader)
+
+    if state_matrix.shape[0] < 2:
+        return 1.0
+
+    state_matrix = StandardScaler().fit_transform(state_matrix)
+    _, s, _      = np.linalg.svd(state_matrix, full_matrices=False)
+    s_norm       = s / np.sum(s)
+    return float(np.exp(-np.sum(s_norm * np.log(s_norm + 1e-12))))
 
 
 def compute_test_frames(loader, test_duration_s: float = 10.0) -> int:
@@ -97,9 +142,9 @@ def main():
           f"std: {u_input.std():.4f}")
 
     # ── 4. Rank + epsilon ─────────────────────────────────────────────────────
-    N           = compute_rank(loader, features)
+    N           = compute_effective_rank(loader, features)
     test_frames = int(10.0 / loader.dt)
-    eps         = calculate_dambre_epsilon(N=N, test_duration=test_frames)
+    eps         = calculate_dambre_epsilon(effective_rank=N, test_duration=test_frames)
     print(f"Rank (N): {N}   Test frames (T): {test_frames}   Epsilon: {eps:.6f}")
 
     # ── 5. Trainer + benchmark args ───────────────────────────────────────────
@@ -259,7 +304,7 @@ def main():
             ax.spines['right'].set_visible(False)
 
         plt.suptitle(
-            f"IPC — Miura-ori {XN}x{YN} | $N_{{rank}}={N}$ | $\\epsilon={eps:.4f}$",
+            f"IPC — Miura-ori {XN}x{YN} | $N_{{rank}}={round(N, 2)}$ | $\\epsilon={eps:.4f}$",
             fontsize=14, color='black', fontweight='bold'
         )
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
