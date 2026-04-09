@@ -80,13 +80,13 @@ class Experiment:
         if self.logger:
             self.logger.warning("Resetting output directory.")
         
-        if self.output_dir.exists():
-            # Remove all files in output but keep directory structure
-            for item in self.output_dir.iterdir():
-                if item.is_dir():
-                    shutil.rmtree(item)
-                else:
-                    item.unlink()
+        # if self.output_dir.exists():
+        #     # Remove all files in output but keep directory structure
+        #     for item in self.output_dir.iterdir():
+        #         if item.is_dir():
+        #             shutil.rmtree(item)
+        #         else:
+        #             item.unlink()
         self._setup_outputs()
         
         # Re-initialize logger since the log file was deleted
