@@ -19,6 +19,7 @@ from openprc.reservoir.features.node_features import NodeDisplacements # [MODIFI
 from openprc.reservoir.training.trainer import Trainer
 from openprc.reservoir.readout.ridge import Ridge
 from openprc.demlat.utils.animator import ShowSimulation
+from sklearn.preprocessing import StandardScaler
 from scipy.stats import chi2 # [NEW]
 
 # --- Optimization Imports ---
@@ -29,6 +30,25 @@ def calculate_dambre_epsilon(effective_rank: int, test_duration: int, p_value: f
     """[NEW] Matches the calculation in run_memory_benchmark_pipeline.py"""
     t = chi2.isf(p_value, df=effective_rank)
     return (2.0 * t) / test_duration
+
+# --- [ADD THESE TWO NEW FUNCTIONS] ---
+def compute_effective_rank(loader, features) -> float:
+    """Calculates the true number of independent state variables using SVD entropy."""
+    state_matrix = features.transform(loader)
+    if state_matrix.shape[0] < 2: return 1.0
+
+    state_matrix = StandardScaler().fit_transform(state_matrix)
+    _, s, _      = np.linalg.svd(state_matrix, full_matrices=False)
+    s_norm       = s / np.sum(s)
+    return float(np.exp(-np.sum(s_norm * np.log(s_norm + 1e-12))))
+
+def compute_test_frames(loader, test_duration_s: float = 10.0) -> int:
+    """Extracts the exact number of test frames based on the simulation save_interval."""
+    import h5py
+    with h5py.File(loader.sim_path, 'r') as f:
+        fps = float(f.attrs.get('fps', 29.97))
+    return max(1, int(test_duration_s * fps))
+
 
 def plot_heatmap(
     heatmap, n_list, tau_d_list, k_delay, amp, n_mass, title_prefix,
@@ -92,34 +112,35 @@ def plot_heatmap(
 
 
 def run_heatmap_pipeline_for_topology(rows, cols, k_mat, c_mat, run_suffix):
-    """Runs simulation and benchmark sweep for a given topology."""
     print(f"\n--- Running Full Pipeline for Topology: {run_suffix} ---")
     
-    # 1. Run simulation to get state data
     print(f"-> Running simulation...")
     _, experiment_path = run_pipeline(
-        rows=rows, cols=cols, k_mat=k_mat, c_mat=c_mat, ga_generation=run_suffix
+        rows=rows, cols=cols, k_mat=k_mat, c_mat=c_mat, 
+        ga_generation=run_suffix, amplitude=0.02, target_hz=30.0
     )
     h5_path = experiment_path / "output" / "simulation.h5"
     if not h5_path.exists():
         print(f"[Error] Simulation did not produce h5 file at: {h5_path}")
-        return None, None
+        return None, None, None, None, None
     print(f"-> Simulation complete. State data at {h5_path}")
 
-    # 2. Setup benchmark sweep
     loader = StateLoader(h5_path)
     
-    # [MODIFIED]: Relative Displacements (Reference = Node 0, X-axis only)
-    features = NodeDisplacements(reference_node=0, dims=[0]) 
+    # [CRITICAL FIX 1]: Use BOTH X and Y displacements!
+    features = NodeDisplacements(reference_node=0, dims=[0, 1]) 
     u_input = loader.get_actuation_signal(actuator_idx=0, dof=0)
     
-    # [MODIFIED]: Match the optimizer's lag scale and Dambre threshold
-    k_delay_val = 10 
-    n_list = list(range(1, 5)) # IID memory degrades fast; N=1..4 is a realistic heatmap range
-    tau_d_list = list(range(0, 50, 5)) # Sample the 500-step lag horizon
-    
-    # 10.0 seconds of test_duration at dt=0.01 is 1000 steps
-    dambre_eps = calculate_dambre_epsilon(effective_rank=1.5, test_duration=1000)
+    # [CRITICAL FIX 2]: Dynamically calculate exact Effective Rank (N) and Frames (T)
+    N = compute_effective_rank(loader, features)
+    T = compute_test_frames(loader, test_duration_s=10.0)
+    dambre_eps = calculate_dambre_epsilon(effective_rank=N, test_duration=T)
+    print(f"  Effective rank (N): {N:.4f}   Test frames (T): {T}   Epsilon: {dambre_eps:.6f}")
+
+    # [CRITICAL FIX 3]: Match the run_plot_heatmap tau and k_delay exactly
+    k_delay_val = 1 
+    n_list = list(range(1, 5))     # Degrees 1 to 4
+    tau_d_list = list(range(30))   # Delays 0 to 29
     
     heatmap = np.empty((len(n_list), len(tau_d_list)), dtype=float)
 
@@ -129,8 +150,6 @@ def run_heatmap_pipeline_for_topology(rows, cols, k_mat, c_mat, run_suffix):
         n_s, tau_s = n_list[i], tau_d_list[j]
         
         benchmark = MemoryBenchmark(group_name=f"mem_bench_n{n_s}_tau{tau_s}")
-        
-        # [MODIFIED]: Use dambre_eps instead of 1e-9
         benchmark_args = {"tau_s": tau_s, "n_s": n_s, "k_delay": k_delay_val, "ridge": 1e-6, "eps": dambre_eps}
 
         trainer = Trainer(
@@ -145,7 +164,9 @@ def run_heatmap_pipeline_for_topology(rows, cols, k_mat, c_mat, run_suffix):
         heatmap[i, j] = np.nanmean(capacities) if capacities is not None and len(capacities) > 0 else np.nan
 
     print("--- Pipeline complete. ---")
-    return heatmap, experiment_path
+    
+    # [CRITICAL FIX 4]: Return the shape parameters so main() knows how to plot them!
+    return heatmap, experiment_path, n_list, tau_d_list, k_delay_val
 
 
 def main():
@@ -153,11 +174,11 @@ def main():
     Unified Pipeline to visualize Before vs. After based on TRIAL_NAME.
     """
     # --- Configuration (Must match 1_grid_opt.py) ---
-    TRIAL_NAME = "Taichi_IID_Memory_Opt_Low_k"
+    TRIAL_NAME = "Taichi_IID_Memory_Opt_30Hz_multi_fast"
     ROWS, COLS = 4, 4
     
     EXPERIMENT_DIR = src_dir / "experiments" / TRIAL_NAME
-    GA_RESULTS_PATH = EXPERIMENT_DIR / "ga_results.json"
+    GA_RESULTS_PATH = EXPERIMENT_DIR / "experiment.json"
     
     # --- Load Optimized Data ---
     if not GA_RESULTS_PATH.exists():
@@ -179,20 +200,20 @@ def main():
     # Generate original uniform grid matrices
     c_mat_orig, k_mat_orig = fourier.build_full_neighbor_topology(ROWS, COLS, rigid_outer_frame=False)
     
-    TARGET_STIFFNESS = 100.0  # Must match the physics from your Taichi script
+    TARGET_STIFFNESS = 222.15  # Must match the physics from your Taichi script
     TARGET_DAMPING = 0.8
 
     # Overwrite the default 222.15 values wherever a spring exists
     k_mat_orig = np.where(k_mat_orig > 0, TARGET_STIFFNESS, 0.0)
     c_mat_orig = np.where(c_mat_orig > 0, TARGET_DAMPING, 0.0)
     
-    heatmap_before, _ = run_heatmap_pipeline_for_topology(
+    heatmap_before, _, n_list, tau_list, k_val = run_heatmap_pipeline_for_topology(
         ROWS, COLS, k_mat_orig, c_mat_orig * 0.4, "uniform_grid"
     )
     
     if heatmap_before is not None:
         plot_heatmap(
-            heatmap_before, list(range(1, 9)), list(range(6)), k_delay=10, amp=1, n_mass=ROWS*COLS,
+            heatmap_before, n_list, tau_list, k_delay=k_val, amp=1, n_mass=ROWS*COLS,
             title_prefix="Memory Heatmap (Uniform Grid)",
             save_dir=EXPERIMENT_DIR, 
             save_name="heatmap_before_optimization", 
@@ -209,13 +230,13 @@ def main():
         k_mat_opt = np.array(results_data["k_mat_opt"])
         c_mat_opt = np.array(results_data["c_mat_opt"])
         
-        heatmap_after, after_exp_path = run_heatmap_pipeline_for_topology(
+        heatmap_after, after_exp_path, n_list, tau_list, k_val = run_heatmap_pipeline_for_topology(
             ROWS, COLS, k_mat_opt, c_mat_opt, "optimized_topology"
         )
         
         if heatmap_after is not None:
             plot_heatmap(
-                heatmap_after, list(range(1, 9)), list(range(6)), k_delay=10, amp=1, n_mass=ROWS*COLS,
+                heatmap_after, n_list, tau_list, k_delay=k_val, amp=1, n_mass=ROWS*COLS,
                 title_prefix="Memory Heatmap (After Taichi Optimization)",
                 save_dir=EXPERIMENT_DIR, 
                 save_name="heatmap_after_optimization", 

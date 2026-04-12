@@ -153,7 +153,7 @@ def main():
     Unified Pipeline to visualize Before vs. After based on TRIAL_NAME.
     """
     # --- Configuration (Must match 1_grid_opt.py) ---
-    TRIAL_NAME = "Taichi_IID_Memory_Opt_Low_k"
+    TRIAL_NAME = "Taichi_IID_Memory_Opt_Low_k_RE"
     ROWS, COLS = 4, 4
     
     EXPERIMENT_DIR = src_dir / "experiments" / TRIAL_NAME

@@ -150,85 +150,91 @@ def run_heatmap_pipeline_for_topology(rows, cols, k_mat, c_mat, run_suffix):
 
 def main():
     """
-    Unified Pipeline to visualize Before vs. After based on TRIAL_NAME.
+    Unified Pipeline to visualize Before vs. After across a Stiffness Sweep.
     """
-    # --- Configuration (Must match 1_grid_opt.py) ---
-    TRIAL_NAME = "Taichi_IID_Memory_Opt_Low_k"
+    TRIAL_NAME = "Taichi_Stiffness_Sweep_Damping"
     ROWS, COLS = 4, 4
     
-    EXPERIMENT_DIR = src_dir / "experiments" / TRIAL_NAME
-    GA_RESULTS_PATH = EXPERIMENT_DIR / "ga_results.json"
-    
-    # --- Load Optimized Data ---
-    if not GA_RESULTS_PATH.exists():
-        print(f"[Error] Results file not found: {GA_RESULTS_PATH}")
-        print("Please run 1_grid_opt.py first to generate the optimized topology.")
+    MAIN_DIR = src_dir / "experiments" / TRIAL_NAME
+    if not MAIN_DIR.exists():
+        print(f"[Error] Main sweep directory not found: {MAIN_DIR}")
+        print("Please run the sweep optimization script first.")
         return
-
-    print(f"-> Loading optimization results from: {GA_RESULTS_PATH}")
-    with open(GA_RESULTS_PATH, 'r') as f:
-        results_data = json.load(f)
-    
-    # Initialize Helper (Used for "Before" generation)
+        
     fourier = FourierSeries2D(ROWS, COLS)
-
-    # --- 1. "BEFORE" ANALYSIS (Uniform Grid) ---
-    print("\n" + "="*50)
-    print("STEP 1: Analyzing Pre-Optimization (Uniform) Topology")
-    print("="*50)
-    # Generate original uniform grid matrices
-    c_mat_orig, k_mat_orig = fourier.build_full_neighbor_topology(ROWS, COLS, rigid_outer_frame=False)
     
-    TARGET_STIFFNESS = 100.0  # Must match the physics from your Taichi script
-    TARGET_DAMPING = 0.8
-
-    # Overwrite the default 222.15 values wherever a spring exists
-    k_mat_orig = np.where(k_mat_orig > 0, TARGET_STIFFNESS, 0.0)
-    c_mat_orig = np.where(c_mat_orig > 0, TARGET_DAMPING, 0.0)
+    # 1. Find all stiffness subfolders
+    sweep_folders = [d for d in MAIN_DIR.iterdir() if d.is_dir() and d.name.startswith("stiffness_")]
     
-    heatmap_before, _ = run_heatmap_pipeline_for_topology(
-        ROWS, COLS, k_mat_orig, c_mat_orig * 0.4, "uniform_grid"
-    )
-    
-    if heatmap_before is not None:
-        plot_heatmap(
-            heatmap_before, list(range(1, 9)), list(range(6)), k_delay=10, amp=1, n_mass=ROWS*COLS,
-            title_prefix="Memory Heatmap (Uniform Grid)",
-            save_dir=EXPERIMENT_DIR, 
-            save_name="heatmap_before_optimization", 
-            show=False, save_png=True, save_svg=True
-        )
-
-    # --- 2. "AFTER" ANALYSIS (Direct Matrix Optimization) ---
-    print("\n" + "="*50)
-    print("STEP 2: Analyzing Post-Optimization Topology")
-    print("="*50)
-    
-    # Check if we have direct matrix results (from Taichi)
-    if "k_mat_opt" in results_data:
-        k_mat_opt = np.array(results_data["k_mat_opt"])
-        c_mat_opt = np.array(results_data["c_mat_opt"])
+    # 2. Iterate through each subfolder
+    for exp_dir in sorted(sweep_folders, key=lambda x: float(x.name.split('_')[1])):
+        print(f"\n{'#'*60}")
+        print(f"Processing Sweep Directory: {exp_dir.name}")
+        print(f"{'#'*60}")
         
-        heatmap_after, after_exp_path = run_heatmap_pipeline_for_topology(
-            ROWS, COLS, k_mat_opt, c_mat_opt, "optimized_topology"
+        # Extract target stiffness dynamically from folder name
+        target_stiffness = float(exp_dir.name.split('_')[1])
+        
+        GA_RESULTS_PATH = exp_dir / "ga_results.json"
+        if not GA_RESULTS_PATH.exists():
+            print(f"[Warning] Skipping {exp_dir.name}: No ga_results.json found.")
+            continue
+
+        print(f"-> Loading optimization results from: {GA_RESULTS_PATH}")
+        with open(GA_RESULTS_PATH, 'r') as f:
+            results_data = json.load(f)
+            
+        n_plot_list = list(range(1, 5))
+        tau_plot_list = list(range(0, 50, 5))
+
+        # --- STEP 1: "BEFORE" ANALYSIS ---
+        print("\nSTEP 1: Analyzing Pre-Optimization (Uniform) Topology")
+        c_mat_orig, k_mat_orig = fourier.build_full_neighbor_topology(ROWS, COLS, rigid_outer_frame=False)
+        
+        TARGET_DAMPING = 0.8
+        # Ensure the baseline matrix uses the current sweep's stiffness!
+        k_mat_orig = np.where(k_mat_orig > 0, target_stiffness, 0.0)
+        c_mat_orig = np.where(c_mat_orig > 0, TARGET_DAMPING, 0.0)
+        
+        heatmap_before, _ = run_heatmap_pipeline_for_topology(
+            ROWS, COLS, k_mat_orig, c_mat_orig * 0.4, f"{exp_dir.name}_uniform"
         )
         
-        if heatmap_after is not None:
+        if heatmap_before is not None:
             plot_heatmap(
-                heatmap_after, list(range(1, 9)), list(range(6)), k_delay=10, amp=1, n_mass=ROWS*COLS,
-                title_prefix="Memory Heatmap (After Taichi Optimization)",
-                save_dir=EXPERIMENT_DIR, 
-                save_name="heatmap_after_optimization", 
+                heatmap_before, n_plot_list, tau_plot_list, k_delay=10, amp=1, n_mass=ROWS*COLS,
+                title_prefix=f"Memory Heatmap (Uniform Grid, k={target_stiffness})",
+                save_dir=exp_dir, # Save directly into the specific sweep subfolder
+                save_name="heatmap_before_optimization", 
                 show=False, save_png=True, save_svg=True
             )
-            
-            # Launch interactive visualizer for the final optimized run
-            print(f"\n[INFO] Launching visualizer player for optimized run...")
-            ShowSimulation(str(after_exp_path))
-    else:
-        print("[Error] No optimized matrices ('k_mat_opt') found in the JSON file.")
 
-    print(f"\n[Done] All heatmaps saved to: {EXPERIMENT_DIR}")
+        # --- STEP 2: "AFTER" ANALYSIS ---
+        print("\nSTEP 2: Analyzing Post-Optimization Topology")
+        if "k_mat_opt" in results_data:
+            k_mat_opt = np.array(results_data["k_mat_opt"])
+            c_mat_opt = np.array(results_data["c_mat_opt"])
+            
+            heatmap_after, after_exp_path = run_heatmap_pipeline_for_topology(
+                ROWS, COLS, k_mat_opt, c_mat_opt, f"{exp_dir.name}_optimized"
+            )
+            
+            if heatmap_after is not None:
+                plot_heatmap(
+                    heatmap_after, n_plot_list, tau_plot_list, k_delay=10, amp=1, n_mass=ROWS*COLS,
+                    title_prefix=f"Memory Heatmap (Optimized, k={target_stiffness})",
+                    save_dir=exp_dir, # Save directly into the specific sweep subfolder
+                    save_name="heatmap_after_optimization", 
+                    show=False, save_png=True, save_svg=True
+                )
+                
+                # Disabled for automated sweeping so it doesn't block the loop
+                # print(f"\n[INFO] Launching visualizer player for optimized run...")
+                # ShowSimulation(str(after_exp_path)) 
+        else:
+            print(f"[Error] No optimized matrices ('k_mat_opt') found for {exp_dir.name}.")
+
+    print(f"\n[Done] All sweep heatmaps generated and saved to subfolders in: {MAIN_DIR}")
 
 if __name__ == "__main__":
     main()

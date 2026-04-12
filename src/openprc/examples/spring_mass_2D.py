@@ -17,6 +17,7 @@ from openprc import demlat
 from openprc.demlat.models.barhinge import BarHingeModel
 from openprc.demlat.io.simulation_setup import SimulationSetup
 from openprc.demlat.utils.animator import ShowSimulation
+from scipy.interpolate import CubicSpline
 
 
 def run_pipeline(
@@ -24,7 +25,9 @@ def run_pipeline(
     cols: int = 3, 
     k_mat: np.ndarray = None, 
     c_mat: np.ndarray = None, 
-    ga_generation: int = 0
+    ga_generation: int = 0,
+    amplitude: float = 2.5,     # <--- NEW: Default to 2.5 to match baseline
+    target_hz: float = 30.0     # <--- NEW: Enforce 30Hz output
 ):
     """
     Defines, saves, and runs the entire spring-mass experiment.
@@ -45,7 +48,8 @@ def run_pipeline(
     setup = SimulationSetup(OUTPUT_DIR, overwrite=True)
 
     # --- 2. Configure Simulation and Physics ---
-    setup.set_simulation_params(duration=30.0, dt=0.001, save_interval=0.01)
+    save_int = 1.0 / target_hz
+    setup.set_simulation_params(duration=30.0, dt=0.001, save_interval=save_int)
     setup.set_physics(gravity=-9.8, damping=0.1, enable_collision=True)
 
     # --- 3. Generate Geometry and Actuation ---
@@ -117,7 +121,11 @@ def run_pipeline(
 
 
     # --- 5. Define Fixed Nodes ---
-    fixed_indices = []
+    fixed_indices = [
+        node_indices[0, COLS - 1], 
+        node_indices[ROWS - 1, 0], 
+        node_indices[ROWS - 1, COLS - 1]
+    ]
     print(f"Fixing nodes via actuation: {fixed_indices}")
 
     sim_params = setup.config['simulation']
@@ -132,29 +140,35 @@ def run_pipeline(
             setup.add_actuator(idx, f"sig_fixed_corner_{i}", type='position')
 
     # --- 6. Define Actuated Nodes ---
-    act_indices = [
-        node_indices[0, 0], 
-        node_indices[0, COLS - 1], 
-        node_indices[ROWS - 1, 0], 
-        node_indices[ROWS - 1, COLS - 1]
-    ]
-    act_indices = [idx for idx in act_indices if idx not in fixed_indices]
-    print(f"Adding dynamic actuation to nodes: {act_indices}")
+    # Only actuate the Top-Left corner (Node 0)
+    act_indices = [node_indices[0, 0]] # Assuming you actuate the top-left corner
+    print(f"Adding 30Hz IID actuation to nodes: {act_indices}")
 
-    if len(act_indices) != 0:
-        for i, act_idx in enumerate(act_indices):
-            p0 = setup.nodes['positions'][act_idx]
-            amp = 0.02  # 1 cm
-            f1 = 2.11   # 2.11 Hz
-            f2 = 3.73   # 3.73 Hz
-            f3 = 4.33   # 4.33 Hz
-            
-            sig = np.tile(p0, (len(t_), 1))
-            sig[:, 0] += amp * np.sin(2 * np.pi * f1 * t_) * np.sin(2 * np.pi * f2 * t_) * np.sin(2 * np.pi * f3 * t_)
-            
-            setup.add_signal(f"sig_actuator_{i}", sig, dt=dt_sig)
-            setup.add_actuator(act_idx, f"sig_actuator_{i}", type='position')
+    sim_params = setup.config['simulation']
+    dt_sig = sim_params['dt_base']
+    t_sim = np.arange(0, sim_params['duration'], dt_sig)
 
+    np.random.seed(42) 
+    sample_hz = target_hz  # <--- Match the spline knots to your saving Hz
+    sample_interval = 1.0 / sample_hz
+    t_coarse = np.arange(0, sim_params['duration'] + sample_interval, sample_interval)
+    
+    u_coarse = np.random.uniform(low=-1.0, high=1.0, size=len(t_coarse))
+    cs = CubicSpline(t_coarse, u_coarse)
+
+    AMPLITUDE = 2.5
+    u_fine = cs(t_sim) * AMPLITUDE
+
+    for i, idx in enumerate(act_indices):
+        p0 = setup.nodes['positions'][idx]
+        sig = np.tile(p0, (len(t_sim), 1))
+        
+        # Apply the 30Hz IID spline exclusively to the X-axis displacement
+        sig[:, 0] += u_fine 
+        
+        setup.add_signal(f"sig_iid_input_{i}", sig, dt=dt_sig)
+        setup.add_actuator(idx, f"sig_iid_input_{i}", type='position')
+        
     # --- 6. Save Experiment Files ---
     print("\n[Step 2] Saving experiment files (config.json, geometry.h5)...")
     setup.save()
