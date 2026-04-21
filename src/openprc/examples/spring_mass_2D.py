@@ -26,7 +26,7 @@ def run_pipeline(
     k_mat: np.ndarray = None, 
     c_mat: np.ndarray = None, 
     ga_generation: int = 0,
-    amplitude: float = 2.5,     # <--- NEW: Default to 2.5 to match baseline
+    amplitude: float = 0.025,     # <--- NEW: Default to 0.025 to match baseline
     target_hz: float = 30.0     # <--- NEW: Enforce 30Hz output
 ):
     """
@@ -156,7 +156,7 @@ def run_pipeline(
     u_coarse = np.random.uniform(low=-1.0, high=1.0, size=len(t_coarse))
     cs = CubicSpline(t_coarse, u_coarse)
 
-    AMPLITUDE = 2.5
+    AMPLITUDE = amplitude  # Meters, adjust as needed for your system's scale
     u_fine = cs(t_sim) * AMPLITUDE
 
     for i, idx in enumerate(act_indices):

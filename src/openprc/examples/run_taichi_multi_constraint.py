@@ -13,15 +13,35 @@ from pathlib import Path
 from scipy.interpolate import CubicSpline
 from scipy.stats import chi2
 from numpy.lib.stride_tricks import sliding_window_view
+import random
 
+def global_seed(seed=42):
+    # 1. Basic Python
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    
+    # 2. NumPy
+    np.random.seed(seed)
+    
+    # 3. PyTorch
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    
+    # Required for some deterministic operations in CUDA
+    os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8' 
+
+# Call this BEFORE ti.init and any other logic
+global_seed(42)
+ti.init(arch=ti.gpu, default_fp=ti.f64, random_seed=42)
 # Initialize Taichi
-ti.init(arch=ti.gpu, default_fp=ti.f64)
 torch.set_default_dtype(torch.float64)
 torch.autograd.set_detect_anomaly(True)
-np.random.seed(42)
 
 # --- Configuration ---
-TRIAL_NAME = "Taichi_IID_Memory_Opt_30Hz_multi_fast"
+TRIAL_NAME = "Taichi_multi_constraint_222_redo2"
 ROWS, COLS = 4, 4
 EXPERIMENT_DIR = Path(__file__).parent.parent / "experiments" / TRIAL_NAME
 os.makedirs(EXPERIMENT_DIR, exist_ok=True)
@@ -74,6 +94,98 @@ class PyTorchAL:
                 
                 if verbose:
                     print(f"AL Constraint ({i},{j}): Viol={viol_val:.6f}, Kappa={self.kappa[i, j].item():.4f}, Tau={self.tau[i, j].item():.4f}")
+
+import torch
+
+class CombinedTopologyAL(PyTorchAL):
+    def __init__(self, config, rows, cols, M_levels, device, tau=1.0):
+        # 1. Trick the superclass into allocating extra space for the new constraint
+        super().__init__(M_levels + 1, device, tau)
+        
+        self.M_real = M_levels
+        self.hinge_idx = M_levels  # Use the extra index for the hinge constraint
+        
+        self.device = device
+        self.rows = rows
+        self.cols = cols
+        self.num_springs = len(config['springs'])
+        
+        # 2. Build Node-to-Spring Mappings
+        # We use 'num_springs' as the index for a "ghost" spring (probability exactly 0)
+        self.map_T = torch.full((rows * cols,), self.num_springs, dtype=torch.long, device=device)
+        self.map_B = torch.full((rows * cols,), self.num_springs, dtype=torch.long, device=device)
+        self.map_L = torch.full((rows * cols,), self.num_springs, dtype=torch.long, device=device)
+        self.map_R = torch.full((rows * cols,), self.num_springs, dtype=torch.long, device=device)
+        
+        for s_idx, s in enumerate(config['springs']):
+            n1, n2 = int(s[0]), int(s[1])
+            # Horizontal spring connections
+            if n2 == n1 + 1:
+                self.map_R[n1] = s_idx
+                self.map_L[n2] = s_idx
+            # Vertical spring connections
+            elif n2 == n1 + cols:
+                self.map_B[n1] = s_idx
+                self.map_T[n2] = s_idx
+                
+        # 3. Create the valid node mask (Exclude corners)
+        self.valid_nodes_mask = torch.ones(rows * cols, dtype=torch.bool, device=device)
+        corners = [0, cols - 1, (rows - 1) * cols, rows * cols - 1]
+        self.valid_nodes_mask[corners] = False
+
+    def compute_loss(self, z_star):
+        loss_reg = 0.0
+        max_viol = 0.0
+        viols = {}
+        
+        # --- Part A: Original Material Orthogonality Constraint ---
+        for i in range(self.M_real):
+            for j in range(i + 1, self.M_real):
+                numerator = z_star[:, i] * z_star[:, j]
+                denominator = (z_star[:, i] + z_star[:, j]) / 2.0 + 1e-4
+                viol = torch.mean(numerator / denominator)
+                
+                k = self.kappa[i, j]
+                t = self.tau[i, j]
+                
+                loss_reg += k * viol + 0.5 * t * (viol ** 2)
+                viols[(i, j)] = viol
+                max_viol = max(max_viol, viol.item())
+
+        # --- Part B: Gravitational Hinge Constraint ---
+        # Probability of spring existing (1.0 - prob of picking Material 0)
+        p_spring = 1.0 - z_star[:, 0]
+        
+        # Append 0.0 for the ghost spring at index `num_springs`
+        p_padded = torch.cat([p_spring, torch.tensor([0.0], device=self.device)])
+        
+        # Gather probabilities for Top, Bottom, Left, Right
+        p_T = p_padded[self.map_T]
+        p_B = p_padded[self.map_B]
+        p_L = p_padded[self.map_L]
+        p_R = p_padded[self.map_R]
+        
+        # Calculate continuous boolean probabilities
+        H_i = p_L * p_R
+        V_i = p_T * p_B
+        
+        # Node penalty C_i = (1 - H_i) * (1 - V_i)
+        penalties = (1.0 - H_i) * (1.0 - V_i)
+        
+        # Mask out the corners and calculate the mean
+        active_penalties = penalties[self.valid_nodes_mask]
+        hinge_viol = torch.mean(active_penalties)
+        
+        # Apply AL using the reserved index
+        hk = self.kappa[self.hinge_idx, self.hinge_idx]
+        ht = self.tau[self.hinge_idx, self.hinge_idx]
+        
+        loss_reg += hk * hinge_viol + 0.5 * ht * (hinge_viol ** 2)
+        viols[(self.hinge_idx, self.hinge_idx)] = hinge_viol
+        max_viol = max(max_viol, hinge_viol.item())
+        
+        return loss_reg, max_viol, viols
+
 # ==========================================
 # New: IID Signal Generator (Cubic Spline)
 # ==========================================
@@ -113,58 +225,65 @@ def calculate_dambre_eps(effective_rank=1.5, test_duration=1000, p_value=1e-4):
 # ==========================================
 def plot_material_distribution(z_star_np, K_vals, epoch, save_dir):
     """
-    Plots a stacked continuous bar chart of the projected design vector z_star.
-    Springs are sorted by the probability of the first material entry.
+    Plots a stacked bar chart grouped by dominant material and sorted by confidence.
     """
     num_springs, M = z_star_np.shape
     
-    # 1. Sort springs descending based on the 0-th material entry (e.g., k=0)
-    sort_indices = np.argsort(z_star_np[:, 0])[::-1]
+    # 1. Identify the dominant material class and its probability for each spring
+    dominant_class = np.argmax(z_star_np, axis=1)
+    dominant_prob = np.max(z_star_np, axis=1)
+    
+    # 2. Hierarchical Sort: Primary = dominant_class, Secondary = dominant_prob
+    # np.lexsort sorts by the LAST key in the tuple first.
+    sort_indices = np.lexsort((dominant_prob, dominant_class))
     sorted_z = z_star_np[sort_indices]
     
-    fig, ax = plt.subplots(figsize=(10, 4), dpi=150)
+    fig, ax = plt.subplots(figsize=(12, 5), dpi=150)
     
-    # 2. Setup a continuous colormap normalized to the stiffness ranges
+    # Setup colormap based on stiffness levels
     cmap = cm.get_cmap('viridis')
     norm = mcolors.Normalize(vmin=min(K_vals), vmax=max(K_vals))
     
     x_positions = np.arange(num_springs)
     bottoms = np.zeros(num_springs)
     
-    # 3. Stack the bars
+    # 3. Stacked bar plotting
     for m in range(M):
-        # Assign color based on the actual stiffness value
         color = cmap(norm(K_vals[m]))
-        
         ax.bar(
             x_positions, 
             sorted_z[:, m], 
             bottom=bottoms, 
-            width=1.0,           # width=1.0 ensures absolutely no gaps
+            width=1.0, 
             color=color, 
             label=f'k = {K_vals[m]:.1f}',
-            edgecolor='none'     # Removes inner borders for a clean histogram look
+            edgecolor='none'
         )
-        # Advance the bottom tracker for the next stack
         bottoms += sorted_z[:, m]
         
-    # 4. Formatting
+    # 4. Adding Visual Dividers for Categories (Optional but helpful)
+    # Find where the dominant class changes to draw a vertical line
+    sorted_classes = dominant_class[sort_indices]
+    change_points = np.where(sorted_classes[:-1] != sorted_classes[1:])[0]
+    for cp in change_points:
+        ax.axvline(x=cp + 0.5, color='white', linestyle='--', linewidth=0.8, alpha=0.5)
+
+    # 5. Formatting
     ax.set_xlim(-0.5, num_springs - 0.5)
     ax.set_ylim(0, 1.0)
-    ax.set_xlabel("Spring ID (Sorted by Material 0)")
-    ax.set_ylabel("Projected Probability ($z^*$)")
-    ax.set_title(f"Material Distribution (Binarization Progress) - Epoch {epoch}")
+    ax.set_xlabel("Spring ID (Grouped by Material, Sorted by Confidence)")
+    ax.set_ylabel("Selection Probability ($z^*$)")
+    ax.set_title(f"Material Distribution (Epoch {epoch})")
     
-    # Place legend safely outside the plot
-    ax.legend(title="Stiffness", bbox_to_anchor=(1.02, 1), loc='upper left')
+    # Clean legend: only unique entries
+    handles, labels = ax.get_legend_handles_labels()
+    by_label = dict(zip(labels, handles))
+    ax.legend(by_label.values(), by_label.keys(), title="Stiffness", bbox_to_anchor=(1.02, 1), loc='upper left')
     
     plt.tight_layout()
-    
-    # 5. Save and Close
     if save_dir:
         os.makedirs(save_dir, exist_ok=True)
         plt.savefig(os.path.join(save_dir, f"material_dist_epoch_{epoch:03d}.png"), bbox_inches='tight')
-        
     plt.close(fig)
 def plot_epoch_topology(objects, springs, rho, masks, epoch, save_dir):
     """Plots the spring network geometry, using rho to determine line thickness."""
@@ -304,6 +423,7 @@ class DifferentiableReservoir:
             self.hinge_i[h], self.hinge_j[h], self.hinge_k[h] = int(hinges[h, 0]), int(hinges[h, 1]), int(hinges[h, 2])
             self.hinge_d_tor[h] = hinges[h, 3]
         
+
 
 
     # @ti.kernel
@@ -486,6 +606,7 @@ def add_reg_loss(res: ti.template(), reg: ti.template()):
 # Main Optimization Pipeline
 # ==========================================
 if __name__ == "__main__":
+    input(f'Running {TRIAL_NAME}. Proceed?')
     # 1. Setup Data & Folders
     topo_epoch_dir = EXPERIMENT_DIR / "topology_visualization"
     topo_curve_dir = EXPERIMENT_DIR / "material_distribution"
@@ -505,13 +626,22 @@ if __name__ == "__main__":
     u_30Hz = u_sim[::DOWNSAMPLE]
 
     # 3. Setup Physics & Params
-    M_LEVELS = 3
-    K_VALS = [0.0, 50.0, 100.0]
-    C_VALS = [0.0, 0.4, 0.8]
+    # M_LEVELS = 3
+    # K_VALS = [0.0, 100.0, 222.15]
+    # C_VALS = [0.0, 0.4, 0.8]
+    M_LEVELS = 4
+    K_VALS = np.linspace(0.0, 222.15, M_LEVELS)
+    C_VALS = np.linspace(0.0, 0.8, M_LEVELS)
 
     config, _ = generate_openprc_grid_config(ROWS, COLS) 
     
     z_param = nn.Parameter(torch.zeros((len(config['springs']), M_LEVELS), dtype=torch.float64, device=device))
+    # z_param = nn.Parameter(
+    # torch.randn(
+    #     (len(config['springs']), M_LEVELS), 
+    #     dtype=torch.float64, 
+    #     device=device
+    # ) * 0.01)
     pos_param = nn.Parameter(torch.tensor(config['objects'], dtype=torch.float64, device=device))
     optimizer = torch.optim.Adam([z_param], lr=0.01)
 
@@ -539,15 +669,26 @@ if __name__ == "__main__":
     active_mask_2d = torch.ones(res_opt.num_mass * 2, dtype=torch.bool, device=pos_param.device)
     active_mask_2d[0:2] = False
     
-    al_solver = PyTorchAL(M_LEVELS, device)
+    al_solver = CombinedTopologyAL(config, ROWS, COLS, M_LEVELS, device)
+    
 
+    input_node_idx = 0
+    input_spring_indices = []
+    for idx, s in enumerate(config['springs']):
+        if s[0] == input_node_idx or s[1] == input_node_idx:
+            input_spring_indices.append(idx)
+    input_spring_indices = torch.tensor(input_spring_indices, device=device)
+    
     # 5. Optimization Loop
     EPOCHS = 100
     loss_history, ipc_history, max_mse_history = [], [], []
     for epoch in range(EPOCHS):
         optimizer.zero_grad()
+
         beta = 20.0
-        z_star_tensor = F.softmax(beta * z_param, dim=-1)
+        modified_z = z_param.clone()
+        modified_z[input_spring_indices, 0] -= 10.0
+        z_star_tensor = F.softmax(beta * modified_z, dim=-1)
 
         # Physics Forward (100Hz output)
         X_30Hz = ReservoirOptimizationFunction.apply(z_star_tensor, pos_param, res_opt, u_sim, v_sim, DOWNSAMPLE)
@@ -586,7 +727,11 @@ if __name__ == "__main__":
         # We minimize the sum of MSE to maximize overall R2. 
         # Note: Do NOT use the `torch.where` threshold tensor for the loss itself, 
         # because a hard cutoff at 0.0 will destroy gradients for tasks currently below the threshold.
-        loss = torch.sum(mse_per_task) / X_test.shape[0]  # Average MSE across all tasks
+        loss = torch.mean(mse_per_task) # Average MSE across all tasks
+
+        # weights = F.softmax(mse_per_task / 0.1, dim=0)
+        # loss = torch.sum(weights * mse_per_task)
+
         loss_reg, max_viol, viols = al_solver.compute_loss(z_star_tensor)
 
         total_loss = loss + loss_reg
@@ -600,7 +745,7 @@ if __name__ == "__main__":
             k_eff = np.sum(z_star_np * np.array(K_VALS), axis=1)
             c_eff = np.sum(z_star_np * np.array(C_VALS), axis=1)
             
-        print(f"Epoch {epoch+1:03d} | Summed MSE: {loss.item():.5f} | IPC Capacity: {total_capacity:.2f} | Max MSE: {mse_per_task.max().item():.5f}")
+        print(f"Epoch {epoch+1:03d} | Average MSE: {loss.item():.5f} | IPC Capacity: {total_capacity:.2f} | Max MSE: {mse_per_task.max().item():.5f}")
         
         loss_history.append(loss.item())
         ipc_history.append(total_capacity)
@@ -633,7 +778,7 @@ if __name__ == "__main__":
                 
     # 6. Save Results
     plt.figure()
-    plt.plot(loss_history)
+    plt.plot(loss_history[1:])
     plt.title("Optimization Loss Curve")
     plt.xlabel("Epoch")
     plt.ylabel("Summed MSE Loss")

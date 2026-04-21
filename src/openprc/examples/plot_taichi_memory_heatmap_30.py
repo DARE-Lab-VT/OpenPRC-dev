@@ -168,13 +168,21 @@ def run_heatmap_pipeline_for_topology(rows, cols, k_mat, c_mat, run_suffix):
     # [CRITICAL FIX 4]: Return the shape parameters so main() knows how to plot them!
     return heatmap, experiment_path, n_list, tau_d_list, k_delay_val
 
+# [NEW] Define discrete material levels for binarization
+K_LEVELS = np.array([0, 100.0])
+C_LEVELS = np.array([0.0, 0.4])
 
+def binarize_to_nearest(mat, levels):
+    """Snaps each matrix entry to the nearest discrete material level."""
+    # Find index of the level with minimum absolute distance
+    idx = np.abs(mat[..., None] - levels).argmin(axis=-1)
+    return levels[idx]
 def main():
     """
     Unified Pipeline to visualize Before vs. After based on TRIAL_NAME.
     """
     # --- Configuration (Must match 1_grid_opt.py) ---
-    TRIAL_NAME = "Taichi_IID_Memory_Opt_30Hz_multi_fast"
+    TRIAL_NAME = "Taichi_two_constraint_100"
     ROWS, COLS = 4, 4
     
     EXPERIMENT_DIR = src_dir / "experiments" / TRIAL_NAME
@@ -208,7 +216,7 @@ def main():
     c_mat_orig = np.where(c_mat_orig > 0, TARGET_DAMPING, 0.0)
     
     heatmap_before, _, n_list, tau_list, k_val = run_heatmap_pipeline_for_topology(
-        ROWS, COLS, k_mat_orig, c_mat_orig * 0.4, "uniform_grid"
+        ROWS, COLS, k_mat_orig, c_mat_orig, "uniform_grid"
     )
     
     if heatmap_before is not None:
@@ -227,19 +235,22 @@ def main():
     
     # Check if we have direct matrix results (from Taichi)
     if "k_mat_opt" in results_data:
-        k_mat_opt = np.array(results_data["k_mat_opt"])
-        c_mat_opt = np.array(results_data["c_mat_opt"])
+        k_mat_soft = np.array(results_data["k_mat_opt"])
+        c_mat_soft = np.array(results_data["c_mat_opt"])
+
+        k_mat_bin = binarize_to_nearest(k_mat_soft, K_LEVELS)
+        c_mat_bin = binarize_to_nearest(c_mat_soft, C_LEVELS)
         
         heatmap_after, after_exp_path, n_list, tau_list, k_val = run_heatmap_pipeline_for_topology(
-            ROWS, COLS, k_mat_opt, c_mat_opt, "optimized_topology"
+            ROWS, COLS, k_mat_bin, c_mat_bin, "optimized_topology"
         )
         
         if heatmap_after is not None:
             plot_heatmap(
                 heatmap_after, n_list, tau_list, k_delay=k_val, amp=1, n_mass=ROWS*COLS,
-                title_prefix="Memory Heatmap (After Taichi Optimization)",
+                title_prefix="Memory Heatmap (Binarized Optimized Design)",
                 save_dir=EXPERIMENT_DIR, 
-                save_name="heatmap_after_optimization", 
+                save_name="binarized_after_optimization", 
                 show=False, save_png=True, save_svg=True
             )
             
