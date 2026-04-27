@@ -1,0 +1,37 @@
+# Core dependencies for the bundle tooling.
+# Install with: pip install -r requirements.txt
+
+# Array and IO
+numpy>=1.24
+h5py>=3.8
+
+# JSON Schema validation
+jsonschema>=4.17
+
+# Stage 2 (Go1 ingestion)
+rosbags>=0.9                   # reads ROS1 .bag files without a ROS install
+mjcf_urdf_simple_converter     # MJCF → URDF kinematics conversion
+
+# Stage 3 (animation in PiViz)
+yourdfpy>=0.0.50               # URDF parser + forward kinematics
+piviz-3d                       # 3D visualization (Yogesh's library)
+
+# Stage 4 (G1 + Panda ingestion)
+lerobot                        # Hugging Face LeRobot dataset loader (G1 and Panda/DROID)
+tqdm>=4.65                     # progress bars for long episode reads
+
+# Phase 2 (reservoir preprocessing + DEMLAT integration)
+trimesh>=4.0                   # mesh repair, decimation, volume sampling
+fast-simplification             # backend for trimesh's quadric decimation
+scipy>=1.10                    # KDTree for fast bridging, savgol for SG derivatives
+# openprc                      # DEMLAT (Yogesh's library, install separately)
+
+# Phase 3 (PRC readout training + plotting)
+matplotlib>=3.7                # plot_readout_results.py
+
+# For later stages, uncomment as needed:
+# datasets>=2.14         # HuggingFace datasets (G1)
+# tensorflow>=2.13       # RLDS / DROID
+# mujoco>=3.0            # MJCF sanity rollouts (validation)
+# pyarrow>=14            # parquet (LeRobot datasets)
+
