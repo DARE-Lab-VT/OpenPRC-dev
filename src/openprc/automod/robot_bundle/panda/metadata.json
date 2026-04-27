@@ -1,0 +1,26 @@
+{
+  "schema_version": "0.1.0",
+  "robot_name": "panda",
+  "display_name": "Franka Emika Panda",
+  "urdf_path": "urdf/panda.urdf",
+  "mesh_dir": "urdf/meshes",
+  "floating_base": false,
+  "n_dof_actuated": 7,
+  "n_dof_total": 7,
+  "joint_names": [
+    "joint1",
+    "joint2",
+    "joint3",
+    "joint4",
+    "joint5",
+    "joint6",
+    "joint7"
+  ],
+  "urdf_source": {
+    "origin": "mujoco_menagerie",
+    "origin_url": "https://github.com/google-deepmind/mujoco_menagerie/tree/main/franka_emika_panda",
+    "conversion_tool": "mjcf_urdf_simple_converter",
+    "license": "Apache-2.0"
+  },
+  "notes": "Fixed-base 7-DoF arm. No gripper in URDF (Menagerie MJCF models the Panda hand with tendons which don't round-trip to URDF). DROID state column 7 (gripper scalar) is discarded at ingest."
+}
