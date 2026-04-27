@@ -47,8 +47,8 @@ def run_pipeline(
     setup = SimulationSetup(OUTPUT_DIR, overwrite=True)
 
     # --- 2. Configure Simulation and Physics ---
-    setup.set_simulation_params(duration=30.0, dt=0.001, save_interval=0.01)
-    setup.set_physics(gravity=-9.8, damping=0.1, enable_collision=True)
+    setup.set_simulation_params(duration=30.0, dt=0.001, save_interval=0.033)
+    setup.set_physics(gravity=-9.8, damping=0.3, enable_collision=True)
 
     # --- 3. Generate Geometry and Actuation ---
     node_indices = np.zeros((ROWS, COLS), dtype=int)
@@ -77,15 +77,16 @@ def run_pipeline(
                     setup.add_bar(i, j, stiffness=stiffness, damping=damping, rest_length=REST_LENGTH)
     else:
         # removal = {(5, 6), (6, 7), (8, 9)}
-        removal = {(1, 5), (2, 6), (5, 9), (6, 10), (9, 13), (10, 14)}
+        # removal = {(1, 5), (2, 6), (5, 9), (6, 10), (9, 13), (10, 14)}
+        removal = {(4, 5), (5, 6), (6, 7), (8, 9), (9, 10), (10,11)}
 
         # Horizontal
         for r in range(ROWS):
             for c in range(COLS - 1):
                 idx1 = node_indices[r, c]
                 idx2 = node_indices[r, c + 1]
-                # if (idx1, idx2) in removal or (idx2, idx1) in removal:
-                #     continue
+                if (idx1, idx2) in removal or (idx2, idx1) in removal:
+                    continue
                 setup.add_bar(idx1, idx2, stiffness=STIFFNESS, damping=DAMPING, rest_length=REST_LENGTH)
 
         # Vertical
@@ -93,36 +94,36 @@ def run_pipeline(
             for c in range(COLS):
                 idx1 = node_indices[r, c]
                 idx2 = node_indices[r + 1, c]
-                # if (idx1, idx2) in removal or (idx2, idx1) in removal:
-                #     continue
+                if (idx1, idx2) in removal or (idx2, idx1) in removal:
+                    continue
                 setup.add_bar(idx1, idx2, stiffness=STIFFNESS, damping=DAMPING, rest_length=REST_LENGTH)
                     
             print(f"Added {len(setup.bars['indices'])} bars.")
 
     # --- 4. Add Hinges for Bending Resistance ---
-    HINGE_STIFFNESS = 0.01  # N-m/rad. Kept low as a precaution.
-    HINGE_DAMPING = 0.1
-    # Add diagonal hinges to each quad to provide a baseline bending resistance
-    print("Generating hinges for all quads in the grid.")
-    for r in range(ROWS - 1):
-        for c in range(COLS - 1):
-            # Quad nodes
-            n_tl = node_indices[r, c]
-            n_tr = node_indices[r, c + 1]
-            n_bl = node_indices[r + 1, c]
-            n_br = node_indices[r + 1, c + 1]
+    # HINGE_STIFFNESS = 0.01  # N-m/rad. Kept low as a precaution.
+    # HINGE_DAMPING = 0.1
+    # # Add diagonal hinges to each quad to provide a baseline bending resistance
+    # print("Generating hinges for all quads in the grid.")
+    # for r in range(ROWS - 1):
+    #     for c in range(COLS - 1):
+    #         # Quad nodes
+    #         n_tl = node_indices[r, c]
+    #         n_tr = node_indices[r, c + 1]
+    #         n_bl = node_indices[r + 1, c]
+    #         n_br = node_indices[r + 1, c + 1]
 
-            # Hinge across the diagonal n_tl -> n_br
-            # Hinge 1: [j, k, i, l]
-            setup.add_hinge([n_tl, n_br, n_tr, n_bl], stiffness=HINGE_STIFFNESS, damping=HINGE_DAMPING, rest_angle=np.pi)
+    #         # Hinge across the diagonal n_tl -> n_br
+    #         # Hinge 1: [j, k, i, l]
+    #         setup.add_hinge([n_tl, n_br, n_tr, n_bl], stiffness=HINGE_STIFFNESS, damping=HINGE_DAMPING, rest_angle=np.pi)
 
-            # Hinge across the other diagonal n_tr -> n_bl
-            # The order of the last two nodes is swapped here compared to previous attempts.
-            # This might be required to ensure a consistent winding order for the solver.
-            # Hinge 2: [j, k, i, l]
-            setup.add_hinge([n_tr, n_bl, n_br, n_tl], stiffness=HINGE_STIFFNESS, damping=HINGE_DAMPING, rest_angle=np.pi)
+    #         # Hinge across the other diagonal n_tr -> n_bl
+    #         # The order of the last two nodes is swapped here compared to previous attempts.
+    #         # This might be required to ensure a consistent winding order for the solver.
+    #         # Hinge 2: [j, k, i, l]
+    #         setup.add_hinge([n_tr, n_bl, n_br, n_tl], stiffness=HINGE_STIFFNESS, damping=HINGE_DAMPING, rest_angle=np.pi)
     
-    print(f"Added {len(setup.hinges['indices'])} hinges.")
+    # print(f"Added {len(setup.hinges['indices'])} hinges.")
 
 
     # --- 5. Define Fixed Nodes ---
@@ -371,7 +372,7 @@ if __name__ == "__main__":
 
     # print(f"Global Effective Stiffness (X-direction): {K_eff:.2f} N/m")
 
-    result = run_pipeline(rows=4, cols=4, ga_generation=0)
+    result = run_pipeline(rows=4, cols=4, ga_generation=5)
     data, output_dir = result
     
     if output_dir:

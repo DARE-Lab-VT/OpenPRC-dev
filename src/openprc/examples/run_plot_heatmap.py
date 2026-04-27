@@ -182,8 +182,8 @@ def main():
     """
     
     # 1. Define the Experiment Path
-    TOPOLOGY = "generation_0"
-    AMPLITUDE = "amp=0.02"
+    TOPOLOGY = "generation_5"
+    AMPLITUDE = "amp=0.005"
     
     data_root = src_dir.parent / "openprc" / "experiments" / "spring_mass_4x4_test"
     experiment_dir = data_root / TOPOLOGY / "output"
