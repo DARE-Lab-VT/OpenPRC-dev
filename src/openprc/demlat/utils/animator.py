@@ -40,8 +40,11 @@ from typing import Optional, Dict, Tuple, List
 import json
 import sys
 
+import imgui
+
 from piviz import PiVizStudio, PiVizFX, pgfx, Palette
 from piviz.ui import Slider, Label, Button, Checkbox
+from piviz.ui.widgets import WidgetBase
 from piviz import Colors, Colormap
 
 
@@ -405,6 +408,60 @@ def _jet_colormap_batch_rgba(t, alpha=1.0):
 
 
 # =============================================================================
+# ICON-AWARE PLAYBACK CONTROLS WIDGET
+# =============================================================================
+
+class _PlaybackControls(WidgetBase):
+    """
+    Five playback buttons (|◀  ‹  ▶/⏸  ›  ▶|) rendered on a single row.
+    Pushes the FA icon font from PiVizStudio when available so the buttons
+    use the same icon set as the rest of the piviz UI.
+    """
+
+    # Font Awesome 6 Free Solid codepoints used for playback
+    _ICON_SKIP_BACK  = ""   # fa-backward-step   |◀
+    _ICON_STEP_BACK  = ""   # fa-chevron-left     ‹
+    _ICON_PLAY       = ""   # fa-play             ▶
+    _ICON_PAUSE      = ""   # fa-pause            ⏸
+    _ICON_STEP_FWD   = ""   # fa-chevron-right    ›
+    _ICON_SKIP_FWD   = ""   # fa-forward-step    ▶|
+
+    def __init__(self, studio_ref, goto_start, step_back, toggle_pause, step_fwd, goto_end):
+        super().__init__()
+        self._studio     = studio_ref
+        self._goto_start = goto_start
+        self._step_back  = step_back
+        self._toggle     = toggle_pause
+        self._step_fwd   = step_fwd
+        self._goto_end   = goto_end
+        self.paused      = False
+
+    def _icon_button(self, icon: str, fallback: str, uid: str, callback) -> None:
+        font = getattr(self._studio, '_icon_font', None)
+        label = (icon if font else fallback) + uid
+        if font:
+            imgui.push_font(font)
+        if imgui.button(label):
+            callback()
+        if font:
+            imgui.pop_font()
+
+    def render(self):
+        pause_icon     = self._ICON_PLAY  if self.paused else self._ICON_PAUSE
+        pause_fallback = ">"              if self.paused else "||"
+
+        self._icon_button(self._ICON_SKIP_BACK, "<<", "##pb0", self._goto_start)
+        imgui.same_line()
+        self._icon_button(self._ICON_STEP_BACK, "<",  "##pb1", self._step_back)
+        imgui.same_line()
+        self._icon_button(pause_icon, pause_fallback,  "##pb2", self._toggle)
+        imgui.same_line()
+        self._icon_button(self._ICON_STEP_FWD, ">",   "##pb3", self._step_fwd)
+        imgui.same_line()
+        self._icon_button(self._ICON_SKIP_FWD, ">>",  "##pb4", self._goto_end)
+
+
+# =============================================================================
 # MAIN VISUALIZATION CLASS
 # =============================================================================
 
@@ -584,6 +641,8 @@ class DEMLATVisualizer(PiVizFX):
     def _goto_end(self):
         self.timestep_idx = self.data.n_frames - 1
         self.float_timestep = float(self.timestep_idx)
+        self.paused = True
+        self._update_pause_button()
         self._sync_timeline_slider()
 
     def _step_forward(self):
@@ -607,10 +666,8 @@ class DEMLATVisualizer(PiVizFX):
         self._update_pause_button()
 
     def _update_pause_button(self):
-        if hasattr(self, 'ui_manager') and self.ui_manager:
-            btn = self.ui_manager.get_widget("btn_pause")
-            if btn:
-                btn.text = ">" if self.paused else "||"
+        if hasattr(self, '_playback_controls'):
+            self._playback_controls.paused = self.paused
 
     def _sync_timeline_slider(self):
         if hasattr(self, 'ui_manager') and self.ui_manager:
@@ -655,11 +712,15 @@ class DEMLATVisualizer(PiVizFX):
         if self.data.mode == 'simulation':
             self.ui_manager.add_widget("sld_timeline",
                                        Slider("Frame", 0, self.data.n_frames - 1, 0, self._on_timeline_change))
-            self.ui_manager.add_widget("btn_start", Button("<<", self._goto_start))
-            self.ui_manager.add_widget("btn_prev", Button("<-", self._step_backward))
-            self.ui_manager.add_widget("btn_pause", Button("||", self._toggle_pause))
-            self.ui_manager.add_widget("btn_next", Button("->", self._step_forward))
-            self.ui_manager.add_widget("btn_end", Button(">>", self._goto_end))
+            self._playback_controls = _PlaybackControls(
+                self.studio,
+                self._goto_start,
+                self._step_backward,
+                self._toggle_pause,
+                self._step_forward,
+                self._goto_end,
+            )
+            self.ui_manager.add_widget("pb_controls", self._playback_controls)
             self.ui_manager.add_widget("sld_speed",
                                        Slider("Speed", 10, 500, int(self.speed * 100),
                                               lambda v: setattr(self, 'speed', v / 100.0)))
