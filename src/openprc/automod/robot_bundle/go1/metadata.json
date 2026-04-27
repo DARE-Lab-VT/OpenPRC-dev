@@ -1,0 +1,40 @@
+{
+  "schema_version": "0.1.0",
+  "robot_name": "go1",
+  "display_name": "Unitree Go1",
+  "urdf_path": "urdf/go1.urdf",
+  "mesh_dir": "urdf/meshes",
+  "floating_base": true,
+  "n_dof_actuated": 12,
+  "n_dof_total": 18,
+  "joint_names": [
+    "FR_hip_joint",
+    "FR_thigh_joint",
+    "FR_calf_joint",
+    "FL_hip_joint",
+    "FL_thigh_joint",
+    "FL_calf_joint",
+    "RR_hip_joint",
+    "RR_thigh_joint",
+    "RR_calf_joint",
+    "RL_hip_joint",
+    "RL_thigh_joint",
+    "RL_calf_joint"
+  ],
+  "contact_names": [
+    "FR_foot",
+    "FL_foot",
+    "RR_foot",
+    "RL_foot"
+  ],
+  "urdf_source": {
+    "origin": "mujoco_menagerie",
+    "origin_url": "https://github.com/google-deepmind/mujoco_menagerie/tree/main/unitree_go1",
+    "conversion_tool": "mjcf_urdf_simple_converter",
+    "conversion_notes": "Kinematics and meshes preserved. Dynamics parameters (damping, armature, solver settings) are MuJoCo-specific and not represented in URDF.",
+    "license": "Apache-2.0"
+  },
+  "mass_kg": 12.0,
+  "nominal_height_m": 0.3,
+  "notes": "Floating base with 6-DoF free joint at root. /qpos covers the 12 leg joints only; /base_pose carries the floating base state. Trajectory qpos columns follow joint_names order above; this is the URDF order, which differs from the raw Unitree SDK motorState[] indexing (FR,FL,RL,RR \u2192 FR,FL,RR,RL)."
+}
