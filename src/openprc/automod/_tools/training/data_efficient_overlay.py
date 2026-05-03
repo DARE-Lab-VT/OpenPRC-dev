@@ -72,9 +72,9 @@ FEATURE_COLORS: Dict[str, str] = {
 }
 
 TARGET_LINESTYLES: Dict[str, Dict] = {
-    "base_lin_vel": {"ls": "-",        "lw": 2.0},   # solid,  heaviest
-    "base_ang_vel": {"ls": "--",       "lw": 1.5},   # dashed, medium
-    "qvel":         {"ls": (0,(1,2)),   "lw": 1.5},   # dotted, loose spacing
+    "base_lin_vel": {"ls": "-",        "lw": 3.0},   # solid,  heaviest
+    "base_ang_vel": {"ls": "--",       "lw": 3.0},   # dashed, medium
+    "qvel":         {"ls": (0,(1,2)),   "lw": 3.0},   # dotted, loose spacing
 }
 
 # Kept for heatmap fallback only
@@ -167,8 +167,9 @@ def _setup_matplotlib():
         "figure.dpi":            150,
         "savefig.dpi":           300,
         "font.family":           "serif",
-        "font.serif":            ["DejaVu Serif", "Times New Roman", "serif"],
-        "mathtext.fontset":      "dejavuserif",
+        "font.serif":            ["Times New Roman", "Times", "DejaVu Serif", "serif"],
+        "mathtext.fontset":      "stix",
+        "svg.fonttype":          "none",
         "font.size":             9,
         "axes.titlesize":        10,
         "axes.labelsize":        9,
@@ -258,7 +259,7 @@ def _plot_curve_overlays(
         raise RuntimeError("No finite R2 values found in curve CSV.")
     k_max = max(all_ks)
 
-    width = max(5.0, 0.28 * k_max + 2.0)
+    width = max(4.0, 0.24 * k_max + 2.0)
 
     # Per-feature visual spec — color + linestyle + marker, all three channels
     feature_specs = []
@@ -283,7 +284,7 @@ def _plot_curve_overlays(
             linestyle=s["ls"],
             linewidth=s["lw"],
             marker=s["marker"],
-            markersize=6,
+            markersize=8,
             markeredgecolor=MARKER_EC,
             markeredgewidth=0.6,
             label=s["feature"],
@@ -310,19 +311,19 @@ def _plot_curve_overlays(
                 linestyle=spec["ls"],
                 linewidth=spec["lw"],
                 marker=spec["marker"],
-                markersize=6,
+                markersize=8,
                 markeredgecolor=MARKER_EC,
                 markeredgewidth=0.6,
                 zorder=3,
             )
 
         ax.axhline(0.0, color=ZERO, linewidth=0.8, linestyle="--", zorder=1)
-        ax.set_xlabel("Number of included trajectories ($k$)", fontsize=16)
-        ax.set_ylabel("Test $R^2$", fontsize=16)
+        ax.set_xlabel("Number of included trajectories ($k$)", fontsize=18)
+        ax.set_ylabel("Test $R^2$", fontsize=18)
         ax.set_ylim(-0.05, 1.05)
         ax.set_title(f"Sequential Learning Curves — {target}")
         ax.set_xticks(list(range(1, k_max + 1)))
-        ax.tick_params(axis="both", labelsize=14)
+        ax.tick_params(axis="both", labelsize=16)
         ax.legend(
             handles=legend_handles,
             title="Feature",
@@ -330,11 +331,11 @@ def _plot_curve_overlays(
             handlelength=2.2,
             handletextpad=0.5,
             labelspacing=0.4,
-            fontsize=16,
-            title_fontsize=16
+            fontsize=18,
+            title_fontsize=18
         )
 
-        _savefig(fig, out_dir / f"curve_overlay_{_safe_token(target)}.svg", also_pdf)
+        _savefig(fig, out_dir / f"curve_overlay_{_safe_token(target)}.pdf", also_pdf)
         plt.close(fig)
 
 
@@ -503,7 +504,7 @@ def _plot_ranking_heatmap(
     cbar.set_label("Test $R^2$", fontsize=14)
     cbar.ax.tick_params(labelsize=11)
 
-    _savefig(fig, out_dir / "ranking_heatmap.svg", also_pdf)
+    _savefig(fig, out_dir / "ranking_heatmap.pdf", also_pdf)
     plt.close(fig)
 
 

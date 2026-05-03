@@ -232,8 +232,9 @@ def _setup_matplotlib():
 
         # --- Typography ---
         "font.family":           "serif",
-        "font.serif":            ["DejaVu Serif", "Times New Roman", "serif"],
-        "mathtext.fontset":      "dejavuserif",
+        "font.serif":            ["Times New Roman", "Times", "DejaVu Serif", "serif"],
+        "mathtext.fontset":      "stix",
+        "svg.fonttype":          "none",
         "font.size":             9,
         "axes.titlesize":        10,
         "axes.labelsize":        9,
@@ -502,7 +503,7 @@ def main() -> None:
         out_dir = csv_path.parent.parent / "all_clips_heatmap"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    out_path = out_dir / "all_clips_r2_heatmap.svg"
+    out_path = out_dir / "all_clips_r2_heatmap.pdf"
     print(f"output:     {out_path}")
 
     plt = _setup_matplotlib()

@@ -76,6 +76,15 @@ def _plot_overlay_curves(
 ) -> None:
     plt = _setup_matplotlib()
 
+    plt.rcParams.update({
+        "font.family": "serif",
+        "font.serif": ["Times New Roman", "Times", "DejaVu Serif", "serif"],
+        "mathtext.fontset": "stix",
+        "pdf.fonttype": 42,
+        "ps.fonttype": 42,
+        "svg.fonttype": "none",
+    })
+
     for feature in features:
         for target in targets:
             all_fractions = sorted({
@@ -148,7 +157,7 @@ def _plot_overlay_curves(
             ax.tick_params(axis="both", labelsize=12)
             ax.legend(loc="lower right", fontsize=12, title_fontsize=14)
 
-            fname = f"split_fraction_overlay_{_safe_token(target)}_{_safe_token(feature)}.svg"
+            fname = f"split_fraction_overlay_{_safe_token(target)}_{_safe_token(feature)}.pdf"
             _savefig(fig, plot_dir / fname, also_pdf)
             plt.close(fig)
 
