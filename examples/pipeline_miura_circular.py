@@ -125,11 +125,11 @@ def step_1_setup_experiment():
     setup = SimulationSetup(DEMO_DIR, overwrite=True)
 
     # 1. Configure Simulation
-    setup.set_simulation_params(duration=10.0, dt=0.0005, save_interval=0.01)
+    setup.set_simulation_params(duration=60.0, dt=0.0005, save_interval=0.01)
     setup.set_physics(gravity=-9.8, damping=0.2)
 
     # 2. Build Geometry
-    xn, yn = 8, 8
+    xn, yn = 30, 30
     faces = create_miura_ori_geometry(setup, xn=xn, yn=yn, k_fold=5.0, k_facet=10.0)
 
     # 3. Define Actuation (Circular Motion)
@@ -145,7 +145,7 @@ def step_1_setup_experiment():
 
     # Signal Parameters
     dt_sig = 0.001
-    t = np.arange(0, 10.0, dt_sig)
+    t = np.arange(0, 60.0, dt_sig)
     radius = 1.5
     omega = 2 * np.pi * 0.5  # 0.5 Hz
     ramp = np.clip(t, 0, 1.0)  # Smooth start over 1s
@@ -184,6 +184,6 @@ def step_2_run_simulation():
 
 
 if __name__ == "__main__":
-    step_1_setup_experiment()
-    step_2_run_simulation()
+    # step_1_setup_experiment()
+    # step_2_run_simulation()
     ShowSimulation(DEMO_DIR)

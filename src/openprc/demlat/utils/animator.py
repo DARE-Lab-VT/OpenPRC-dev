@@ -75,6 +75,9 @@ class ExperimentData:
         self.config = {}
         self.metadata = {}
 
+        # Partial DOF actuators: {node_idx: [dx, dy, dz]} — populated from config
+        self.partial_pos_nodes = {}
+
         # Computed properties
         self.n_nodes = 0
         self.n_bars = 0
@@ -281,6 +284,20 @@ class ExperimentData:
             print(f"  [Loaded] Configuration")
         except Exception as e:
             print(f"  [Warning] Could not load config: {e}")
+            return
+
+        # Extract partial-DOF position actuators (bit 1 is NOT set for these nodes).
+        for act in self.config.get('actuators', []):
+            if act.get('type') != 'position':
+                continue
+            dof = act.get('dof', [1, 1, 1])
+            if all(d == 1 for d in dof):
+                continue
+            node_idx = act.get('node_idx')
+            if node_idx is not None:
+                self.partial_pos_nodes[node_idx] = dof
+        if self.partial_pos_nodes:
+            print(f"  [Loaded] {len(self.partial_pos_nodes)} partial-DOF position actuator(s)")
 
     def _validate_data(self):
         """Validate loaded data for consistency."""
@@ -541,11 +558,31 @@ class DEMLATVisualizer(PiVizFX):
         self.fixed_nodes_idx = np.where((attrs & 1) != 0)[0]
         self.position_actuators_idx = np.where((attrs & 2) != 0)[0]
         self.force_actuators_idx = np.where((attrs & 4) != 0)[0]
-        self.floating_nodes_idx = np.where(attrs == 0)[0]
+
+        # Partial-DOF position actuators: dynamic nodes with selective axis actuation.
+        # Their attribute bit is NOT set, so we identify them from the loaded config.
+        partial_map = self.data.partial_pos_nodes
+        if partial_map:
+            sorted_idx = sorted(partial_map.keys())
+            self.partial_pos_actuators_idx = np.array(sorted_idx, dtype=int)
+            self.partial_pos_dof_masks = np.array(
+                [partial_map[i] for i in sorted_idx], dtype=bool
+            )  # (n_partial, 3)
+        else:
+            self.partial_pos_actuators_idx = np.array([], dtype=int)
+            self.partial_pos_dof_masks = np.zeros((0, 3), dtype=bool)
+
+        # Floating: attrs == 0, excluding partial-DOF actuator nodes
+        partial_set = set(self.partial_pos_actuators_idx.tolist())
+        all_floating = np.where(attrs == 0)[0]
+        self.floating_nodes_idx = np.array(
+            [i for i in all_floating if i not in partial_set], dtype=int
+        )
 
         print(f"\n[Node Categories]")
         print(f"  Fixed: {len(self.fixed_nodes_idx)}")
-        print(f"  Position Actuators: {len(self.position_actuators_idx)}")
+        print(f"  Position Actuators (full DOF): {len(self.position_actuators_idx)}")
+        print(f"  Position Actuators (partial DOF): {len(self.partial_pos_actuators_idx)}")
         print(f"  Force Actuators: {len(self.force_actuators_idx)}")
         print(f"  Floating: {len(self.floating_nodes_idx)}")
 
@@ -951,6 +988,37 @@ class DEMLATVisualizer(PiVizFX):
                 size=(s_force, s_force, s_force),
                 color=Palette.Standard10[1]
             )
+
+        # Partial-DOF position actuators — amber sphere + axis constraint indicators.
+        # Each locked axis is shown as a colored line through the node:
+        #   X → red,  Y → green,  Z → blue
+        n_partial = len(self.partial_pos_actuators_idx)
+        if n_partial > 0:
+            partial_pos = self.all_positions[self.partial_pos_actuators_idx]  # (n, 3)
+            radii = np.full(n_partial, self.scales.node_radius * 1.6, dtype='f4')
+            amber = np.full((n_partial, 3), (1.0, 0.65, 0.0), dtype='f4')
+            pgfx.draw_spheres_batch(
+                centers=partial_pos,
+                radii=radii,
+                colors=amber,
+                detail=self.config['sphere_detail']
+            )
+
+            # Axis constraint lines — one batch per axis
+            line_half = self.scales.node_radius * 4.0
+            _axis_dirs = np.eye(3, dtype='f4')
+            _axis_cols = np.array([(1.0, 0.2, 0.2), (0.2, 1.0, 0.2), (0.3, 0.5, 1.0)], dtype='f4')
+            for ax in range(3):
+                driven = self.partial_pos_dof_masks[:, ax]
+                if not np.any(driven):
+                    continue
+                dp = partial_pos[driven]
+                d = _axis_dirs[ax]
+                starts = dp - d * line_half
+                ends = dp + d * line_half
+                n_lines = len(dp)
+                cols = np.tile(_axis_cols[ax], (n_lines, 1))
+                pgfx.draw_lines_batch(starts, ends, cols, width=3.0)
 
     def _render_velocity_arrows(self, vels):
         """Render velocity arrows — vectorized for floating nodes."""

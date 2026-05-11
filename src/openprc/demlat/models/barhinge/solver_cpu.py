@@ -452,7 +452,7 @@ class CpuSolver:
         return self.x.astype(np.float32), self.v.astype(np.float32)
 
     def step(self, t, dt, actuation_map):
-        # 1. Position Actuation
+        # 1a. Full position actuation — node is ATTR_POS_DRIVEN, excluded from dynamics
         if self.n_pos_actuators > 0 and actuation_map:
             for idx in self.pos_actuator_indices:
                 if idx in actuation_map and actuation_map[idx]['type'] == 'position':
@@ -460,6 +460,27 @@ class CpuSolver:
                     if dt > 1e-9:
                         self.v[idx] = (new_pos - self.x[idx]) / dt
                     self.x[idx] = new_pos
+
+        # 1b. Partial DOF position actuation — node stays dynamic; inject velocity on
+        #     driven axes pre-RK4 and correct position post-integration.
+        partial_pos = {}  # {idx: (target, dof_bool_array, injected_velocity)}
+        if actuation_map:
+            for node_id, data in actuation_map.items():
+                if data.get('type') != 'position':
+                    continue
+                dof = data.get('dof', [1, 1, 1])
+                if all(d == 1 for d in dof):
+                    continue  # full DOF — handled above
+                idx = int(node_id)
+                if self.attrs[idx] & ATTR_POS_DRIVEN:
+                    continue  # safety guard
+                target = np.asarray(data['value'], dtype=np.float64)
+                dof_mask = np.array(dof, dtype=bool)
+                inj_v = np.zeros(3, dtype=np.float64)
+                if dt > 1e-9:
+                    inj_v[dof_mask] = (target[dof_mask] - self.x[idx, dof_mask]) / dt
+                    self.v[idx, dof_mask] = inj_v[dof_mask]
+                partial_pos[idx] = (target, dof_mask, inj_v)
 
         # 2. Prepare Force Actuation
         if self.n_force_actuators > 0 and actuation_map:
@@ -529,3 +550,8 @@ class CpuSolver:
             if self.n_rigid_bars > 0:
                 correct_rigid_velocity_cpu(self.n_rigid_bars, self.rbar_indices,
                                            self.mass, self.attrs, self.x, self.v)
+
+        # Post-step: enforce partial DOF position constraints
+        for idx, (target, dof_mask, inj_v) in partial_pos.items():
+            self.x[idx, dof_mask] = target[dof_mask]
+            self.v[idx, dof_mask] = inj_v[dof_mask]

@@ -176,6 +176,9 @@ class CudaSolver:
         self.d_xt = cuda.mem_alloc(sz)
         self.d_vt = cuda.mem_alloc(sz)
 
+        # CPU copy of attributes for partial-DOF actuation checks
+        self.attrs_h = attributes.astype(np.uint8)
+
         # 5. Actuation (Position)
         self.pos_actuator_indices = np.where(attributes.astype(np.uint8) & 2)[0].astype(np.int32)
         self.n_pos_actuators = len(self.pos_actuator_indices)
@@ -266,7 +269,7 @@ class CudaSolver:
             dt (float): Time step size.
             actuation_map (dict): Dictionary of actuation commands.
         """
-        # 1. Update Position Actuation
+        # 1a. Full position actuation — node is ATTR_POS_DRIVEN, handled by GPU kernel
         if self.n_pos_actuators > 0 and actuation_map:
             for i, node_idx in enumerate(self.pos_actuator_indices):
                 if node_idx in actuation_map and actuation_map[node_idx]['type'] == 'position':
@@ -283,6 +286,40 @@ class CudaSolver:
                 block=self.block,
                 grid=((self.n_pos_actuators + 255) // 256, 1)
             )
+
+        # 1b. Partial DOF position actuation — node stays dynamic; inject velocity on
+        #     driven axes pre-RK4 and correct position post-integration via CPU round-trip.
+        partial_pos = {}  # {idx: (target_np, dof_list, inj_v_np)}
+        if actuation_map:
+            has_partial = any(
+                data.get('type') == 'position' and not all(d == 1 for d in data.get('dof', [1,1,1]))
+                and not (self.attrs_h[int(node_id)] & 2)
+                for node_id, data in actuation_map.items()
+            )
+            if has_partial:
+                x_h = np.zeros(self.n_nodes * 3, dtype=np.float64)
+                v_h = np.zeros(self.n_nodes * 3, dtype=np.float64)
+                cuda.memcpy_dtoh(x_h, self.d_x)
+                cuda.memcpy_dtoh(v_h, self.d_v)
+                x_h = x_h.reshape(self.n_nodes, 3)
+                v_h = v_h.reshape(self.n_nodes, 3)
+                for node_id, data in actuation_map.items():
+                    if data.get('type') != 'position':
+                        continue
+                    dof = data.get('dof', [1, 1, 1])
+                    if all(d == 1 for d in dof):
+                        continue
+                    idx = int(node_id)
+                    if self.attrs_h[idx] & 2:
+                        continue  # safety guard
+                    target = np.asarray(data['value'], dtype=np.float64)
+                    inj_v = np.zeros(3, dtype=np.float64)
+                    for ax in range(3):
+                        if dof[ax] and dt > 1e-9:
+                            inj_v[ax] = (target[ax] - x_h[idx, ax]) / dt
+                            v_h[idx, ax] = inj_v[ax]
+                    partial_pos[idx] = (target, dof, inj_v)
+                cuda.memcpy_htod(self.d_v, v_h.flatten())
 
         # 2. Prepare Force Actuation (will be applied during force computation)
         if self.n_force_actuators > 0 and actuation_map:
@@ -423,3 +460,19 @@ class CudaSolver:
                     block=self.block,
                     grid=self.grid_collisions
                 )
+
+        # Post-step: enforce partial DOF position constraints
+        if partial_pos:
+            x_h = np.zeros(self.n_nodes * 3, dtype=np.float64)
+            v_h = np.zeros(self.n_nodes * 3, dtype=np.float64)
+            cuda.memcpy_dtoh(x_h, self.d_x)
+            cuda.memcpy_dtoh(v_h, self.d_v)
+            x_h = x_h.reshape(self.n_nodes, 3)
+            v_h = v_h.reshape(self.n_nodes, 3)
+            for idx, (target, dof, inj_v) in partial_pos.items():
+                for ax in range(3):
+                    if dof[ax]:
+                        x_h[idx, ax] = target[ax]
+                        v_h[idx, ax] = inj_v[ax]
+            cuda.memcpy_htod(self.d_x, x_h.flatten())
+            cuda.memcpy_htod(self.d_v, v_h.flatten())

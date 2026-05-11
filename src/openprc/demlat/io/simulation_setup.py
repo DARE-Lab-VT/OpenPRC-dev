@@ -239,11 +239,14 @@ class SimulationSetup:
         })
 
         # Automatically mark node as driven based on type
-        # 2 = Position Actuator (Driver)
+        # 2 = Full position actuator (excluded from dynamics — all DOFs driven)
         # 4 = Force Actuator (Thruster)
+        # Partial DOF position nodes (some axes free) are NOT marked ATTR_POS_DRIVEN;
+        # they remain dynamic and receive per-axis corrections post-integration.
         if 0 <= node_idx < len(self.nodes['attributes']):
             if type == 'position':
-                self.nodes['attributes'][node_idx] |= 2
+                if all(d == 1 for d in dof):
+                    self.nodes['attributes'][node_idx] |= 2
             elif type == 'force':
                 self.nodes['attributes'][node_idx] |= 4
 
