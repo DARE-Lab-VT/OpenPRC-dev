@@ -85,13 +85,14 @@ class SimulationSetup:
 
     def set_physics(self, gravity: Union[float, List[float]] = -9.81, damping: float = 0.1,
                     enable_collision: bool = False, collision_radius: float = 0.01,
-                    collision_restitution: float = 0.5):
+                    collision_restitution: float = 0.5, collision_iterations: int = 3):
         """Set global physics constants."""
         self.config['global_physics']['gravity'] = gravity
         self.config['global_physics']['global_damping'] = float(damping)
         self.config['global_physics']['enable_collision'] = enable_collision
         self.config['global_physics']['collision_radius'] = float(collision_radius)
         self.config['global_physics']['collision_restitution'] = float(collision_restitution)
+        self.config['global_physics']['collision_iterations'] = int(collision_iterations)
         self.config['material']['damping_coefficient'] = float(damping)
         return self
 

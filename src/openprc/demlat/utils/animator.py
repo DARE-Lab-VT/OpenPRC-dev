@@ -349,7 +349,10 @@ class VisualizationScales:
         positions = self.data.nodes['positions']
         self.extent = np.max(positions, axis=0) - np.min(positions, axis=0)
         self.center = np.mean(positions, axis=0)
-        self.L_char = np.median(self.extent) if np.any(self.extent > 0) else 1.0
+        # Use median of nonzero extents so collinear/planar node layouts
+        # (where some axes have zero spread) still yield a sensible scale.
+        valid = self.extent[self.extent > 1e-6]
+        self.L_char = float(np.median(valid)) if len(valid) > 0 else 1.0
 
         if self.data.n_bars > 0:
             rest_lengths = self.data.elements['bars']['rest_length']
@@ -376,13 +379,15 @@ class VisualizationScales:
 
         if 'bar_strain' in self.data.time_series:
             strains = self.data.time_series['bar_strain']
-            self.strain_limit = np.percentile(np.abs(strains), 95)
-            print(f"Strain Limit (95th percentile): ±{self.strain_limit:.4f}")
+            if strains.size > 0:
+                self.strain_limit = np.percentile(np.abs(strains), 95)
+                print(f"Strain Limit (95th percentile): ±{self.strain_limit:.4f}")
 
         if 'bar_stress' in self.data.time_series:
             stresses = self.data.time_series['bar_stress']
-            self.stress_limit = np.percentile(np.abs(stresses), 95)
-            print(f"Stress Limit (95th percentile): ±{self.stress_limit:.2e}")
+            if stresses.size > 0:
+                self.stress_limit = np.percentile(np.abs(stresses), 95)
+                print(f"Stress Limit (95th percentile): ±{self.stress_limit:.2e}")
 
     def _compute_velocity_scale(self):
         """Auto-tune velocity arrow scaling."""
@@ -572,9 +577,12 @@ class DEMLATVisualizer(PiVizFX):
             self.partial_pos_actuators_idx = np.array([], dtype=int)
             self.partial_pos_dof_masks = np.zeros((0, 3), dtype=bool)
 
-        # Floating: attrs == 0, excluding partial-DOF actuator nodes
+        # Floating: no kinematic bits set (fixed / pos-driven / force-driven).
+        # The collidable bit (0x08) is a physics-only flag and does not affect
+        # visual category — a collidable-but-free node still renders as a sphere.
+        _KINEMATIC_MASK = 0x07  # bits 0-2: FIXED | POS_DRIVEN | FORCE_DRIVEN
         partial_set = set(self.partial_pos_actuators_idx.tolist())
-        all_floating = np.where(attrs == 0)[0]
+        all_floating = np.where((attrs & _KINEMATIC_MASK) == 0)[0]
         self.floating_nodes_idx = np.array(
             [i for i in all_floating if i not in partial_set], dtype=int
         )

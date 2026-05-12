@@ -199,8 +199,9 @@ class CudaSolver:
 
         # 7. Collision Detection (ADDON - only if enabled)
         self.collision_enabled = self.options.get('enable_collision', False)
-        self.collision_radius = self.options.get('collision_radius', 0.01)
-        self.collision_restitution = self.options.get('collision_restitution', 0.5)
+        self.collision_radius = float(self.options.get('collision_radius', 0.01))
+        self.collision_restitution = float(self.options.get('collision_restitution', 0.5))
+        self.collision_iterations = int(self.options.get('collision_iterations', 3))
 
         if self.collision_enabled:
             # Find collidable nodes (bit 3 set)
@@ -446,8 +447,7 @@ class CudaSolver:
             )
 
             # Resolve detected collisions (position + velocity)
-            # Run multiple iterations like PBD
-            for _ in range(3):
+            for _ in range(self.collision_iterations):
                 self.k_resolve_collisions(
                     self.d_collision_count,
                     self.d_collision_pairs,
