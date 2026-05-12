@@ -19,6 +19,125 @@ from openprc.demlat.io.simulation_setup import SimulationSetup
 from openprc.demlat.utils.animator import ShowSimulation
 from scipy.interpolate import CubicSpline
 
+def add_pretensioned_bar(setup, idx_a, idx_b, stiffness, damping, pretension=0.10):
+    """
+    Calculates the exact geometric distance between two nodes and creates a 
+    bar with a resting length reduced by the specified pretension percentage.
+    """
+    pos_a = np.array(setup.nodes['positions'][idx_a])
+    pos_b = np.array(setup.nodes['positions'][idx_b])
+    
+    dist = np.linalg.norm(pos_b - pos_a)
+    rest_length = dist * (1.0 - pretension)
+    
+    setup.add_bar(idx_a, idx_b, stiffness=stiffness, damping=damping, rest_length=rest_length)
+
+def add_strip_spring(setup, n_start, n_end, segments=2, k_total=222.15, c_total=0.8, mass_total=0.02, hinge_k=0.1, hinge_c=0.1):
+    """
+    Replaces a single bar with a 2D flat truss strip to emulate a plate spring.
+    """
+    pos_A = np.array(setup.nodes['positions'][n_start])
+    pos_B = np.array(setup.nodes['positions'][n_end])
+    
+    vec = pos_B - pos_A
+    L = np.linalg.norm(vec)
+    if L < 1e-6:
+        return None, None
+        
+    u = vec / L
+    # Perpendicular vector in the XY plane
+    v = np.array([-u[1], u[0], 0.0])
+    
+    # 1/8th of the connection distance
+    W = L / 7.0  
+    
+    # segments=5 means 4 intermediate transverse bars
+    num_bars = segments - 1 
+    
+    # --- Scaling Physics ---
+    # Two chords in parallel, each with 'segments' bars in series
+    k_chord = k_total * segments / 2.0
+    c_chord = c_total * segments / 2.0
+    
+    # Transverse bars keep the strip flat and wide (Very stiff)
+    k_trans = k_total * segments * 4.0 #/ 2.0
+    c_trans = c_total * segments * 4.0 #/ 2.0
+    
+    # Zig-zag diagonals for shear stiffness
+    k_diag = k_total * segments * 4.0 #* 0.5
+    c_diag = c_total * segments * 4.0#* 0.5
+    
+    h_k_seg = hinge_k * segments
+    h_c_seg = hinge_c * segments
+    
+    L_nodes = []
+    R_nodes = []
+    
+    # Distribute the mass evenly across the 8 new intermediate nodes
+    node_mass = mass_total / (num_bars * 2)
+    
+    # --- 1. Create Nodes and Transverse Bars ---
+    for i in range(1, segments):
+        frac = i / segments
+        pos_mid = pos_A * (1 - frac) + pos_B * frac
+        
+        pos_L = pos_mid + v * (W / 2.0)
+        pos_R = pos_mid - v * (W / 2.0)
+        
+        idx_L = setup.add_node(pos_L.tolist(), mass=node_mass, fixed=False)
+        idx_R = setup.add_node(pos_R.tolist(), mass=node_mass, fixed=False)
+        
+        L_nodes.append(idx_L)
+        R_nodes.append(idx_R)
+        
+        # Add the rung
+        add_pretensioned_bar(setup, idx_L, idx_R, stiffness=k_trans, damping=c_trans)
+        
+    # --- 2. Longitudinal and Zig-Zag Connections ---
+    # Taper from Start Node to the first rung
+    add_pretensioned_bar(setup, n_start, L_nodes[0], stiffness=k_chord, damping=c_chord)
+    add_pretensioned_bar(setup, n_start, R_nodes[0], stiffness=k_chord, damping=c_chord)
+    
+    # Intermediate rectangular meshes
+    for i in range(num_bars - 1):
+        L1, R1 = L_nodes[i], R_nodes[i]
+        L2, R2 = L_nodes[i+1], R_nodes[i+1]
+        
+        add_pretensioned_bar(setup, L1, L2, stiffness=k_chord, damping=c_chord)
+        add_pretensioned_bar(setup, R1, R2, stiffness=k_chord, damping=c_chord)
+        
+        # cross-brace pattern
+        add_pretensioned_bar(setup, L1, R2, stiffness=k_diag, damping=c_diag)
+        add_pretensioned_bar(setup, R1, L2, stiffness=k_diag, damping=c_diag)
+            
+        # # Zig-zag pattern
+        # if i % 2 == 0:
+        #     add_pretensioned_bar(setup, L1, R2, stiffness=k_diag, damping=c_diag)
+        # else:
+        #     add_pretensioned_bar(setup, R1, L2, stiffness=k_diag, damping=c_diag)
+            
+    # Taper from the last rung to the End Node
+    add_pretensioned_bar(setup, L_nodes[-1], n_end, stiffness=k_chord, damping=c_chord)
+    add_pretensioned_bar(setup, R_nodes[-1], n_end, stiffness=k_chord, damping=c_chord)
+    
+    # --- 3. Out-of-Plane Hinges (Gravity Sag) ---
+    # The transverse bars act as perfect physical axes for the 4-node hinges!
+    for i in range(num_bars):
+        axis_L, axis_R = L_nodes[i], R_nodes[i]
+        
+        # Define the flaps (the nodes coming before and after the transverse bar)
+        flap1_L = n_start if i == 0 else L_nodes[i-1]
+        flap2_L = n_end if i == num_bars - 1 else L_nodes[i+1]
+        
+        flap1_R = n_start if i == 0 else R_nodes[i-1]
+        flap2_R = n_end if i == num_bars - 1 else R_nodes[i+1]
+            
+        # Add symmetric hinges across the transverse axis
+        setup.add_hinge([axis_L, axis_R, flap1_L, flap2_L], stiffness=h_k_seg, damping=h_c_seg, rest_angle=None)
+        setup.add_hinge([axis_L, axis_R, flap1_R, flap2_R], stiffness=h_k_seg, damping=h_c_seg, rest_angle=None)
+        
+    # Return the first and last rungs to act as anchors for the rigid joint constraint
+    return (L_nodes[0], R_nodes[0]), (L_nodes[-1], R_nodes[-1])
 
 def run_pipeline(
     rows: int = 3, 
@@ -50,13 +169,11 @@ def run_pipeline(
 
     # --- 2. Configure Simulation and Physics ---
     save_int = 1.0 / target_hz
-    setup.set_simulation_params(duration=30.0, dt=0.001, save_interval=save_int)
-    setup.set_physics(gravity=-9.8, damping=0.1, enable_collision=True)
+    setup.set_simulation_params(duration=30.0, dt=0.00005, save_interval=save_int)
+    setup.set_physics(gravity=-9.81, damping=0.1, enable_collision=True)
 
-    # --- 3. Generate Geometry and Actuation ---
     node_indices = np.zeros((ROWS, COLS), dtype=int)
 
-    # Add nodes
     for r in range(ROWS):
         for c in range(COLS):
             pos = [c * SPACING, -r * SPACING, 0.0]
@@ -65,38 +182,54 @@ def run_pipeline(
     
     print(f"Added {len(setup.nodes['positions'])} nodes.")
 
-    # Add bars (springs) based on the provided topology
+    from collections import defaultdict
+    node_connections = defaultdict(list)
+
     if k_mat is not None:
-        print("Using provided stiffness matrix (k_mat) to create springs.")
+        print("Using provided stiffness matrix to create plate springs.")
         num_nodes = ROWS * COLS
-        if not isinstance(k_mat, np.ndarray) or k_mat.shape != (num_nodes, num_nodes):
-            raise ValueError("Stiffness matrix mismatch.")
         
         for i in range(num_nodes):
             for j in range(i + 1, num_nodes):
                 stiffness = k_mat[i, j]
                 if stiffness > 0:
                     damping = c_mat[i, j] if c_mat is not None else DAMPING
-                    setup.add_bar(i, j, stiffness=stiffness, damping=damping)
-    else:
-        print("Generating default fully connected grid topology.")
-        # Horizontal
-        for r in range(ROWS):
-            for c in range(COLS - 1):
-                idx1 = node_indices[r, c]
-                idx2 = node_indices[r, c + 1]
-                setup.add_bar(idx1, idx2, stiffness=STIFFNESS, damping=DAMPING)
-        # Vertical
-        for r in range(ROWS - 1):
-            for c in range(COLS):
-                idx1 = node_indices[r, c]
-                idx2 = node_indices[r + 1, c]
-                setup.add_bar(idx1, idx2, stiffness=STIFFNESS, damping=DAMPING)
-            
-    print(f"Added {len(setup.bars['indices'])} bars.")
+                    
+                    start_gate, end_gate = add_strip_spring(
+                        setup, i, j, 
+                        segments=5,             
+                        k_total=STIFFNESS, 
+                        c_total=DAMPING*2,
+                        hinge_k=0.05            
+                    )
+                    
+                    if start_gate is not None:
+                        # Log the "gates" to build rigid joints
+                        node_connections[i].append((j, start_gate)) 
+                        node_connections[j].append((i, end_gate)) 
+
+    # --- 3.1 Structural Rigid Joint Bracing ---
+    # Instead of ghost nodes, we bind the structural gates together.
+    print("Generating rigid joint constraints via structural bar bracing.")
+    RIGID_BRACE_STIFFNESS = STIFFNESS * 10
+    RIGID_BRACE_DAMPING = DAMPING
+
+    for main_node, connections in node_connections.items():
+        if len(connections) >= 2:
+            for c1 in range(len(connections)):
+                target_j1, (L1, R1) = connections[c1]
+                for c2 in range(c1 + 1, len(connections)):
+                    target_j2, (L2, R2) = connections[c2]
+                    
+                    # Connect the two spring "gates" to each other with a full X-brace web.
+                    # This completely locks the in-plane angle without any hinge mathematics.
+                    add_pretensioned_bar(setup, L1, L2, stiffness=RIGID_BRACE_STIFFNESS, damping=RIGID_BRACE_DAMPING)
+                    add_pretensioned_bar(setup, R1, R2, stiffness=RIGID_BRACE_STIFFNESS, damping=RIGID_BRACE_DAMPING)
+                    add_pretensioned_bar(setup, L1, R2, stiffness=RIGID_BRACE_STIFFNESS, damping=RIGID_BRACE_DAMPING)
+                    add_pretensioned_bar(setup, R1, L2, stiffness=RIGID_BRACE_STIFFNESS, damping=RIGID_BRACE_DAMPING)
 
     # --- 4. Add Hinges for Bending Resistance ---
-    HINGE_STIFFNESS = 0.02  # N-m/rad. Kept low as a precaution.
+    HINGE_STIFFNESS = 0.1  # N-m/rad. Kept low as a precaution.
     HINGE_DAMPING = 0.5
     # Add diagonal hinges to each quad to provide a baseline bending resistance
     print("Generating hinges for all quads in the grid.")
@@ -141,8 +274,8 @@ def run_pipeline(
             setup.add_actuator(idx, f"sig_fixed_corner_{i}", type='position')
 
     # --- 6. Define Actuated Nodes ---
-    act_indices = [node_indices[0, 0]] 
-    print(f"Adding actuation to nodes: {act_indices}")
+    act_indices = [node_indices[0, 0]] # Assuming you actuate the top-left corner
+    print(f"Adding 30Hz Filtered IID actuation to nodes: {act_indices}")
 
     sim_params = setup.config['simulation']
     dt_sig = sim_params['dt_base']
@@ -174,21 +307,38 @@ def run_pipeline(
         u_fine = interp_func(t_sim)
         
     else:
-        print("No input file provided. Generating random 30Hz IID spline input.")
+        print("Synthesizing motor-limited dual-band input signal.")
         np.random.seed(42) 
-        sample_hz = target_hz  
-        sample_interval = 1.0 / sample_hz
-        t_coarse = np.arange(0, duration + sample_interval, sample_interval)
         
-        u_coarse = np.random.uniform(low=-1.0, high=1.0, size=len(t_coarse))
-        cs = CubicSpline(t_coarse, u_coarse)
-        u_fine = cs(t_sim) * amplitude
+        # 1. The Inertial Base Wave (Slow & Large)
+        # Represents the overall momentum of the motor. It changes directions slowly.
+        slow_hz = 5  # Adjust this to match the visible slow "sway" frequency of your physical motor
+        slow_interval = 1.0 / slow_hz
+        t_slow = np.arange(0, duration + slow_interval, slow_interval)
+        u_slow = np.random.uniform(-1.0, 1.0, size=len(t_slow))
+        cs_slow = CubicSpline(t_slow, u_slow)
+
+        # 2. The Command Jitter (Fast & Small)
+        # Represents the motor trying to hit the 30Hz IID commands but failing to travel far.
+        fast_hz = target_hz
+        fast_interval = 1.0 / fast_hz
+        t_fast = np.arange(0, duration + fast_interval, fast_interval)
+        u_fast = np.random.uniform(-1.0, 1.0, size=len(t_fast))
+        cs_fast = CubicSpline(t_fast, u_fast)
+
+        # 3. Superposition (Blending the Physics)
+        # The motor's travel is dominated by the slow wave (~85%), with tiny 30Hz ripples (~15%)
+        base_weight = 0.85
+        jitter_weight = 0.15
+        
+        # Combine the normalized splines and scale to the final physical amplitude (e.g., 0.025m)
+        u_fine = (cs_slow(t_sim) * base_weight + cs_fast(t_sim) * jitter_weight) * amplitude
 
     for i, idx in enumerate(act_indices):
         p0 = setup.nodes['positions'][idx]
         sig = np.tile(p0, (len(t_sim), 1))
         
-        # Apply the 30Hz IID spline exclusively to the X-axis displacement
+        # Apply the displacement exclusively to the X-axis
         sig[:, 0] += u_fine 
         
         setup.add_signal(f"sig_iid_input_{i}", sig, dt=dt_sig)

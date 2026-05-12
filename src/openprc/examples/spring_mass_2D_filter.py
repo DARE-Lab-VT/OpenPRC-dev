@@ -141,14 +141,14 @@ def run_pipeline(
             setup.add_actuator(idx, f"sig_fixed_corner_{i}", type='position')
 
     # --- 6. Define Actuated Nodes ---
-    act_indices = [node_indices[0, 0]] 
-    print(f"Adding actuation to nodes: {act_indices}")
+    # Only actuate the Top-Left corner (Node 0)
+    act_indices = [node_indices[0, 0]] # Assuming you actuate the top-left corner
+    print(f"Adding 30Hz Filtered IID actuation to nodes: {act_indices}")
 
     sim_params = setup.config['simulation']
     dt_sig = sim_params['dt_base']
     duration = sim_params['duration']
     t_sim = np.arange(0, duration, dt_sig)
-
     if input_filepath is not None and Path(input_filepath).exists():
         print(f"Loading real-life input waveform from: {input_filepath}")
         from scipy.interpolate import interp1d
@@ -174,15 +174,32 @@ def run_pipeline(
         u_fine = interp_func(t_sim)
         
     else:
-        print("No input file provided. Generating random 30Hz IID spline input.")
+        print("No input file provided. Synthesizing motor-limited dual-band input signal.")
         np.random.seed(42) 
-        sample_hz = target_hz  
-        sample_interval = 1.0 / sample_hz
-        t_coarse = np.arange(0, duration + sample_interval, sample_interval)
         
-        u_coarse = np.random.uniform(low=-1.0, high=1.0, size=len(t_coarse))
-        cs = CubicSpline(t_coarse, u_coarse)
-        u_fine = cs(t_sim) * amplitude
+        # 1. The Inertial Base Wave (Slow & Large)
+        # Represents the overall momentum of the motor. It changes directions slowly.
+        slow_hz = 3.0  # Adjust this to match the visible slow "sway" frequency of your physical motor
+        slow_interval = 1.0 / slow_hz
+        t_slow = np.arange(0, duration + slow_interval, slow_interval)
+        u_slow = np.random.uniform(-1.0, 1.0, size=len(t_slow))
+        cs_slow = CubicSpline(t_slow, u_slow)
+
+        # 2. The Command Jitter (Fast & Small)
+        # Represents the motor trying to hit the 30Hz IID commands but failing to travel far.
+        fast_hz = target_hz
+        fast_interval = 1.0 / fast_hz
+        t_fast = np.arange(0, duration + fast_interval, fast_interval)
+        u_fast = np.random.uniform(-1.0, 1.0, size=len(t_fast))
+        cs_fast = CubicSpline(t_fast, u_fast)
+
+        # 3. Superposition (Blending the Physics)
+        # The motor's travel is dominated by the slow wave (~85%), with tiny 30Hz ripples (~15%)
+        base_weight = 0.85
+        jitter_weight = 0.15
+        
+        # Combine the normalized splines and scale to the final physical amplitude (e.g., 0.025m)
+        u_fine = (cs_slow(t_sim) * base_weight + cs_fast(t_sim) * jitter_weight) * amplitude
 
     for i, idx in enumerate(act_indices):
         p0 = setup.nodes['positions'][idx]

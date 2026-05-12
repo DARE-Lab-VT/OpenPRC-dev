@@ -36,7 +36,11 @@ from scipy.stats import chi2 # [NEW]
 
 # --- Optimization Imports ---
 from openprc.optimization.search_spaces.fourier_series_2D import FourierSeries2D
-from openprc.examples.spring_mass_2D_bending import run_pipeline
+from openprc.examples.spring_mass_2D_plate_v3 import run_pipeline   #plate_v3
+#from openprc.examples.spring_mass_2D_plate_v4 import run_pipeline   #plate_v4
+
+#from openprc.examples.spring_mass_2D_filter import run_pipeline     #naive
+
 
 def calculate_dambre_epsilon(effective_rank: int, test_duration: int, p_value: float = 1e-4) -> float:
     """[NEW] Matches the calculation in run_memory_benchmark_pipeline.py"""
@@ -58,8 +62,8 @@ def compute_test_frames(loader, test_duration_s: float = 10.0) -> int:
     """Extracts the exact number of test frames based on the simulation save_interval."""
     import h5py
     with h5py.File(loader.sim_path, 'r') as f:
-        fps = float(f.attrs.get('fps', 29.97))
-    return max(1, int(test_duration_s * fps))
+        fps = float(f.attrs.get('fps', f.attrs.get('frame_rate', 30.0)))
+    return max(1, int(round(test_duration_s * fps)))
 
 
 def plot_heatmap(
@@ -127,9 +131,12 @@ def run_heatmap_pipeline_for_topology(rows, cols, k_mat, c_mat, run_suffix):
     print(f"\n--- Running Full Pipeline for Topology: {run_suffix} ---")
     
     print(f"-> Running simulation...")
+
+    REAL_INPUT_DATA = "OpenPRC-dev/src/openprc/experiments/sim2real_plate/input_data/experiment.h5"
     _, experiment_path = run_pipeline(
         rows=rows, cols=cols, k_mat=k_mat, c_mat=c_mat, 
-        ga_generation=run_suffix, amplitude=0.02, target_hz=30.0
+        ga_generation=run_suffix, amplitude=0.02, target_hz=30.0,
+        input_filepath = REAL_INPUT_DATA
     )
     h5_path = experiment_path / "output" / "simulation.h5"
     if not h5_path.exists():
@@ -139,8 +146,13 @@ def run_heatmap_pipeline_for_topology(rows, cols, k_mat, c_mat, run_suffix):
 
     loader = StateLoader(h5_path)
     
-    # [CRITICAL FIX 1]: Use BOTH X and Y displacements!
-    features = NodeDisplacements(reference_node=0, dims=[0, 1]) 
+    main_node_indices = list(range(rows * cols)) 
+    
+    features = NodeDisplacements(
+        reference_node=0, 
+        dims=[0, 1], 
+        node_ids=main_node_indices 
+    )
     u_input = loader.get_actuation_signal(actuator_idx=0, dof=0)
     
     # [CRITICAL FIX 2]: Dynamically calculate exact Effective Rank (N) and Frames (T)
@@ -186,9 +198,9 @@ def main():
     Standalone Pipeline to evaluate specific topologies for Sim2Real calibration.
     """
     # --- Configuration ---
-    TRIAL_DIR = "sim2real_bending"
+    TRIAL_DIR = "sim2real_save30"
     ROWS, COLS = 4, 4
-    REMARK = "hinge_damping_0.5_amplitude_1.5"
+    REMARK = "plate_v3_real_input_save30"
     
     # --- Control Flags ---
     SWEEP_ALL = False  # Set to True to loop all, False to run only TOPOLOGY_NO
@@ -264,8 +276,8 @@ def main():
                 show=False, save_png=True, save_svg=True
             )
             
-            print(f"[INFO] Launching GUI visualizer for {topo_name}...")
-            ShowSimulation(str(exp_path))
+            # print(f"[INFO] Launching GUI visualizer for {topo_name}...")
+            # ShowSimulation(str(exp_path))
 
     print(f"\n[Done] All evaluations finished. Base Directory: {src_dir / 'experiments' / TRIAL_DIR}")
 

@@ -56,16 +56,16 @@ def add_strip_spring(setup, n_start, n_end, segments=5, k_total=222.15, c_total=
     
     # --- Scaling Physics ---
     # Two chords in parallel, each with 'segments' bars in series
-    k_chord = k_total * segments / 2.0
-    c_chord = c_total * segments / 2.0
+    k_chord = k_total * segments #/ 2.0
+    c_chord = c_total * segments #/ 2.0
     
     # Transverse bars keep the strip flat and wide (Very stiff)
-    k_trans = k_total * segments / 2.0
-    c_trans = c_total * segments / 2.0
+    k_trans = k_total * segments #/ 2.0
+    c_trans = c_total * segments #/ 2.0
     
     # Zig-zag diagonals for shear stiffness
-    k_diag = k_total * segments * 0.5
-    c_diag = c_total * segments * 0.5
+    k_diag = k_total * segments #* 0.5
+    c_diag = c_total * segments #* 0.5
     
     h_k_seg = hinge_k * segments
     h_c_seg = hinge_c * segments
@@ -142,7 +142,8 @@ def run_pipeline(
     c_mat: np.ndarray = None, 
     ga_generation: int = 0,
     amplitude: float = 0.015,     # <--- NEW: Default to 2.5 to match baseline
-    target_hz: float = 30.0     # <--- NEW: Enforce 30Hz output
+    target_hz: float = 30.0,     # <--- NEW: Enforce 30Hz output
+    input_filepath: str = None
 ):
     """
     Defines, saves, and runs the entire spring-mass experiment.
@@ -269,30 +270,54 @@ def run_pipeline(
             setup.add_actuator(idx, f"sig_fixed_corner_{i}", type='position')
 
     # --- 6. Define Actuated Nodes ---
-    # Only actuate the Top-Left corner (Node 0)
-    act_indices = [node_indices[0, 0]] # Assuming you actuate the top-left corner
-    print(f"Adding 30Hz IID actuation to nodes: {act_indices}")
+    act_indices = [node_indices[0, 0]] 
+    print(f"Adding actuation to nodes: {act_indices}")
 
     sim_params = setup.config['simulation']
     dt_sig = sim_params['dt_base']
-    t_sim = np.arange(0, sim_params['duration'], dt_sig)
+    duration = sim_params['duration']
+    t_sim = np.arange(0, duration, dt_sig)
 
-    np.random.seed(42) 
-    sample_hz = target_hz  # <--- Match the spline knots to your saving Hz
-    sample_interval = 1.0 / sample_hz
-    t_coarse = np.arange(0, sim_params['duration'] + sample_interval, sample_interval)
-    
-    u_coarse = np.random.uniform(low=-1.0, high=1.0, size=len(t_coarse))
-    cs = CubicSpline(t_coarse, u_coarse)
-
-    AMPLITUDE = amplitude
-    u_fine = cs(t_sim) * AMPLITUDE
+    if input_filepath is not None and Path(input_filepath).exists():
+        print(f"Loading real-life input waveform from: {input_filepath}")
+        from scipy.interpolate import interp1d
+        
+        # Read Real Data from .h5
+        with h5py.File(input_filepath, 'r') as f:
+            real_pos = f['time_series/nodes/positions'][:, 0, 0] 
+            real_data = real_pos - real_pos[0]
+            
+            # Scale the arbitrary hardware units down by 10,000
+            real_max = np.max(np.abs(real_data))
+            if real_max > 0:
+                real_data = real_data / 10000.0 * 1.5
+        
+        # Create a time array for the loaded data (assuming it was recorded at target_hz)
+        t_real = np.arange(len(real_data)) / target_hz
+        
+        # Create a smooth interpolator. 
+        # (fill_value="extrapolate" prevents crashes if t_sim is fractionally longer than the data)
+        interp_func = interp1d(t_real, real_data, kind='cubic', fill_value="extrapolate")
+        
+        # Passing t_sim here automatically samples ONLY the first `duration` seconds of the input!
+        u_fine = interp_func(t_sim)
+        
+    else:
+        print("No input file provided. Generating random 30Hz IID spline input.")
+        np.random.seed(42) 
+        sample_hz = target_hz  
+        sample_interval = 1.0 / sample_hz
+        t_coarse = np.arange(0, duration + sample_interval, sample_interval)
+        
+        u_coarse = np.random.uniform(low=-1.0, high=1.0, size=len(t_coarse))
+        cs = CubicSpline(t_coarse, u_coarse)
+        u_fine = cs(t_sim) * amplitude
 
     for i, idx in enumerate(act_indices):
         p0 = setup.nodes['positions'][idx]
         sig = np.tile(p0, (len(t_sim), 1))
         
-        # Apply the 30Hz IID spline exclusively to the X-axis displacement
+        # Apply the displacement exclusively to the X-axis
         sig[:, 0] += u_fine 
         
         setup.add_signal(f"sig_iid_input_{i}", sig, dt=dt_sig)

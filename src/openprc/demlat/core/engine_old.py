@@ -56,11 +56,7 @@ class Engine:
             if dt is None:
                 dt = simulation.config['physics'].get('dt', 0.001)
 
-            # Check both keys to support simulation_setup.py and legacy configs
-            dt_save = sim_cfg.get('dt_save')
-            if dt_save is None:
-                dt_save = sim_cfg.get('save_interval', 0.01)
-
+            dt_save = sim_cfg.get('save_interval', 0.01)
             duration = sim_cfg['duration']
 
             save_interval = max(1, int(dt_save / dt))
@@ -122,8 +118,6 @@ class Engine:
 
                 f.attrs['schema_version'] = self.SCHEMA_VERSION
                 f.attrs['frame_rate'] = 1.0 / dt_save
-                f.attrs['save_interval'] = dt_save
-                f.attrs['fps'] = 1.0 / dt_save
                 f.attrs['completed'] = 0
                 f.attrs['total_frames'] = 0
 
