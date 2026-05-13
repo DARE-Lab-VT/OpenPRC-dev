@@ -22,9 +22,10 @@ class SimulationError(Exception): pass
 class Engine:
     SCHEMA_VERSION = "2.1.0"
 
-    def __init__(self, model_class, backend='auto', buffer_size=50):
+    def __init__(self, model_class=None, backend='auto', buffer_size=50):
+        from openprc.demlat.models.barhinge import BarHingeModel
         self.logger = get_logger("demlat.engine")
-        self.model_class = model_class
+        self.model_class = model_class if model_class is not None else BarHingeModel
         self.backend = backend
         self.buffer_size = buffer_size
         self._interrupted = False

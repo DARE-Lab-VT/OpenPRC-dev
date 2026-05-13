@@ -1,6 +1,6 @@
 # OpenPRC: Physical Reservoir Computing Framework
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-Apache_2.0-green.svg)](LICENSE)
 [![CUDA](https://img.shields.io/badge/CUDA-accelerated-76B900.svg)](https://developer.nvidia.com/cuda-zone)
 [![arXiv](https://img.shields.io/badge/arXiv-2604.07423-b31b1b.svg)](https://arxiv.org/abs/2604.07423)
@@ -79,14 +79,16 @@ pip install openprc[full]
 
 ### Dependencies
 
-| Package | Purpose |
-|---------|---------|
-| `numpy` | Array operations |
-| `h5py` | HDF5 I/O |
-| `scipy` | Numerical methods |
-| `pycuda` *(optional)* | GPU acceleration |
-| `scikit-learn` *(optional)* | ML utilities |
-| `matplotlib` *(optional)* | Visualization |
+| Package | Purpose | Extra |
+|---------|---------|-------|
+| `numpy`, `h5py`, `scipy` | Core numerics and I/O | *(always)* |
+| `numba` | JIT-compiled CPU physics | *(always)* |
+| `scikit-learn` | Ridge readout | *(always)* |
+| `pycuda` | CUDA backend | `[cuda]` |
+| `jax` / `jaxlib` | Differentiable JAX backend | `[jax]` |
+| `piviz-3d`, `imgui` | 3-D animator | `[viz]` |
+| `opencv-python` | Vision utilities | `[vision]` |
+| `trimesh`, `rosbags`, `yourdfpy` | Robot bundle tooling | `[automod]` |
 
 ---
 
@@ -95,7 +97,7 @@ pip install openprc[full]
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
 │   demlat    │────▶│   reservoir │────▶│   analysis  │────▶│  optimize   │
-│  (Physics)  │     │  (Learning) │     │  (Metrics)  │     │  (Search)   │
+│  (Physics)  │     │  (Readout)  │     │(Diagnostics)│     │(Calibration)│
 └─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
 ```
 
@@ -104,55 +106,35 @@ pip install openprc[full]
 ## Quick Start
 
 ```python
-import openprc
-from openprc import demlat, reservoir, analysis
+import numpy as np
+from openprc.demlat import SimulationSetup, Simulation, Engine, ShowSimulation
 
-# 1. Create a lattice geometry
-geometry = demlat.meshing.rectangular_lattice(
-    nx=10, ny=10,
-    spacing=0.01,
-    stiffness=1e4,
-    damping=0.1,
-)
-geometry.save("./my_experiment/input/geometry.h5")
+EXP = "experiments/my_prc"
 
-# 2. Define input signal and run simulation
-experiment = (
-    demlat.SimulationSetup("./my_experiment")
-    .add_signal("input", demlat.signals.white_noise(duration=10.0, amplitude=0.1))
-    .wire_actuator(node_idx=0, signal="input", type="force", direction=[1, 0, 0])
-    .set_duration(10.0)
-    .build()
-)
+# ── 1. Build geometry ──────────────────────────────────────────────────────
+setup = SimulationSetup(EXP, overwrite=True)
+setup.set_simulation_params(duration=10.0, dt=0.001, save_interval=0.01)
+setup.set_physics(gravity=-9.81, damping=0.1)
 
-engine = demlat.Engine(backend="cuda")
-engine.run(experiment)
+anchor = setup.add_node([0.0, 0.0, 0.0], fixed=True)
+mass   = setup.add_node([1.0, 0.0, 0.0], mass=1.0)
+setup.add_bar(anchor, mass, stiffness=1e4, rest_length=1.0, damping=5.0)
 
-# 3. Train reservoir readout and evaluate on NARMA-10
-task = reservoir.tasks.NARMA(order=10)
-trainer = reservoir.Trainer(
-    features=reservoir.features.AllNodePositions(),
-    readout=reservoir.readout.Ridge(regularization=1e-6),
-)
-result = trainer.fit("./my_experiment/output/simulation.h5", task)
-print(f"NARMA-10 NRMSE: {result.metrics.nrmse:.4f}")
+# ── 2. Drive with a force signal ──────────────────────────────────────────
+t   = np.arange(0, 10.0, 0.001)
+sig = np.stack([0.5 * np.sin(2 * np.pi * t),
+                np.zeros_like(t),
+                np.zeros_like(t)], axis=1).astype("float32")
+setup.add_signal("drive", sig, dt=0.001)
+setup.add_actuator(anchor, "drive", type="force")
+setup.save()
 
-# 4. Compute memory capacity
-mc = analysis.correlation.MemoryCapacity(max_delay=50)
-mc_result = mc.compute("./my_experiment/output/simulation.h5")
-print(f"Total Memory Capacity: {mc_result.total_linear:.2f}")
+# ── 3. Run (CUDA, or "cpu" / "jax") ──────────────────────────────────────
+eng = Engine(backend="cuda")          # BarHingeModel is the default
+eng.run(Simulation(EXP))
 
-# 5. Visualize memory capacity decay and 3D dynamics
-analysis.visualization.memory_profiles.plot(
-    mc_result,
-    title="Memory Profile",
-    save_path="./my_experiment/output/mc_profile.png"
-)
-analysis.visualization.trajectories.plot_3d(
-    "./my_experiment/output/simulation.h5",
-    node_ids=[45, 50, 55],
-    color_by="energy"
-)
+# ── 4. Animate ────────────────────────────────────────────────────────────
+ShowSimulation(EXP)
 ```
 
 ---
@@ -162,103 +144,144 @@ analysis.visualization.trajectories.plot_3d(
 ### `demlat` — Physics Simulation
 
 ```python
-from openprc import demlat
+from openprc.demlat import SimulationSetup, Simulation, Engine, ShowSimulation
 
-# Build and run an experiment
-experiment = (
-    demlat.SimulationSetup("./experiments/lattice_01")
-    .load_geometry("lattice_10x10.h5")
-    .add_signal("chirp", demlat.signals.chirp(f0=0.1, f1=10, duration=5.0))
-    .wire_actuator(node_idx=0, signal="chirp", type="force", direction=[0, 0, 1])
-    .set_duration(10.0)
-    .set_integrator("rk4_hybrid", dt=1e-4)
-    .build()
+# ── Geometry ──────────────────────────────────────────────────────────────
+setup = SimulationSetup("./experiments/my_exp", overwrite=True)
+setup.set_simulation_params(duration=5.0, dt=0.001, save_interval=0.01)
+setup.set_physics(
+    gravity=-9.81, damping=0.1,
+    enable_collision=True,          # node-level sphere collision
+    collision_radius=0.02,
+    collision_restitution=0.6,
+    collision_iterations=3,
 )
 
-engine = demlat.Engine(backend="cuda")  # or backend="cpu"
-result = engine.run(experiment)         # writes simulation.h5
+n0 = setup.add_node([0.0, 0.0, 0.0], fixed=True,  collidable=True)
+n1 = setup.add_node([0.5, 0.0, 0.0], mass=1.0,    collidable=True)
+n2 = setup.add_node([0.5, 0.5, 0.0], mass=1.0)
+
+setup.add_bar(n0, n1, stiffness=1e4, rest_length=0.5, damping=5.0)
+setup.add_hinge([n0, n1, n2, n2], stiffness=50.0, rest_angle=np.pi / 2)
+
+# ── Signals & Actuators ───────────────────────────────────────────────────
+t   = np.arange(0, 5.0, 0.001)
+pos = np.stack([0.1 * np.sin(2 * np.pi * t),
+                np.zeros_like(t),
+                np.zeros_like(t)], axis=1).astype("float32")
+setup.add_signal("wave", pos, dt=0.001)
+
+setup.add_actuator(n0, "wave", type="position")              # full 3-DOF
+setup.add_actuator(n1, "wave", type="force", dof=[0, 0, 1]) # z-axis only
+setup.save()
+
+# ── Run ───────────────────────────────────────────────────────────────────
+eng = Engine(backend="cuda")   # or "cpu" / "jax"; BarHingeModel is default
+eng.run(Simulation("./experiments/my_exp"))
+
+ShowSimulation("./experiments/my_exp")
 ```
 
 ### `reservoir` — Readout Training
 
 ```python
-from openprc import reservoir
+from openprc.reservoir import StateLoader, Ridge, Trainer, features
 
-states = reservoir.StateLoader("./experiments/lattice_01/output/simulation.h5")
-features = reservoir.features.Composite([
-    reservoir.features.NodePositions(node_ids=[10, 15, 20]),
-    reservoir.features.BarStrains(bar_ids="all"),
-    reservoir.features.PolynomialExpansion(degree=2),
-])
+loader = StateLoader("./experiments/my_exp/output/simulation.h5")
 
-task = reservoir.tasks.NARMA(order=10, length=5000)
-readout = reservoir.readout.Ridge(regularization=1e-6)
+# Node position features for selected nodes
+feat = features.NodePositions(node_ids=[0, 1, 2], dims="all")
+X    = feat.transform(loader)          # (T, n_features)
 
-trainer = reservoir.Trainer(
-    features=features,
+# Or use bar extensions as the observable
+feat = features.BarExtensions()
+
+# Train ridge readout
+readout = Ridge(regularization=1e-4)
+trainer = Trainer(
+    features=feat,
     readout=readout,
-    washout=500,
-    train_split=0.8,
+    experiment_dir="./experiments/my_exp",
+    loader=loader,
+    washout=2.0,          # seconds to discard at start
+    train_duration=6.0,
+    test_duration=2.0,
 )
-result = trainer.fit(states, task)
-result.save("./experiments/lattice_01/output/readout.h5")
-print(f"Test NRMSE: {result.metrics.nrmse:.4f}")
+
+y_target = ...            # (T,) or (T, n_outputs) numpy array
+result = trainer.train(y_target, task_name="NARMA10")
+result.save()
 ```
 
-### `analysis` — Metrics & Benchmarking
+### `analysis` — Correlation Diagnostics & Multistability
 
 ```python
-from openprc import analysis
+from openprc.analysis import correlation as corr
+from openprc.analysis import EquilibriumFinder
 
-# Memory capacity
-mc = analysis.correlation.MemoryCapacity(max_delay=100)
-mc_result = mc.compute("./experiments/lattice_01/output/simulation.h5")
-print(f"Total Linear MC:    {mc_result.total_linear:.2f}")
-print(f"Total Nonlinear MC: {mc_result.total_nonlinear:.2f}")
+# ── Correlation diagnostics (x: features, y: targets) ────────────────────
+lin = corr.Linear(x, y, lag_sweep=True)
+print(lin.pearson)         # zero-lag Pearson r per channel
+lin.ccf.plot()             # cross-correlation lag profiles
 
-# Full benchmark suite
-suite = analysis.benchmarks.StandardSuite()
-report = suite.run("./experiments/lattice_01/")
-report.save("./experiments/lattice_01/output/metrics.h5")
-report.export_pdf("./experiments/lattice_01/output/benchmark_report.pdf")
+nr = corr.Nonparametric(x, y)
+print(nr.dcor)             # distance correlation (detects nonlinear deps)
+
+# ── Find all mechanical equilibria ───────────────────────────────────────
+finder  = EquilibriumFinder.from_experiment("./experiments/my_exp")
+results = finder.find_all(num_random=50)
+results.summary()
+finder.save_results(results, "./experiments/my_exp/equilibria.h5")
 ```
 
-### `optimize` — Topology & Parameter Search
+### `optimize` — JAX-Based Parameter Calibration
 
 ```python
-from openprc import optimize
+from openprc.optimize import Calibration
 
-space = optimize.SearchSpace(
-    topology=optimize.spaces.GridLattice(
-        nx=(5, 20),
-        ny=(5, 20),
-        connectivity=["4-neighbor", "8-neighbor", "hexagonal"],
-    ),
-    physics=optimize.spaces.Physics(
-        stiffness=(1e2, 1e6, "log"),
-        damping=(0.01, 0.5),
-    ),
-    actuation=optimize.spaces.Actuation(
-        num_actuators=(1, 10),
-        placement="boundary",
-    ),
+cal = Calibration(backend="jax")      # BarHingeModel assumed
+
+cal.load_geometry("./experiments/my_exp")
+cal.load_reference("./experiments/my_exp/output/simulation.h5")
+
+cal.optimize_params(bar_stiffness=True, hinge_stiffness=True)
+cal.set_bounds(bar_stiffness=(10.0, 1e5))
+
+result = cal.run(max_iterations=500, lr=0.01, cost="mse")
+cal.save("./experiments/my_exp/optimized_geometry.h5")
+```
+
+### `automod` — Robot PRC Pipeline
+
+```python
+import openprc.automod as automod
+
+# Stage 1: convert URDF links to spring-mass reservoirs
+automod.batch_preprocess(
+    bundle_dir="./robot_bundle",
+    robot_name="go1",
+    params=automod.PRESETS["small"],   # "small", "medium", "large"
 )
 
-objective = optimize.objectives.Composite([
-    (0.7, optimize.objectives.MemoryCapacity(max_delay=50)),
-    (0.3, optimize.objectives.EnergyEfficiency()),
-])
-
-campaign = optimize.Campaign(
-    search_space=space,
-    objective=objective,
-    optimizer=optimize.algorithms.CMAES(population_size=20, max_evaluations=500),
-    output_dir="./optimization_runs/mc_search_01/",
-    n_parallel=4,
+# Stage 2: run DEMLAT simulations for all trajectories
+automod.batch_simulate(
+    bundle_dir="./robot_bundle",
+    robot_name="go1",
+    splits=("train", "test"),
+    gravity=-9.81, damping_scale=2.0,
 )
 
-result = campaign.run()
-print(f"Best MC: {result.best.fitness:.2f}")
+# Stage 3: train ridge readout with k-fold CV
+run_dir = automod.run_training(
+    bundle_dir="./robot_bundle",
+    robot_name="go1",
+    features="node_vel",              # see automod.FEATURE_LEVELS
+    targets=["body_vel", "qvel"],
+    n_folds=5,
+)
+
+# Stage 4: generate plots
+automod.plot_run(run_dir)
 ```
 
 ---
