@@ -2,17 +2,110 @@
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
+# ---------------------------------------------------------------------------
+# Project metadata
+# ---------------------------------------------------------------------------
 [project]
 name = "openprc"
-version = "0.1.0"
-description = "OpenPRC"
+version = "0.0.1"
+description = "A modular, GPU-accelerated framework for Physical Reservoir Computing simulation and evaluation"
 readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Yogesh Phalak", email = "yphalak@vt.edu" },
+    { name = "Wen Sin Lor", email = "wensin@vt.edu" },
+]
+keywords = ["reservoir computing", "physical computing", "origami", "DEMLAT", "GPU", "simulation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 requires-python = ">=3.10"
-dependencies = []
 
+# Core dependencies — needed for CPU-based DEMLAT simulation and readout
+dependencies = [
+    "numpy>=1.24",
+    "h5py>=3.8",
+    "numba>=0.58",
+    "scipy>=1.10",
+    "scikit-learn>=1.3",
+    "tqdm>=4.65",
+    "matplotlib>=3.7",
+]
+
+[project.urls]
+Homepage    = "https://github.com/DARE-Lab-VT/OpenPRC-dev"
+Repository  = "https://github.com/DARE-Lab-VT/OpenPRC-dev"
+"Bug Tracker" = "https://github.com/DARE-Lab-VT/OpenPRC-dev/issues"
+Paper       = "https://arxiv.org/abs/2604.07423"
+
+# ---------------------------------------------------------------------------
+# Optional dependency groups
+# ---------------------------------------------------------------------------
+[project.optional-dependencies]
+
+# CUDA-accelerated simulation backend  (requires CUDA toolkit + NVCC on PATH)
+cuda = [
+    "pycuda>=2022.1",
+]
+
+# JAX differentiable simulation backend
+jax = [
+    "jax>=0.4.1",
+    "jaxlib>=0.4.1",
+]
+
+# 3-D visualization (PiViz + Dear ImGui)
+# piviz-3d is Yogesh's rendering library — install separately if not on PyPI:
+#   pip install git+https://github.com/PhalcoAi/PiViz
+viz = [
+    "piviz-3d>=2.0",
+    "imgui>=2.0",
+]
+
+# Computer-vision utilities
+vision = [
+    "opencv-python>=4.8",
+]
+
+# Robot-bundle / automod tooling
+automod = [
+    "jsonschema>=4.17",
+    "trimesh>=4.0",
+    "fast-simplification>=0.1",
+    "rosbags>=0.9",
+    "yourdfpy>=0.0.50",
+    "anthropic>=0.25",
+]
+
+# Everything (convenience meta-extra)
+full = [
+    "openprc[cuda]",
+    "openprc[jax]",
+    "openprc[viz]",
+    "openprc[vision]",
+    "openprc[automod]",
+]
+
+# ---------------------------------------------------------------------------
+# Package discovery and non-Python assets
+# ---------------------------------------------------------------------------
 [tool.setuptools]
 package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where   = ["src"]
 include = ["openprc*"]
+
+[tool.setuptools.package-data]
+"openprc.demlat.models.barhinge.kernels" = ["*.cu", "*.cuh"]
+"openprc.automod"                        = ["*.md", "*.txt", "SCHEMA.md", "CHEATSHEET.txt"]
+"openprc.automod.robot_bundle"           = ["manifest.json", "**/*.json", "**/*.urdf", "**/*.xml"]
+"openprc"                                = ["imgui.ini"]
