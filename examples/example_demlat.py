@@ -3,7 +3,7 @@ DEMLAT Module — Comprehensive Example
 ======================================
 Demonstrates the full SimulationSetup → Engine → ShowSimulation workflow:
 
-  Geometry     : 3×3 planar node grid (9 nodes)
+  Geometry     : 10×10 planar node grid (100 nodes)
   Boundary     : Top row fixed; rest free under gravity
   Bars         : Axial spring-dampers on all grid edges + diagonals
   Hinges       : Bending stiffness at every shared-edge quad
@@ -26,7 +26,7 @@ from openprc.demlat import SimulationSetup, Simulation, Engine, ShowSimulation
 EXP = Path("experiments/example_demlat")
 
 # ── Geometry parameters ───────────────────────────────────────────────────────
-ROWS, COLS  = 3, 3          # 3×3 grid → 9 nodes
+ROWS, COLS  = 10, 10          # 3×3 grid → 100 nodes
 SPACING     = 1.0           # metres between nodes
 MASS        = 0.5           # kg per free node
 K_AXIAL     = 800.0         # bar stiffness  [N/m]

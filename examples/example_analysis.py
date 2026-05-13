@@ -51,7 +51,7 @@ def run_part_A():
         x = loader.get_actuation_signal(actuator_idx=0, dof=0)
 
         # y = bar extensions (multi-channel reservoir state)
-        y = feat.BarExtensions().transform(loader)
+        y = feat.BarStrains().transform(loader)
 
         # Trim to equal length
         T = min(len(x), y.shape[0])
@@ -218,7 +218,7 @@ def run_part_B():
     print(f"\n  Saved equilibria to {out_path}")
 
     loaded = finder.load_results(str(out_path))
-    print(f"  Re-loaded {len(loaded.stable) + len(loaded.unstable)} equilibria "
+    print(f"  Re-loaded {len(loaded.equilibria)} equilibria "
           f"({loaded.n_stable} stable, {loaded.n_unstable} unstable)")
 
     print("\n  Part B complete.")

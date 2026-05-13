@@ -193,8 +193,8 @@ loader = StateLoader("./experiments/my_exp/output/simulation.h5")
 feat = features.NodePositions(node_ids=[0, 1, 2], dims="all")
 X    = feat.transform(loader)          # (T, n_features)
 
-# Or use bar extensions as the observable
-feat = features.BarExtensions()
+# Or use bar strains as the observable (stored as ε = ΔL/L₀)
+feat = features.BarStrains()
 
 # Train ridge readout
 readout = Ridge(regularization=1e-4)
@@ -239,7 +239,8 @@ finder.save_results(results, "./experiments/my_exp/equilibria.h5")
 ```python
 from openprc.optimize import Calibration
 
-cal = Calibration(backend="jax")      # BarHingeModel assumed
+from openprc.demlat import BarHingeModel
+cal = Calibration(BarHingeModel, backend="jax")
 
 cal.load_geometry("./experiments/my_exp")
 cal.load_reference("./experiments/my_exp/output/simulation.h5")

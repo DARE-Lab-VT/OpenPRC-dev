@@ -48,12 +48,11 @@ def setup_ground_truth():
 
 
 def run_ground_truth():
-    import openprc.demlat
-    from openprc.demlat.models.barhinge import BarHingeModel
+    from openprc.demlat import BarHingeModel, Simulation, Engine
 
     print("\n[2] Running ground truth simulation...")
-    sim = openprc.demlat.Simulation(TRUTH_DIR)
-    eng = openprc.demlat.Engine(BarHingeModel, backend='jax')
+    sim = Simulation(TRUTH_DIR)
+    eng = Engine(BarHingeModel, backend='jax')
     eng.run(sim)
     print(f"    Reference saved to: {TRUTH_DIR / 'output' / 'simulation.h5'}")
 
@@ -63,7 +62,7 @@ def run_ground_truth():
 # ============================================================
 
 def setup_initial_guess():
-    from openprc.demlat.io.simulation_setup import SimulationSetup
+    from openprc.demlat import SimulationSetup
     import shutil
 
     print("\n[3] Setting up initial guess (wrong stiffnesses)...")
@@ -96,7 +95,7 @@ def setup_initial_guess():
 
 def calibrate():
     from openprc.optimize import Calibration
-    from openprc.demlat.models.barhinge import BarHingeModel
+    from openprc.demlat import BarHingeModel
 
     print("\n[4] Running calibration...")
 
@@ -155,8 +154,8 @@ def calibrate():
 
 def verify(result):
     import openprc.demlat
-    from openprc.demlat.models.barhinge import BarHingeModel
-    from openprc.demlat.utils.data_parser import SimulationData
+    from openprc.demlat import BarHingeModel
+    from openprc.demlat import SimulationData
 
     print("\n[6] Verification: re-running with calibrated parameters...")
 
@@ -245,7 +244,7 @@ def setup_actuated_truth():
 
 def setup_actuated_guess():
     """Same geometry but wrong stiffnesses."""
-    from openprc.demlat.io.simulation_setup import SimulationSetup
+    from openprc.demlat import SimulationSetup
 
     print("\n[A2] Setting up actuated initial guess (wrong stiffnesses)...")
     setup = SimulationSetup(ACTUATED_GUESS, overwrite=True)
@@ -274,13 +273,12 @@ def setup_actuated_guess():
 
 def calibrate_actuated():
     from openprc.optimize import Calibration
-    from openprc.demlat.models.barhinge import BarHingeModel
+    from openprc.demlat import BarHingeModel, Simulation, Engine
 
     # First run ground truth
-    import openprc.demlat
     print("\n[A3] Running actuated ground truth...")
-    sim = openprc.demlat.Simulation(ACTUATED_TRUTH)
-    eng = openprc.demlat.Engine(BarHingeModel, backend='jax')
+    sim = Simulation(ACTUATED_TRUTH)
+    eng = Engine(BarHingeModel, backend='jax')
     eng.run(sim)
 
     # Now calibrate

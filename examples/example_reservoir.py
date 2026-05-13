@@ -71,17 +71,21 @@ def step_1_build_and_run():
     u *= 0.4 / u.std()      # normalise amplitude to ±0.4 N
 
     force_sig = np.zeros((len(t), 3), dtype=np.float32)
-    force_sig[:, 0] = u     # x-direction force on anchor
+    force_sig[:, 0] = u     # x-direction force on first free mass
 
     setup.add_signal("noise_drive", force_sig, dt=dt_sig)
-    setup.add_actuator(anchor, "noise_drive", type="force")
+    # Apply to the first free mass (not the fixed anchor) so the chain is driven
+    setup.add_actuator(free_nodes[0], "noise_drive", type="force")
 
     setup.save()
 
     print(f"\n[Step 1] Running simulation (backend={BACKEND})...")
     Engine(backend=BACKEND).run(Simulation(EXP))
     print("  Done.")
-    return u   # return the raw input for readout target construction
+
+    # Pad u by one sample to match the simulation's frame count (includes t=0)
+    u_padded = np.concatenate([[u[0]], u])
+    return u_padded
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -96,10 +100,10 @@ def step_2_extract_features():
     print(f"  dt     : {loader.dt:.4f} s")
 
     X_pos = features.NodePositions(node_ids="all", dims="all").transform(loader)
-    X_ext = features.BarExtensions().transform(loader)
+    X_str = features.BarStrains().transform(loader)
 
     print(f"  NodePositions feature shape : {X_pos.shape}  (T × n_nodes×3)")
-    print(f"  BarExtensions feature shape : {X_ext.shape}  (T × n_bars)")
+    print(f"  BarStrains    feature shape : {X_str.shape}  (T × n_bars)")
     return loader
 
 
@@ -113,7 +117,7 @@ def step_3_train_readout(loader, u_input):
     y_full     = np.roll(u_input, TAU)
     y_full[:TAU] = 0.0  # mask wrap-around
 
-    feat   = features.BarExtensions()           # use bar extensions as state
+    feat   = features.BarStrains()               # use bar strains as state
     readout = Ridge(regularization=1e-3)
 
     trainer = Trainer(
@@ -129,11 +133,16 @@ def step_3_train_readout(loader, u_input):
     result = trainer.train(y_full, task_name=f"Lag{TAU}Memory")
     result.save()
 
-    # Print metrics from the cached training data
-    y_test_pred = result.cache['y_test_pred']
-    y_test_true = result.cache['y_test_true']
-    nrmse = np.sqrt(np.mean((y_test_pred - y_test_true) ** 2)) / (y_test_true.std() + 1e-8)
-    print(f"  τ = {TAU} frames ({TAU * loader.dt * 1000:.0f} ms)  →  test NRMSE = {nrmse:.4f}")
+    # cache layout: {'train': (X, y_true, y_pred), 'test': (X, y_true, y_pred)}
+    _, y_train_true, y_train_pred = result.cache['train']
+    _, y_test_true,  y_test_pred  = result.cache['test']
+
+    def nrmse(pred, true):
+        return np.sqrt(np.mean((pred - true) ** 2)) / (true.std() + 1e-8)
+
+    print(f"  τ = {TAU} frames ({TAU * loader.dt * 1000:.0f} ms)")
+    print(f"  train NRMSE = {nrmse(y_train_pred, y_train_true):.4f}")
+    print(f"  test  NRMSE = {nrmse(y_test_pred,  y_test_true):.4f}")
     return trainer
 
 
@@ -153,8 +162,12 @@ def step_4_memory_benchmark(trainer, u_input):
     )
 
     if hasattr(bench, 'metrics') and bench.metrics:
-        total_mc = sum(v.get('r2', 0.0) for v in bench.metrics.values())
-        print(f"  Total linear MC (lags 1–20): {total_mc:.3f}")
+        m = bench.metrics
+        print(f"  Linear MC     : {float(m['linear_memory_capacity']):.3f}")
+        print(f"  Nonlinear MC  : {float(m['nonlinear_memory_capacity']):.3f}")
+        print(f"  Total capacity: {float(m['total_capacity']):.3f}")
+        caps = m['capacities']   # per-basis-function capacity array
+        print(f"  Capacity array: {np.array(caps).round(3)}")
     else:
         print("  (metrics unavailable — check MemoryBenchmark.run output)")
 

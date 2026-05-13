@@ -48,22 +48,38 @@ class StateLoader:
                 return positions.reshape(self.total_frames, -1)
             return positions
 
-    def get_bar_lengths(self, bar_ids="all"):
+    def get_bar_strains(self, bar_ids="all"):
+        """Return bar engineering strain ε = (L - L₀) / L₀ per frame."""
         with h5py.File(self.sim_path, 'r') as f:
+            data = f['time_series/elements/bars/strain']
+            if bar_ids == "all":
+                return data[:].reshape(self.total_frames, -1)
+            return data[:, bar_ids].reshape(self.total_frames, -1)
+
+    def get_bar_stresses(self, bar_ids="all"):
+        """Return bar axial stress σ = k * ε per frame."""
+        with h5py.File(self.sim_path, 'r') as f:
+            data = f['time_series/elements/bars/stress']
+            if bar_ids == "all":
+                return data[:].reshape(self.total_frames, -1)
+            return data[:, bar_ids].reshape(self.total_frames, -1)
+
+    def get_bar_lengths(self, bar_ids="all"):
+        """Return bar lengths if stored, else raise with a helpful message."""
+        with h5py.File(self.sim_path, 'r') as f:
+            if 'time_series/elements/bars/lengths' not in f:
+                raise KeyError(
+                    "Bar lengths are not saved in this simulation. "
+                    "Use get_bar_strains() instead."
+                )
             data = f['time_series/elements/bars/lengths']
             if bar_ids == "all":
                 return data[:].reshape(self.total_frames, -1)
             return data[:, bar_ids].reshape(self.total_frames, -1)
 
     def get_bar_extensions(self, bar_ids="all"):
-        with h5py.File(self.sim_path, 'r') as f:
-            lengths_t = f['time_series/elements/bars/lengths'][:]
-            initial_lengths = lengths_t[0] # Lengths at t=0
-            extensions = lengths_t - initial_lengths
-            
-            if bar_ids == "all":
-                return extensions.reshape(self.total_frames, -1)
-            return extensions[:, bar_ids].reshape(self.total_frames, -1)
+        """Return bar extensions ΔL = ε * L₀ (derived from strain)."""
+        return self.get_bar_strains(bar_ids)
 
     def get_actuation_signal(self, actuator_idx=0, dof=None):
         """

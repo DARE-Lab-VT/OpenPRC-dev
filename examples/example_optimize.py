@@ -98,7 +98,8 @@ def step_2_initial_guess():
 def step_3_calibrate(ref_sim_path):
     print("\n[Step 3] Running calibration (JAX gradient descent)...")
 
-    cal = Calibration(backend="jax")   # BarHingeModel is implicit
+    from openprc.demlat import BarHingeModel
+    cal = Calibration(BarHingeModel, backend="jax")
 
     # Load the perturbed geometry to calibrate
     cal.load_geometry(str(CAL_EXP))
@@ -152,5 +153,5 @@ def step_4_evaluate(cal, result):
 if __name__ == "__main__":
     ref_path    = step_1_ground_truth()
     step_2_initial_guess()
-    cal, result = step_3_calibrate(ref_path)
+    cal, result = step_3_calibrate(ref_path)   # cal is returned from inside step_3
     step_4_evaluate(cal, result)
