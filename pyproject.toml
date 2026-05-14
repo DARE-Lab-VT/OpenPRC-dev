@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 # ---------------------------------------------------------------------------
 [project]
 name = "openprc"
-version = "0.0.1"
+version = "0.1.0"
 description = "A modular, GPU-accelerated framework for Physical Reservoir Computing simulation and evaluation"
 readme = "README.md"
 license = { text = "Apache-2.0" }

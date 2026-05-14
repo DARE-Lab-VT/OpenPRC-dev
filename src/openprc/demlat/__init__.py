@@ -14,7 +14,7 @@ from .utils.animator import ShowSimulation
 from .utils.data_parser import SimulationData
 
 # Define package version
-__version__ = "0.0.1"
+__version__ = "0.1.0"
 
 # Define what happens on 'from demlat import *'
 __all__ = ["Simulation",
