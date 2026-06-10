@@ -262,35 +262,20 @@ class Calibration:
         if self.reference is None:
             raise RuntimeError("Call load_reference() first.")
 
-        # --- Resolve timing ---
-        sim_dt = dt or float(self.config.get('simulation', {}).get('dt_base', 0.001))
-        save_dt = self.reference.dt_save
-
-        if substeps is None:
-            substeps = max(1, int(round(save_dt / sim_dt)))
-
-        n_save_frames = self.reference.n_frames
-        total_steps = substeps * (n_save_frames - 1)   # -1 because frame 0 is initial
+        # --- Resolve timing, reference, actuation, and rollout fn ---
+        roll = self._prepare_rollout(dt, substeps)
+        sim_dt = roll['sim_dt']
+        substeps = roll['substeps']
+        x_ref = roll['x_ref']
+        x0, v0 = roll['x0'], roll['v0']
+        f_ext_per_step = roll['f_ext']
+        pos_target_per_step = roll['pos_target']
+        rollout_fn = roll['rollout_fn']
 
         self.logger.info(
-            f"Calibration: {n_save_frames} frames, {substeps} substeps/frame, "
-            f"dt={sim_dt}, total sim steps={total_steps}"
+            f"Calibration: {roll['n_save_frames']} frames, {substeps} substeps/frame, "
+            f"dt={sim_dt}, total sim steps={roll['total_steps']}"
         )
-
-        # --- Reference trajectory ---
-        x_ref = self.reference.get_trajectory_jax(start_frame=1)  # skip frame 0 (= IC)
-
-        # --- Initial state ---
-        x0, v0 = self.reference.get_initial_state_jax()
-
-        # --- Build actuation sequences ---
-        n_nodes = self.solver.n_nodes
-        f_ext_per_step, pos_target_per_step = self._build_actuation_sequences(
-            total_steps, n_nodes, sim_dt
-        )
-
-        # --- Build differentiable rollout ---
-        rollout_fn = self.solver.get_rollout_fn()
 
         # --- Cost function ---
         cost_kw = cost_kwargs or {}
@@ -400,6 +385,93 @@ class Calibration:
             result.summary()
 
         return result
+
+    # ============================================================
+    # Rollout / Prediction
+    # ============================================================
+
+    def _prepare_rollout(self, dt=None, substeps=None):
+        """Resolve timing, reference, actuation, and the rollout function.
+
+        Shared by :meth:`run` (calibration loop) and :meth:`predict`
+        (forward simulation) so both use identical timing and actuation.
+
+        Returns a dict with keys: ``sim_dt, substeps, total_steps,
+        n_save_frames, x_ref, x0, v0, f_ext, pos_target, rollout_fn``.
+        """
+        sim_dt = dt or float(self.config.get('simulation', {}).get('dt_base', 0.001))
+        save_dt = self.reference.dt_save
+
+        if substeps is None:
+            substeps = max(1, int(round(save_dt / sim_dt)))
+
+        n_save_frames = self.reference.n_frames
+        total_steps = substeps * (n_save_frames - 1)   # -1 because frame 0 is initial
+
+        x_ref = self.reference.get_trajectory_jax(start_frame=1)  # skip frame 0 (= IC)
+        x0, v0 = self.reference.get_initial_state_jax()
+
+        n_nodes = self.solver.n_nodes
+        f_ext, pos_target = self._build_actuation_sequences(total_steps, n_nodes, sim_dt)
+
+        return {
+            'sim_dt': sim_dt,
+            'substeps': substeps,
+            'total_steps': total_steps,
+            'n_save_frames': n_save_frames,
+            'x_ref': x_ref,
+            'x0': x0,
+            'v0': v0,
+            'f_ext': f_ext,
+            'pos_target': pos_target,
+            'rollout_fn': self.solver.get_rollout_fn(),
+        }
+
+    def predict(self, theta=None, dt=None, substeps=None, include_initial=True):
+        """Roll out the model and return the simulated trajectory.
+
+        Uses the same timing and actuation as :meth:`run`, so the result is
+        directly comparable to the reference (e.g. for overlay plots and
+        per-node error). Call after :meth:`run` to evaluate the calibrated
+        model, or before it to inspect the initial guess.
+
+        Parameters
+        ----------
+        theta : dict or None
+            Parameters to simulate with. None = the solver's current theta
+            (the optimized values after :meth:`run`).
+        dt, substeps : float / int or None
+            Override timing; defaults match :meth:`run`.
+        include_initial : bool
+            Prepend frame 0 (the initial condition) so the returned trajectory
+            aligns frame-for-frame with the reference (length ``n_frames``).
+
+        Returns
+        -------
+        x_sim : np.ndarray, shape (n_frames, N, 3) or (n_frames-1, N, 3)
+        """
+        if self.solver is None:
+            raise RuntimeError("Call load_geometry() first.")
+        if self.reference is None:
+            raise RuntimeError("Call load_reference() first.")
+
+        if theta is None:
+            theta = self.solver.get_theta()
+
+        roll = self._prepare_rollout(dt, substeps)
+        x_traj_all, _, _ = roll['rollout_fn'](
+            theta, roll['x0'], roll['v0'], roll['f_ext'], roll['pos_target'], roll['sim_dt']
+        )
+
+        # Subsample to saved-frame resolution (same slice as the loss).
+        step = roll['substeps']
+        x_sim = np.array(x_traj_all[step - 1::step])  # (n_save_frames-1, N, 3)
+
+        if include_initial:
+            x0 = np.array(roll['x0'])[None]            # (1, N, 3)
+            x_sim = np.concatenate([x0, x_sim], axis=0)  # (n_save_frames, N, 3)
+
+        return x_sim
 
     # ============================================================
     # Actuation
@@ -552,3 +624,51 @@ class Calibration:
                 cal_grp.create_dataset(key, data=val)
 
         self.logger.info(f"Saved optimized geometry to {path}")
+
+    def save_trajectory(self, path=None, theta=None, dt=None, substeps=None):
+        """Save the simulated trajectory as a DEMLAT ``simulation.h5``.
+
+        The result is replayable with
+        ``openprc.demlat.ShowSimulation(<experiment_dir>)``: it writes
+        ``time_series/{time, nodes/positions}`` (the schema the player needs)
+        with the geometry/bars coming from the experiment's
+        ``input/geometry.h5``.
+
+        Parameters
+        ----------
+        path : str or Path or None
+            Output file. Default: ``<geometry_dir>/output/simulation.h5`` so
+            ``ShowSimulation(<geometry_dir>)`` finds it automatically.
+        theta : dict or None
+            Parameters to simulate with. None = current (optimized) theta.
+        dt, substeps : float / int or None
+            Timing overrides; defaults match :meth:`run` / :meth:`predict`.
+
+        Returns
+        -------
+        path : Path
+        """
+        if path is None:
+            path = self.geometry_dir / "output" / "simulation.h5"
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        x_sim = self.predict(theta=theta, dt=dt, substeps=substeps, include_initial=True)
+        n_frames = x_sim.shape[0]
+        time_arr = np.asarray(self.reference.time[:n_frames], dtype=np.float64)
+
+        dt_save = self.reference.dt_save
+        with h5py.File(path, 'w') as f:
+            f.attrs['completed'] = 1
+            f.attrs['schema_version'] = '2.1.0'
+            f.attrs['source'] = 'openprc.optimize.Calibration'
+            f.attrs['total_frames'] = n_frames
+            f.attrs['frame_rate'] = float(1.0 / dt_save) if dt_save > 0 else 0.0
+            ts = f.create_group('time_series')
+            ts.create_dataset('time', data=time_arr)
+            ts.create_group('nodes').create_dataset(
+                'positions', data=x_sim.astype(np.float32)
+            )
+
+        self.logger.info(f"Saved simulated trajectory ({n_frames} frames) to {path}")
+        return path

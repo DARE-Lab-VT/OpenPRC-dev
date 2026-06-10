@@ -13,7 +13,9 @@ from typing import Dict, Any, List, Optional
 
 from openprc.schemas.logging import get_logger
 from .post_processor import PostProcessor
-from openprc.schemas.demlat_sim_validator import DemlatSimValidator
+# NOTE: DemlatSimValidator is imported lazily inside run() to avoid a circular
+# import: openprc.schemas.__init__ -> demlat_sim_validator -> demlat (package
+# init) -> engine -> demlat_sim_validator (still mid-initialisation).
 
 
 class SimulationError(Exception): pass
@@ -41,6 +43,7 @@ class Engine:
 
         # --- 1. Pre-Run Validation ---
         try:
+            from openprc.schemas.demlat_sim_validator import DemlatSimValidator
             validator = DemlatSimValidator(simulation.root, logger=self.logger)
             validator.validate_all()
         except Exception as e:

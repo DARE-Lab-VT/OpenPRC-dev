@@ -26,6 +26,13 @@ OpenPRC supports diverse mechanical substrates ranging from compliant mass-sprin
 
 <table>
   <tr>
+    <td align="center" colspan="2">
+      <img src="media/drone.gif" width="700px" alt="DJI Matrice 600"/><br/>
+      <b>DJI Matrice 600</b><br/>
+      Aerial platform dynamics
+    </td>
+  </tr>
+  <tr>
     <td align="center">
       <img src="media/soft_reservoir_network.gif" width="350px" alt="Soft Reservoir Network"/><br/>
       <b>Soft Reservoir Network</b><br/>
