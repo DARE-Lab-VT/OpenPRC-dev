@@ -15,20 +15,15 @@ sys.path.insert(0, str(src_dir))
 # --- Core Library Imports ---
 from openprc.analysis.benchmarks.memory_benchmark import MemoryBenchmark
 from openprc.reservoir.io.state_loader import StateLoader
-from openprc.reservoir.features.node_features import NodeDisplacements # [MODIFIED]
+from openprc.reservoir.features.node_features import NodePositions
 from openprc.reservoir.training.trainer import Trainer
 from openprc.reservoir.readout.ridge import Ridge
 from openprc.demlat.utils.animator import ShowSimulation
-from scipy.stats import chi2 # [NEW]
 
-# --- Optimization Imports ---
+# --- GA-specific Imports ---
 from openprc.optimization.search_spaces.fourier_series_2D import FourierSeries2D
-from openprc.examples.spring_mass_2D import run_pipeline
+from openprc.examples.archived.spring_mass_2D import run_pipeline
 
-def calculate_dambre_epsilon(effective_rank: int, test_duration: int, p_value: float = 1e-4) -> float:
-    """[NEW] Matches the calculation in run_memory_benchmark_pipeline.py"""
-    t = chi2.isf(p_value, df=effective_rank)
-    return (2.0 * t) / test_duration
 
 def plot_heatmap(
     heatmap, n_list, tau_d_list, k_delay, amp, n_mass, title_prefix,
@@ -90,6 +85,26 @@ def plot_heatmap(
     else:
         plt.close(fig)
 
+def plot_ga_convergence(history, save_dir):
+    """Plots the best and mean fitness from GA history."""
+    print("-> Plotting GA convergence...")
+    best_fitness = history.get('best', [])
+    mean_fitness = history.get('mean', [])
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(best_fitness, label="Best Fitness")
+    plt.plot(mean_fitness, label="Mean Fitness")
+    plt.xlabel("Generation")
+    plt.ylabel("Fitness")
+    plt.legend()
+    plt.title("GA Fitness Convergence")
+    plt.grid(True)
+    
+    if save_dir:
+        path = save_dir / "ga_convergence_plot.png"
+        plt.savefig(path, dpi=300)
+        print(f"[Saved] GA convergence plot -> {path}")
+    plt.show()
 
 def run_heatmap_pipeline_for_topology(rows, cols, k_mat, c_mat, run_suffix):
     """Runs simulation and benchmark sweep for a given topology."""
@@ -108,19 +123,12 @@ def run_heatmap_pipeline_for_topology(rows, cols, k_mat, c_mat, run_suffix):
 
     # 2. Setup benchmark sweep
     loader = StateLoader(h5_path)
-    
-    # [MODIFIED]: Relative Displacements (Reference = Node 0, X-axis only)
-    features = NodeDisplacements(reference_node=0, dims=[0]) 
+    features = NodePositions()
     u_input = loader.get_actuation_signal(actuator_idx=0, dof=0)
     
-    # [MODIFIED]: Match the optimizer's lag scale and Dambre threshold
-    k_delay_val = 10 
-    n_list = list(range(1, 5)) # IID memory degrades fast; N=1..4 is a realistic heatmap range
-    tau_d_list = list(range(0, 50, 5)) # Sample the 500-step lag horizon
-    
-    # 10.0 seconds of test_duration at dt=0.01 is 1000 steps
-    dambre_eps = calculate_dambre_epsilon(effective_rank=1.5, test_duration=1000)
-    
+    k_delay_val = 30
+    n_list = list(range(1, 9))
+    tau_d_list = list(range(6))
     heatmap = np.empty((len(n_list), len(tau_d_list)), dtype=float)
 
     print(f"-> Running benchmark sweep...")
@@ -129,9 +137,7 @@ def run_heatmap_pipeline_for_topology(rows, cols, k_mat, c_mat, run_suffix):
         n_s, tau_s = n_list[i], tau_d_list[j]
         
         benchmark = MemoryBenchmark(group_name=f"mem_bench_n{n_s}_tau{tau_s}")
-        
-        # [MODIFIED]: Use dambre_eps instead of 1e-9
-        benchmark_args = {"tau_s": tau_s, "n_s": n_s, "k_delay": k_delay_val, "ridge": 1e-6, "eps": dambre_eps}
+        benchmark_args = {"tau_s": tau_s, "n_s": n_s, "k_delay": k_delay_val, "ridge": 1e-6, "eps": 1e-9}
 
         trainer = Trainer(
             loader=loader, features=features, readout=Ridge(benchmark_args["ridge"]),
@@ -147,88 +153,43 @@ def run_heatmap_pipeline_for_topology(rows, cols, k_mat, c_mat, run_suffix):
     print("--- Pipeline complete. ---")
     return heatmap, experiment_path
 
-
 def main():
     """
-    Unified Pipeline to visualize Before vs. After based on TRIAL_NAME.
+    Main pipeline for 'before' analysis only (Uniform Grid).
     """
-    # --- Configuration (Must match 1_grid_opt.py) ---
-    TRIAL_NAME = "Taichi_IID_Memory_Opt_Low_k"
+    # --- Shared Configuration ---
     ROWS, COLS = 4, 4
+    GA_EXPERIMENT_DIR = src_dir / "experiments" / f"spring_mass_{ROWS}x{COLS}_test"
     
-    EXPERIMENT_DIR = src_dir / "experiments" / TRIAL_NAME
-    GA_RESULTS_PATH = EXPERIMENT_DIR / "ga_results.json"
-    
-    # --- Load Optimized Data ---
-    if not GA_RESULTS_PATH.exists():
-        print(f"[Error] Results file not found: {GA_RESULTS_PATH}")
-        print("Please run 1_grid_opt.py first to generate the optimized topology.")
-        return
-
-    print(f"-> Loading optimization results from: {GA_RESULTS_PATH}")
-    with open(GA_RESULTS_PATH, 'r') as f:
-        results_data = json.load(f)
-    
-    # Initialize Helper (Used for "Before" generation)
+    # --- Initialize Fourier Series Helper ---
     fourier = FourierSeries2D(ROWS, COLS)
 
     # --- 1. "BEFORE" ANALYSIS (Uniform Grid) ---
     print("\n" + "="*50)
     print("STEP 1: Analyzing Pre-Optimization (Uniform) Topology")
     print("="*50)
-    # Generate original uniform grid matrices
+    
+    # Build the standard, fully-connected grid
     c_mat_orig, k_mat_orig = fourier.build_full_neighbor_topology(ROWS, COLS, rigid_outer_frame=False)
     
-    TARGET_STIFFNESS = 100.0  # Must match the physics from your Taichi script
-    TARGET_DAMPING = 0.8
-
-    # Overwrite the default 222.15 values wherever a spring exists
-    k_mat_orig = np.where(k_mat_orig > 0, TARGET_STIFFNESS, 0.0)
-    c_mat_orig = np.where(c_mat_orig > 0, TARGET_DAMPING, 0.0)
-    
-    heatmap_before, _ = run_heatmap_pipeline_for_topology(
+    # Run simulation and get heatmap data
+    heatmap_before, before_exp_path = run_heatmap_pipeline_for_topology(
         ROWS, COLS, k_mat_orig, c_mat_orig * 0.4, "uniform_grid"
     )
     
+    # Plot and save
     if heatmap_before is not None:
         plot_heatmap(
-            heatmap_before, list(range(1, 9)), list(range(6)), k_delay=10, amp=1, n_mass=ROWS*COLS,
+            heatmap_before, list(range(1, 9)), list(range(6)), k_delay=30, amp=1, n_mass=ROWS*COLS,
             title_prefix="Memory Heatmap (Uniform Grid)",
-            save_dir=EXPERIMENT_DIR, 
-            save_name="heatmap_before_optimization", 
-            show=False, save_png=True, save_svg=True
-        )
-
-    # --- 2. "AFTER" ANALYSIS (Direct Matrix Optimization) ---
-    print("\n" + "="*50)
-    print("STEP 2: Analyzing Post-Optimization Topology")
-    print("="*50)
-    
-    # Check if we have direct matrix results (from Taichi)
-    if "k_mat_opt" in results_data:
-        k_mat_opt = np.array(results_data["k_mat_opt"])
-        c_mat_opt = np.array(results_data["c_mat_opt"])
-        
-        heatmap_after, after_exp_path = run_heatmap_pipeline_for_topology(
-            ROWS, COLS, k_mat_opt, c_mat_opt, "optimized_topology"
+            save_dir=GA_EXPERIMENT_DIR, 
+            save_name="heatmap_uniform_grid_before", 
+            show=False,       # Set to False so it doesn't pop up and freeze the script
+            save_png=True,    # Save a PNG copy
+            save_svg=True     # Save an SVG copy
         )
         
-        if heatmap_after is not None:
-            plot_heatmap(
-                heatmap_after, list(range(1, 9)), list(range(6)), k_delay=10, amp=1, n_mass=ROWS*COLS,
-                title_prefix="Memory Heatmap (After Taichi Optimization)",
-                save_dir=EXPERIMENT_DIR, 
-                save_name="heatmap_after_optimization", 
-                show=False, save_png=True, save_svg=True
-            )
-            
-            # Launch interactive visualizer for the final optimized run
-            print(f"\n[INFO] Launching visualizer player for optimized run...")
-            ShowSimulation(str(after_exp_path))
-    else:
-        print("[Error] No optimized matrices ('k_mat_opt') found in the JSON file.")
-
-    print(f"\n[Done] All heatmaps saved to: {EXPERIMENT_DIR}")
+    print(f"\n[INFO] Done! The 'Before' heatmap has been saved to: {GA_EXPERIMENT_DIR}")
 
 if __name__ == "__main__":
     main()

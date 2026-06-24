@@ -1,0 +1,154 @@
+Input loaded: 900000 physics steps → 750 frames at 30 Hz
+Sub-spring nodes: 136 total (16 main + 120 sub)
+Physical springs: 144 | Logical springs: 24 | Hinges: 129
+Data splits → Washout: 150, Train: 300, Test: 300
+AL Constraint (0,1): Viol=0.329695, Kappa=0.3297, Tau=0.9900
+AL Constraint (2,2): Viol=0.580976, Kappa=0.5810, Tau=0.9900
+Epoch 001 | Avg MSE: 2.22466 | IPC: 47.42 | Max MSE: 2.83827 | K levels: [  0.   222.15]
+/home/timg/D/Topological_PRC/OpenPRC-dev/src/openprc/examples/run_taichi_global_stiffness.py:226: MatplotlibDeprecationWarning: The get_cmap function was deprecated in Matplotlib 3.7 and will be removed in 3.11. Use ``matplotlib.colormaps[name]`` or ``matplotlib.colormaps.get_cmap()`` or ``pyplot.get_cmap()`` instead.
+  cmap = cm.get_cmap('viridis')
+Epoch 002 | Avg MSE: 2.19204 | IPC: 43.20 | Max MSE: 2.79448 | K levels: [  0.   212.15]
+Epoch 003 | Avg MSE: 2.17291 | IPC: 39.44 | Max MSE: 2.77036 | K levels: [  0.  205.1]
+Epoch 004 | Avg MSE: 2.15988 | IPC: 38.58 | Max MSE: 2.75119 | K levels: [  0.   201.08]
+Epoch 005 | Avg MSE: 2.14925 | IPC: 39.13 | Max MSE: 2.73213 | K levels: [  0. 199.]
+Epoch 006 | Avg MSE: 2.14206 | IPC: 41.17 | Max MSE: 2.71534 | K levels: [  0.   197.89]
+Epoch 007 | Avg MSE: 2.13882 | IPC: 42.52 | Max MSE: 2.70352 | K levels: [  0.   196.98]
+Epoch 008 | Avg MSE: 2.13836 | IPC: 44.37 | Max MSE: 2.69904 | K levels: [  0.   195.79]
+Epoch 009 | Avg MSE: 2.13897 | IPC: 46.34 | Max MSE: 2.70379 | K levels: [  0.   194.05]
+Epoch 010 | Avg MSE: 2.13944 | IPC: 46.96 | Max MSE: 2.70525 | K levels: [  0.   191.68]
+AL Constraint (0,1): Viol=0.194734, Kappa=2.9916, Tau=0.9134
+AL Constraint (2,2): Viol=0.193647, Kappa=4.0858, Tau=0.8953
+Epoch 011 | Avg MSE: 2.13888 | IPC: 47.28 | Max MSE: 2.70280 | K levels: [  0.   188.63]
+Epoch 012 | Avg MSE: 2.13706 | IPC: 45.90 | Max MSE: 2.69611 | K levels: [  0.   184.89]
+Epoch 013 | Avg MSE: 2.13516 | IPC: 45.11 | Max MSE: 2.69379 | K levels: [  0.   180.59]
+Epoch 014 | Avg MSE: 2.13565 | IPC: 43.90 | Max MSE: 2.69359 | K levels: [  0.   176.09]
+Epoch 015 | Avg MSE: 2.14007 | IPC: 42.82 | Max MSE: 2.69391 | K levels: [  0.   172.11]
+Epoch 016 | Avg MSE: 2.14638 | IPC: 42.98 | Max MSE: 2.70307 | K levels: [  0.   169.69]
+Epoch 017 | Avg MSE: 2.15064 | IPC: 43.47 | Max MSE: 2.71011 | K levels: [  0.   169.44]
+Epoch 018 | Avg MSE: 2.15095 | IPC: 43.89 | Max MSE: 2.71105 | K levels: [  0.   171.25]
+Epoch 019 | Avg MSE: 2.14900 | IPC: 44.86 | Max MSE: 2.70991 | K levels: [  0.   174.61]
+Epoch 020 | Avg MSE: 2.14872 | IPC: 46.65 | Max MSE: 2.71124 | K levels: [  0.   178.73]
+AL Constraint (0,1): Viol=0.050034, Kappa=3.9020, Tau=0.8261
+AL Constraint (2,2): Viol=0.033173, Kappa=4.8307, Tau=0.8097
+Epoch 021 | Avg MSE: 2.15072 | IPC: 48.66 | Max MSE: 2.72290 | K levels: [  0.   182.35]
+Epoch 022 | Avg MSE: 2.15200 | IPC: 49.42 | Max MSE: 2.72797 | K levels: [  0.   184.36]
+Epoch 023 | Avg MSE: 2.15133 | IPC: 49.42 | Max MSE: 2.72431 | K levels: [  0.   184.47]
+Epoch 024 | Avg MSE: 2.15057 | IPC: 48.53 | Max MSE: 2.72217 | K levels: [  0.   183.25]
+Epoch 025 | Avg MSE: 2.15151 | IPC: 47.73 | Max MSE: 2.72411 | K levels: [  0.   182.23]
+Epoch 026 | Avg MSE: 2.15064 | IPC: 48.95 | Max MSE: 2.72308 | K levels: [  0.   183.16]
+Epoch 027 | Avg MSE: 2.14975 | IPC: 51.77 | Max MSE: 2.72077 | K levels: [  0.   185.22]
+Epoch 028 | Avg MSE: 2.15043 | IPC: 51.94 | Max MSE: 2.72168 | K levels: [  0.   185.52]
+Epoch 029 | Avg MSE: 2.15113 | IPC: 51.12 | Max MSE: 2.72345 | K levels: [  0.   184.05]
+Epoch 030 | Avg MSE: 2.15211 | IPC: 49.48 | Max MSE: 2.72501 | K levels: [  0.   182.64]
+AL Constraint (0,1): Viol=0.016726, Kappa=4.1140, Tau=0.7471
+AL Constraint (2,2): Viol=0.005024, Kappa=4.9365, Tau=0.7323
+Epoch 031 | Avg MSE: 2.15117 | IPC: 49.90 | Max MSE: 2.72358 | K levels: [  0.   183.06]
+Epoch 032 | Avg MSE: 2.14967 | IPC: 51.26 | Max MSE: 2.72071 | K levels: [  0.   184.63]
+Epoch 033 | Avg MSE: 2.14940 | IPC: 51.74 | Max MSE: 2.71943 | K levels: [  0.   185.32]
+^CTraceback (most recent call last):
+  File "/home/timg/D/Topological_PRC/OpenPRC-dev/src/openprc/examples/run_taichi_global_stiffness.py", line 879, in <module>
+    total_loss.backward()
+  File "/home/timg/D/Topological_PRC/.venv/lib/python3.10/site-packages/torch/_tensor.py", line 625, in backward
+    torch.autograd.backward(
+  File "/home/timg/D/Topological_PRC/.venv/lib/python3.10/site-packages/torch/autograd/__init__.py", line 354, in backward
+    _engine_run_backward(
+  File "/home/timg/D/Topological_PRC/.venv/lib/python3.10/site-packages/torch/autograd/graph.py", line 841, in _engine_run_backward
+    return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+KeyboardInterrupt
+
+(.venv) (base) timg@gandalf-cphi:~/D/Topological_PRC$ /home/timg/D/Topological_PRC/.venv/bin/python /home/timg/D/Topological_PRC/OpenPRC-dev/src/openprc/examples/run_taichi_global_stiffness.py
+[Taichi] version 1.7.4, llvm 15.0.4, commit b4b956fd, linux, python 3.10.12
+[Taichi] Starting on arch=cuda
+Running Taichi_subspring_global_stiffness/M2_run2. Proceed?
+PyTorch utilizing device: cuda
+Loading real-life input waveform from: /home/timg/D/Topological_PRC/OpenPRC-dev/src/openprc/experiments/sim2real_plate/input_data/experiment.h5
+Input loaded: 900000 physics steps → 750 frames at 30 Hz
+Sub-spring nodes: 136 total (16 main + 120 sub)
+Physical springs: 144 | Logical springs: 24 | Hinges: 129
+Data splits → Washout: 150, Train: 300, Test: 300
+AL Constraint (0,1): Viol=0.329695, Kappa=0.3297, Tau=0.9900
+AL Constraint (2,2): Viol=0.580976, Kappa=0.5810, Tau=0.9900
+Epoch 001 | Avg MSE: 2.22466 | IPC: 47.42 | Max MSE: 2.83827 | K levels: [  0.   222.15]
+/home/timg/D/Topological_PRC/OpenPRC-dev/src/openprc/examples/run_taichi_global_stiffness.py:226: MatplotlibDeprecationWarning: The get_cmap function was deprecated in Matplotlib 3.7 and will be removed in 3.11. Use ``matplotlib.colormaps[name]`` or ``matplotlib.colormaps.get_cmap()`` or ``pyplot.get_cmap()`` instead.
+  cmap = cm.get_cmap('viridis')
+^CTraceback (most recent call last):
+  File "/home/timg/D/Topological_PRC/OpenPRC-dev/src/openprc/examples/run_taichi_global_stiffness.py", line 848, in <module>
+    X_30Hz = ReservoirOptimizationFunction.apply(
+  File "/home/timg/D/Topological_PRC/.venv/lib/python3.10/site-packages/torch/autograd/function.py", line 581, in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+  File "/home/timg/D/Topological_PRC/OpenPRC-dev/src/openprc/examples/run_taichi_global_stiffness.py", line 668, in forward
+    res.run_batch_forward(u_sim, v_sim)
+  File "/home/timg/D/Topological_PRC/OpenPRC-dev/src/openprc/examples/run_taichi_global_stiffness.py", line 618, in run_batch_forward
+    self.compute_step(t, float(u_array[t]), float(v_array[t]))
+  File "/home/timg/D/Topological_PRC/.venv/lib/python3.10/site-packages/taichi/lang/kernel_impl.py", line 1174, in __call__
+    return self._primal(self._kernel_owner, *args, **kwargs)
+  File "/home/timg/D/Topological_PRC/.venv/lib/python3.10/site-packages/taichi/lang/kernel_impl.py", line 1043, in __call__
+    key = self.ensure_compiled(*args)
+  File "/home/timg/D/Topological_PRC/.venv/lib/python3.10/site-packages/taichi/lang/kernel_impl.py", line 1011, in ensure_compiled
+    self.materialize(key=key, args=args, arg_features=arg_features)
+  File "/home/timg/D/Topological_PRC/.venv/lib/python3.10/site-packages/taichi/lang/kernel_impl.py", line 637, in materialize
+    self.runtime.materialize()
+  File "/home/timg/D/Topological_PRC/.venv/lib/python3.10/site-packages/taichi/lang/impl.py", line 471, in materialize
+    self.materialize_root_fb(not self.materialized)
+  File "/home/timg/D/Topological_PRC/.venv/lib/python3.10/site-packages/taichi/lang/impl.py", line 392, in materialize_root_fb
+    if root.finalized:
+  File "/home/timg/D/Topological_PRC/.venv/lib/python3.10/site-packages/taichi/lang/impl.py", line 625, in __getattr__
+    def __getattr__(self, item):
+KeyboardInterrupt
+
+(.venv) (base) timg@gandalf-cphi:~/D/Topological_PRC$ /home/timg/D/Topological_PRC/.venv/bin/python /home/timg/D/Topological_PRC/OpenPRC-dev/src/openprc/examples/run_taichi_global_stiffness.py
+[Taichi] version 1.7.4, llvm 15.0.4, commit b4b956fd, linux, python 3.10.12
+[Taichi] Starting on arch=cuda
+Running Taichi_subspring_global_stiffness/M2_run2. Proceed?
+PyTorch utilizing device: cuda
+Loading real-life input waveform from: /home/timg/D/Topological_PRC/OpenPRC-dev/src/openprc/experiments/sim2real_plate/input_data/experiment.h5
+Input loaded: 900000 physics steps → 750 frames at 30 Hz
+Sub-spring nodes: 136 total (16 main + 120 sub)
+Physical springs: 144 | Logical springs: 24 | Hinges: 129
+Data splits → Washout: 150, Train: 300, Test: 300
+AL Constraint (0,1): Viol=0.333267, Kappa=0.3333, Tau=0.9900
+AL Constraint (2,2): Viol=0.520833, Kappa=0.5208, Tau=0.9900
+Epoch 001 | Avg MSE: 2.24109 | IPC: 52.70 | Max MSE: 2.87900 | K levels: [  0.   222.15]
+/home/timg/D/Topological_PRC/OpenPRC-dev/src/openprc/examples/run_taichi_global_stiffness.py:226: MatplotlibDeprecationWarning: The get_cmap function was deprecated in Matplotlib 3.7 and will be removed in 3.11. Use ``matplotlib.colormaps[name]`` or ``matplotlib.colormaps.get_cmap()`` or ``pyplot.get_cmap()`` instead.
+  cmap = cm.get_cmap('viridis')
+Epoch 002 | Avg MSE: 2.18636 | IPC: 43.36 | Max MSE: 2.78153 | K levels: [  0.   202.15]
+Epoch 003 | Avg MSE: 2.17829 | IPC: 38.45 | Max MSE: 2.76460 | K levels: [  0.  185.7]
+Epoch 004 | Avg MSE: 2.16783 | IPC: 37.21 | Max MSE: 2.75033 | K levels: [  0.   182.23]
+Epoch 005 | Avg MSE: 2.15048 | IPC: 37.32 | Max MSE: 2.73046 | K levels: [  0.   184.85]
+Epoch 006 | Avg MSE: 2.14258 | IPC: 41.15 | Max MSE: 2.71260 | K levels: [  0.  189.6]
+Epoch 007 | Avg MSE: 2.14424 | IPC: 44.37 | Max MSE: 2.70601 | K levels: [  0.   193.24]
+Epoch 008 | Avg MSE: 2.14652 | IPC: 47.30 | Max MSE: 2.72825 | K levels: [  0.   195.18]
+Epoch 009 | Avg MSE: 2.14738 | IPC: 49.37 | Max MSE: 2.75266 | K levels: [  0.   196.32]
+Epoch 010 | Avg MSE: 2.14689 | IPC: 51.56 | Max MSE: 2.77194 | K levels: [  0.   197.74]
+AL Constraint (0,1): Viol=0.192667, Kappa=3.0001, Tau=0.9900
+AL Constraint (2,2): Viol=0.167277, Kappa=3.6806, Tau=0.9227
+Epoch 011 | Avg MSE: 2.14542 | IPC: 52.58 | Max MSE: 2.79205 | K levels: [  0.   200.14]
+Epoch 012 | Avg MSE: 2.14668 | IPC: 54.00 | Max MSE: 2.93501 | K levels: [  0.   203.41]
+Epoch 013 | Avg MSE: 2.15293 | IPC: 55.91 | Max MSE: 3.00208 | K levels: [  0.   205.61]
+Epoch 014 | Avg MSE: 2.15640 | IPC: 57.00 | Max MSE: 2.98267 | K levels: [  0.   204.74]
+Epoch 015 | Avg MSE: 2.15566 | IPC: 56.97 | Max MSE: 2.90066 | K levels: [  0.   200.85]
+Epoch 016 | Avg MSE: 2.15895 | IPC: 55.71 | Max MSE: 2.80378 | K levels: [  0.   195.74]
+Epoch 017 | Avg MSE: 2.16599 | IPC: 55.84 | Max MSE: 2.79350 | K levels: [  0.   192.25]
+Epoch 018 | Avg MSE: 2.17175 | IPC: 57.01 | Max MSE: 2.79899 | K levels: [  0.   190.97]
+Epoch 019 | Avg MSE: 2.17679 | IPC: 57.51 | Max MSE: 2.80755 | K levels: [  0.   191.17]
+Epoch 020 | Avg MSE: 2.18179 | IPC: 57.52 | Max MSE: 2.81824 | K levels: [  0.   192.16]
+AL Constraint (0,1): Viol=0.056992, Kappa=4.0491, Tau=0.9044
+AL Constraint (2,2): Viol=0.028474, Kappa=4.3437, Tau=0.8345
+Epoch 021 | Avg MSE: 2.18665 | IPC: 57.80 | Max MSE: 2.83068 | K levels: [  0.   193.34]
+Epoch 022 | Avg MSE: 2.19077 | IPC: 58.50 | Max MSE: 2.84026 | K levels: [  0.   193.78]
+Epoch 023 | Avg MSE: 2.19309 | IPC: 58.42 | Max MSE: 2.83811 | K levels: [  0.   192.39]
+Epoch 024 | Avg MSE: 2.19076 | IPC: 56.78 | Max MSE: 2.81661 | K levels: [  0.   188.01]
+Epoch 025 | Avg MSE: 2.16365 | IPC: 52.44 | Max MSE: 2.72947 | K levels: [  0.   177.92]
+Epoch 026 | Avg MSE: 2.14467 | IPC: 45.07 | Max MSE: 2.68786 | K levels: [  0.   163.91]
+Epoch 027 | Avg MSE: 2.17244 | IPC: 44.02 | Max MSE: 2.72233 | K levels: [  0.   153.52]
+Epoch 028 | Avg MSE: 2.16688 | IPC: 43.85 | Max MSE: 2.71643 | K levels: [  0.   153.98]
+Epoch 029 | Avg MSE: 2.14297 | IPC: 43.63 | Max MSE: 2.68444 | K levels: [  0.   160.67]
+Epoch 030 | Avg MSE: 2.14572 | IPC: 47.61 | Max MSE: 2.68935 | K levels: [  0.   169.96]
+AL Constraint (0,1): Viol=0.013764, Kappa=4.2897, Tau=0.8179
+AL Constraint (2,2): Viol=0.004601, Kappa=4.4377, Tau=0.7547
+Epoch 031 | Avg MSE: 2.15254 | IPC: 49.94 | Max MSE: 2.70178 | K levels: [  0.   172.24]
+Epoch 032 | Avg MSE: 2.14257 | IPC: 46.93 | Max MSE: 2.68370 | K levels: [  0.   168.03]
+Epoch 033 | Avg MSE: 2.13792 | IPC: 43.83 | Max MSE: 2.67717 | K levels: [  0.   160.63]
+Epoch 034 | Avg MSE: 2.14756 | IPC: 42.65 | Max MSE: 2.69452 | K levels: [  0.   155.33]
+Epoch 035 | Avg MSE: 2.14589 | IPC: 42.66 | Max MSE: 2.69208 | K levels: [  0.   155.81]
+Epoch 036 | Avg MSE: 2.13763 | IPC: 43.82 | Max MSE: 2.67665 | K levels: [  0.  160.5]

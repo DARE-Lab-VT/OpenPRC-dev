@@ -23,7 +23,7 @@ from scipy.stats import chi2 # [NEW]
 
 # --- Optimization Imports ---
 from openprc.optimization.search_spaces.fourier_series_2D import FourierSeries2D
-from openprc.examples.spring_mass_2D import run_pipeline
+from openprc.examples.archived.spring_mass_2D import run_pipeline
 
 def calculate_dambre_epsilon(effective_rank: int, test_duration: int, p_value: float = 1e-4) -> float:
     """[NEW] Matches the calculation in run_memory_benchmark_pipeline.py"""

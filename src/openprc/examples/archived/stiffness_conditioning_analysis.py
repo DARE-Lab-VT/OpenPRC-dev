@@ -29,7 +29,7 @@ sys.path.insert(0, str(src_dir))
 
 # --- Core Library Imports ---
 # Renaming for clarity in this script's context
-from openprc.examples.spring_mass_2D import run_pipeline as run_spring_mass_simulation
+from openprc.examples.archived.spring_mass_2D import run_pipeline as run_spring_mass_simulation
 from openprc.reservoir.io.state_loader import StateLoader
 from openprc.reservoir.features.node_features import NodePositions, NodeDisplacements
 from openprc.reservoir.features.bar_features import BarLengths

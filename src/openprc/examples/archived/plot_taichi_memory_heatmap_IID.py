@@ -15,15 +15,20 @@ sys.path.insert(0, str(src_dir))
 # --- Core Library Imports ---
 from openprc.analysis.benchmarks.memory_benchmark import MemoryBenchmark
 from openprc.reservoir.io.state_loader import StateLoader
-from openprc.reservoir.features.node_features import NodePositions
+from openprc.reservoir.features.node_features import NodeDisplacements # [MODIFIED]
 from openprc.reservoir.training.trainer import Trainer
 from openprc.reservoir.readout.ridge import Ridge
 from openprc.demlat.utils.animator import ShowSimulation
+from scipy.stats import chi2 # [NEW]
 
 # --- Optimization Imports ---
 from openprc.optimization.search_spaces.fourier_series_2D import FourierSeries2D
-from openprc.examples.spring_mass_2D import run_pipeline
+from openprc.examples.archived.spring_mass_2D import run_pipeline
 
+def calculate_dambre_epsilon(effective_rank: int, test_duration: int, p_value: float = 1e-4) -> float:
+    """[NEW] Matches the calculation in run_memory_benchmark_pipeline.py"""
+    t = chi2.isf(p_value, df=effective_rank)
+    return (2.0 * t) / test_duration
 
 def plot_heatmap(
     heatmap, n_list, tau_d_list, k_delay, amp, n_mass, title_prefix,
@@ -92,7 +97,6 @@ def run_heatmap_pipeline_for_topology(rows, cols, k_mat, c_mat, run_suffix):
     
     # 1. Run simulation to get state data
     print(f"-> Running simulation...")
-    # ga_generation here acts as the subfolder name
     _, experiment_path = run_pipeline(
         rows=rows, cols=cols, k_mat=k_mat, c_mat=c_mat, ga_generation=run_suffix
     )
@@ -104,13 +108,19 @@ def run_heatmap_pipeline_for_topology(rows, cols, k_mat, c_mat, run_suffix):
 
     # 2. Setup benchmark sweep
     loader = StateLoader(h5_path)
-    # Using NodePositions to match current X-axis displacement focus
-    features = NodePositions() 
+    
+    # [MODIFIED]: Relative Displacements (Reference = Node 0, X-axis only)
+    features = NodeDisplacements(reference_node=0, dims=[0]) 
     u_input = loader.get_actuation_signal(actuator_idx=0, dof=0)
     
-    k_delay_val = 30
-    n_list = list(range(1, 9))
-    tau_d_list = list(range(6))
+    # [MODIFIED]: Match the optimizer's lag scale and Dambre threshold
+    k_delay_val = 10 
+    n_list = list(range(1, 5)) # IID memory degrades fast; N=1..4 is a realistic heatmap range
+    tau_d_list = list(range(0, 50, 5)) # Sample the 500-step lag horizon
+    
+    # 10.0 seconds of test_duration at dt=0.01 is 1000 steps
+    dambre_eps = calculate_dambre_epsilon(effective_rank=1.5, test_duration=1000)
+    
     heatmap = np.empty((len(n_list), len(tau_d_list)), dtype=float)
 
     print(f"-> Running benchmark sweep...")
@@ -119,7 +129,9 @@ def run_heatmap_pipeline_for_topology(rows, cols, k_mat, c_mat, run_suffix):
         n_s, tau_s = n_list[i], tau_d_list[j]
         
         benchmark = MemoryBenchmark(group_name=f"mem_bench_n{n_s}_tau{tau_s}")
-        benchmark_args = {"tau_s": tau_s, "n_s": n_s, "k_delay": k_delay_val, "ridge": 1e-6, "eps": 1e-9}
+        
+        # [MODIFIED]: Use dambre_eps instead of 1e-9
+        benchmark_args = {"tau_s": tau_s, "n_s": n_s, "k_delay": k_delay_val, "ridge": 1e-6, "eps": dambre_eps}
 
         trainer = Trainer(
             loader=loader, features=features, readout=Ridge(benchmark_args["ridge"]),
@@ -141,7 +153,7 @@ def main():
     Unified Pipeline to visualize Before vs. After based on TRIAL_NAME.
     """
     # --- Configuration (Must match 1_grid_opt.py) ---
-    TRIAL_NAME = "Taichi_Torsion"
+    TRIAL_NAME = "Taichi_IID_Memory_Opt_Low_k"
     ROWS, COLS = 4, 4
     
     EXPERIMENT_DIR = src_dir / "experiments" / TRIAL_NAME
@@ -167,13 +179,20 @@ def main():
     # Generate original uniform grid matrices
     c_mat_orig, k_mat_orig = fourier.build_full_neighbor_topology(ROWS, COLS, rigid_outer_frame=False)
     
+    TARGET_STIFFNESS = 100.0  # Must match the physics from your Taichi script
+    TARGET_DAMPING = 0.8
+
+    # Overwrite the default 222.15 values wherever a spring exists
+    k_mat_orig = np.where(k_mat_orig > 0, TARGET_STIFFNESS, 0.0)
+    c_mat_orig = np.where(c_mat_orig > 0, TARGET_DAMPING, 0.0)
+    
     heatmap_before, _ = run_heatmap_pipeline_for_topology(
         ROWS, COLS, k_mat_orig, c_mat_orig * 0.4, "uniform_grid"
     )
     
     if heatmap_before is not None:
         plot_heatmap(
-            heatmap_before, list(range(1, 9)), list(range(6)), k_delay=30, amp=1, n_mass=ROWS*COLS,
+            heatmap_before, list(range(1, 9)), list(range(6)), k_delay=10, amp=1, n_mass=ROWS*COLS,
             title_prefix="Memory Heatmap (Uniform Grid)",
             save_dir=EXPERIMENT_DIR, 
             save_name="heatmap_before_optimization", 
@@ -196,7 +215,7 @@ def main():
         
         if heatmap_after is not None:
             plot_heatmap(
-                heatmap_after, list(range(1, 9)), list(range(6)), k_delay=30, amp=1, n_mass=ROWS*COLS,
+                heatmap_after, list(range(1, 9)), list(range(6)), k_delay=10, amp=1, n_mass=ROWS*COLS,
                 title_prefix="Memory Heatmap (After Taichi Optimization)",
                 save_dir=EXPERIMENT_DIR, 
                 save_name="heatmap_after_optimization", 

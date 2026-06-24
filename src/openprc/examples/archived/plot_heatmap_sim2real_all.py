@@ -36,11 +36,7 @@ from scipy.stats import chi2 # [NEW]
 
 # --- Optimization Imports ---
 from openprc.optimization.search_spaces.fourier_series_2D import FourierSeries2D
-from openprc.examples.spring_mass_2D_plate_v3 import run_pipeline   #plate_v3
-#from openprc.examples.spring_mass_2D_plate_v4 import run_pipeline   #plate_v4
-
-#from openprc.examples.spring_mass_2D_filter import run_pipeline     #naive
-
+from openprc.examples.archived.spring_mass_2D import run_pipeline
 
 def calculate_dambre_epsilon(effective_rank: int, test_duration: int, p_value: float = 1e-4) -> float:
     """[NEW] Matches the calculation in run_memory_benchmark_pipeline.py"""
@@ -62,8 +58,8 @@ def compute_test_frames(loader, test_duration_s: float = 10.0) -> int:
     """Extracts the exact number of test frames based on the simulation save_interval."""
     import h5py
     with h5py.File(loader.sim_path, 'r') as f:
-        fps = float(f.attrs.get('fps', f.attrs.get('frame_rate', 30.0)))
-    return max(1, int(round(test_duration_s * fps)))
+        fps = float(f.attrs.get('fps', 29.97))
+    return max(1, int(test_duration_s * fps))
 
 
 def plot_heatmap(
@@ -127,18 +123,13 @@ def plot_heatmap(
         plt.close(fig)
 
 
-def run_heatmap_pipeline_for_topology(rows, cols, k_mat, c_mat, run_suffix, input_filepath=None):
+def run_heatmap_pipeline_for_topology(rows, cols, k_mat, c_mat, run_suffix):
     print(f"\n--- Running Full Pipeline for Topology: {run_suffix} ---")
-
+    
     print(f"-> Running simulation...")
-
-    if input_filepath is None:
-        # Resolve absolute path relative to this file so it works regardless of CWD
-        input_filepath = str(Path(__file__).parent.parent / "experiments" / "sim2real_plate" / "input_data" / "experiment.h5")
     _, experiment_path = run_pipeline(
-        rows=rows, cols=cols, k_mat=k_mat, c_mat=c_mat,
-        ga_generation=run_suffix, amplitude=0.02, target_hz=30.0,
-        input_filepath=input_filepath
+        rows=rows, cols=cols, k_mat=k_mat, c_mat=c_mat, 
+        ga_generation=run_suffix, amplitude=0.02, target_hz=30.0
     )
     h5_path = experiment_path / "output" / "simulation.h5"
     if not h5_path.exists():
@@ -148,13 +139,8 @@ def run_heatmap_pipeline_for_topology(rows, cols, k_mat, c_mat, run_suffix, inpu
 
     loader = StateLoader(h5_path)
     
-    main_node_indices = list(range(rows * cols)) 
-    
-    features = NodeDisplacements(
-        reference_node=0, 
-        dims=[0, 1], 
-        node_ids=main_node_indices 
-    )
+    # [CRITICAL FIX 1]: Use BOTH X and Y displacements!
+    features = NodeDisplacements(reference_node=0, dims=[0, 1]) 
     u_input = loader.get_actuation_signal(actuator_idx=0, dof=0)
     
     # [CRITICAL FIX 2]: Dynamically calculate exact Effective Rank (N) and Frames (T)
@@ -200,16 +186,16 @@ def main():
     Standalone Pipeline to evaluate specific topologies for Sim2Real calibration.
     """
     # --- Configuration ---
-    TRIAL_DIR = "Taichi_subspring_global_stiffness/M2_NL"
+    TRIAL_DIR = "sim2real_all"
     ROWS, COLS = 4, 4
-    REMARK = "_"
+    REMARK = "hinge_damping_0.5_amplitude_1.5"
     
     # --- Control Flags ---
     SWEEP_ALL = False  # Set to True to loop all, False to run only TOPOLOGY_NO
-    TOPOLOGY_NO = 12
+    TOPOLOGY_NO = 4
 
-    TARGET_STIFFNESS = 182
-    TARGET_DAMPING = TARGET_STIFFNESS/222.15 * 0.80
+    TARGET_STIFFNESS = 222.15  
+    TARGET_DAMPING = 0.8
     
     fourier = FourierSeries2D(ROWS, COLS)
 
@@ -217,19 +203,11 @@ def main():
     # --- Topology Dictionary ---
     # ==========================================
     topologies_dict = {
-        "topo_0": [], # Baseline: Fully connected
-        "topo_1": [(5, 6), (6, 7), (8, 9)], # Example: Removed springs between 0-1 and 2-3
-        "topo_2": [(2, 6), (4, 5), (8, 9), (10, 11)], # Example: Removed three internal springs
-        "topo_3": [(1, 5), (2, 6), (9, 13), (10, 14)],
-        "topo_4": [(1, 5), (2, 6), (5, 9), (6, 10), (9, 13), (10, 14)],
-        "topo_5": [(4, 5), (5, 6), (6, 7), (8, 9), (9, 10), (10, 11)],
-        "topo_6": [(2, 6), (8, 9)], #taichi1 results, c0.32
-        "topo_7": [(5, 6), (7, 8)], #taichi2 results, c0.8, 5x5
-        "topo_8": [(1, 6), (8, 9)], #taichi3 results, c0.8, 5x5
-        "topo_9": [(5, 6)], #taichi4 results, c0.8, 5x5
-        "topo_10": [(10, 11)], #Taichi_subspring_global_stiffness/M2_run3
-        "topo_11": [(1, 5)], #Taichi_subspring_global_stiffness/M2_L
-        "topo_12": [(8, 9), (10, 11)] #Taichi_subspring_global_stiffness/M2_NL
+        "topo_1": [], # Baseline: Fully connected
+        "topo_2": [(5, 6), (6, 7), (8, 9)], # Example: Removed springs between 0-1 and 2-3
+        "topo_3": [(2, 6), (4, 5), (8, 9), (10, 11)], # Example: Removed three internal springs
+        "topo_4": [(1, 5), (2, 6), (9, 13), (10, 14)],
+        "topo_5": [(1, 5), (2, 6), (5, 9), (6, 10), (9, 13), (10, 14)]
     }
 
     # --- Filtering Logic ---
@@ -285,8 +263,8 @@ def main():
                 show=False, save_png=True, save_svg=True
             )
             
-            # print(f"[INFO] Launching GUI visualizer for {topo_name}...")
-            # ShowSimulation(str(exp_path))
+            print(f"[INFO] Launching GUI visualizer for {topo_name}...")
+            ShowSimulation(str(exp_path))
 
     print(f"\n[Done] All evaluations finished. Base Directory: {src_dir / 'experiments' / TRIAL_DIR}")
 

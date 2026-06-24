@@ -20,7 +20,7 @@ try:
     # Your specific training module
     from openprc.analysis.utils.training_utils import compute_ipc_components
     from openprc.optimization.search_spaces.fourier_series_2D import FourierSeries2D
-    from openprc.examples.spring_mass_2D import run_pipeline
+    from openprc.examples.archived.spring_mass_2D import run_pipeline
     from openprc.demlat.utils.animator import ShowSimulation
 except ImportError as e:
     print(f"Import failed: {e}")

@@ -26,7 +26,7 @@ src_dir = current_dir.parent
 sys.path.insert(0, str(src_dir))
 
 from openprc.optimization.search_spaces.fourier_series_2D import FourierSeries2D
-from openprc.examples.spring_mass_2D_plate import run_pipeline
+from openprc.examples.archived.spring_mass_2D_plate import run_pipeline
 from openprc.demlat.utils.animator import ShowSimulation
 
 def simulate_and_visualize(topo_name="topo_test", removed_springs=[]):

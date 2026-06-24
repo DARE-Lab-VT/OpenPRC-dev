@@ -22,7 +22,7 @@ from openprc.demlat.utils.animator import ShowSimulation
 
 # --- GA-specific Imports ---
 from openprc.optimization.search_spaces.fourier_series_2D import FourierSeries2D
-from openprc.examples.spring_mass_2D import run_pipeline
+from openprc.examples.archived.spring_mass_2D import run_pipeline
 
 
 def plot_heatmap(
