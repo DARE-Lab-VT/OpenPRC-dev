@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 # ---------------------------------------------------------------------------
 [project]
 name = "openprc"
-version = "0.1.0"
+version = "0.1.1"
 description = "A modular, GPU-accelerated framework for Physical Reservoir Computing simulation and evaluation"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -29,7 +29,8 @@ classifiers = [
 ]
 requires-python = ">=3.10"
 
-# Core dependencies — needed for CPU-based DEMLAT simulation and readout
+# Core dependencies — needed for CPU-based DEMLAT simulation, readout, and the
+# interactive 3-D viewer used by the Quick Start (piviz-3d + imgui).
 dependencies = [
     "numpy>=1.24",
     "h5py>=3.8",
@@ -38,6 +39,8 @@ dependencies = [
     "scikit-learn>=1.3",
     "tqdm>=4.65",
     "matplotlib>=3.7",
+    "piviz-3d>=2.0",   # 3-D animator (imported as `piviz`)
+    "imgui>=2.0",      # Dear ImGui bindings for the viewer UI
 ]
 
 [project.urls]
@@ -62,9 +65,9 @@ jax = [
     "jaxlib>=0.4.1",
 ]
 
-# 3-D visualization (PiViz + Dear ImGui)
-# piviz-3d is Yogesh's rendering library — install separately if not on PyPI:
-#   pip install git+https://github.com/PhalcoAi/PiViz
+# 3-D visualization (PiViz + Dear ImGui).
+# NOTE: these are now part of the core dependencies (the Quick Start viewer needs
+# them); this extra is kept for backward compatibility with `openprc[viz]`.
 viz = [
     "piviz-3d>=2.0",
     "imgui>=2.0",

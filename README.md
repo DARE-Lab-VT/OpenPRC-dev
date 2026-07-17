@@ -91,9 +91,9 @@ pip install openprc[full]
 | `numpy`, `h5py`, `scipy` | Core numerics and I/O | *(always)* |
 | `numba` | JIT-compiled CPU physics | *(always)* |
 | `scikit-learn` | Ridge readout | *(always)* |
+| `piviz-3d`, `imgui` | 3-D animator (Quick Start viewer) | *(always)* |
 | `pycuda` | CUDA backend | `[cuda]` |
 | `jax` / `jaxlib` | Differentiable JAX backend | `[jax]` |
-| `piviz-3d`, `imgui` | 3-D animator | `[viz]` |
 | `opencv-python` | Vision utilities | `[vision]` |
 | `trimesh`, `rosbags`, `yourdfpy` | Robot bundle tooling | `[automod]` |
 
@@ -220,11 +220,11 @@ result = trainer.train(y_target, task_name="NARMA10")
 result.save()
 ```
 
-### `analysis` — Correlation Diagnostics & Multistability
+### `analysis` — Correlation Diagnostics, Multistability & Reach Spectroscopy
 
 ```python
 from openprc.analysis import correlation as corr
-from openprc.analysis import EquilibriumFinder
+from openprc.analysis import EquilibriumFinder, reach_spectroscopy
 
 # ── Correlation diagnostics (x: features, y: targets) ────────────────────
 lin = corr.Linear(x, y, lag_sweep=True)
@@ -239,6 +239,25 @@ finder  = EquilibriumFinder.from_experiment("./experiments/my_exp")
 results = finder.find_all(num_random=50)
 results.summary()
 finder.save_results(results, "./experiments/my_exp/equilibria.h5")
+
+# ── Reach spectroscopy: identify the "machine" behind a driven reservoir ──
+# Works on *parsed timeseries* — decoupled from any experiment directory.
+from openprc.reservoir import StateLoader, features as feat
+
+loader = StateLoader("./experiments/my_exp/output/simulation.h5")
+states = feat.NodeDisplacements(reference_node=0).transform(loader)  # (T, N) readout
+drive  = loader.get_actuation_signal(actuator_idx=0, dof=1)          # (T,) actuation
+
+M = reach_spectroscopy(states, t=loader.time, drive=drive)
+print(M.D)                 # reach per tolerance, e.g. {0.01: 6, 0.001: 4}
+print(M.phi_n)             # harmonic phases {φ_n} of the abstraction
+M.summary()                # per-harmonic capacity / quadrature table
+M.plot()                   # six-panel scientific figure
+M.save("./experiments/my_exp/output")   # → machine_abstraction.json + .npz
+
+# Mask any measurement for a faster / leaner run:
+M = reach_spectroscopy(states, t=loader.time, drive=drive,
+                       noise_floor=False, rank=False, input_spectrum=False)
 ```
 
 ### `optimize` — JAX-Based Parameter Calibration

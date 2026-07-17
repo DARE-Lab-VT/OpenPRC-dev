@@ -21,9 +21,13 @@ Example
 """
 
 from .multistability.equilibria import EquilibriumFinder, Equilibrium, FinderResults
+from .spectroscopy import reach_spectroscopy, spectroscopy_core, MachineAbstraction
 
 __all__ = [
     "EquilibriumFinder",
     "Equilibrium",
     "FinderResults",
+    "reach_spectroscopy",
+    "spectroscopy_core",
+    "MachineAbstraction",
 ]
