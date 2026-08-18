@@ -1,0 +1,69 @@
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]   # triggers when you publish a GitHub Release
+
+jobs:
+  build:
+    name: Build distribution
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build
+        run: pip install build
+
+      - name: Build wheel and sdist
+        run: python -m build
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+#  publish-testpypi:
+#    name: Publish to TestPyPI
+#    needs: build
+#    runs-on: ubuntu-latest
+#    environment:
+#      name: testpypi
+#      url: https://test.pypi.org/p/openprc
+#
+#    permissions:
+#      id-token: write   # required for OIDC Trusted Publisher
+#
+#    steps:
+#      - uses: actions/download-artifact@v4
+#        with:
+#          name: dist
+#          path: dist/
+#
+#      - uses: pypa/gh-action-pypi-publish@release/v1
+#        with:
+#          repository-url: https://test.pypi.org/legacy/
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/openprc
+
+    permissions:
+      id-token: write   # required for OIDC Trusted Publisher
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1

@@ -1,0 +1,1127 @@
+{
+  "schema_version": "0.1.0",
+  "version": "0.1.0",
+  "created_utc": "2026-04-24T03:13:42.511606Z",
+  "robots": {
+    "g1": {
+      "metadata_path": "g1/metadata.json",
+      "urdf_path": "g1/urdf/g1.urdf",
+      "n_dof_actuated": 29,
+      "floating_base": true,
+      "trajectory_count": 38,
+      "trajectories": [
+        {
+          "id": "g1_wbt_inspire_pickup_pillow_ep0000_clip00",
+          "path": "g1/trajectories/g1_wbt_inspire_pickup_pillow_ep0000_clip00.h5",
+          "duration_s": 8.666666666666666,
+          "frequency_hz": 30.0,
+          "n_timesteps": 261,
+          "source": "unitree_hf_g1_wbt_inspire_pickup_pillow",
+          "source_type": "teleop_real",
+          "source_license": "Apache-2.0",
+          "signals_present": [
+            "qpos",
+            "action/target_qpos"
+          ],
+          "task": "g1_wbt_inspire_pickup_pillow",
+          "split": "train"
+        },
+        {
+          "id": "g1_wbt_inspire_pickup_pillow_ep0001_clip00",
+          "path": "g1/trajectories/g1_wbt_inspire_pickup_pillow_ep0001_clip00.h5",
+          "duration_s": 8.033333333333333,
+          "frequency_hz": 30.0,
+          "n_timesteps": 242,
+          "source": "unitree_hf_g1_wbt_inspire_pickup_pillow",
+          "source_type": "teleop_real",
+          "source_license": "Apache-2.0",
+          "signals_present": [
+            "qpos",
+            "action/target_qpos"
+          ],
+          "task": "g1_wbt_inspire_pickup_pillow",
+          "split": "train"
+        },
+        {
+          "id": "g1_wbt_inspire_pickup_pillow_ep0002_clip00",
+          "path": "g1/trajectories/g1_wbt_inspire_pickup_pillow_ep0002_clip00.h5",
+          "duration_s": 8.166666666666666,
+          "frequency_hz": 30.0,
+          "n_timesteps": 246,
+          "source": "unitree_hf_g1_wbt_inspire_pickup_pillow",
+          "source_type": "teleop_real",
+          "source_license": "Apache-2.0",
+          "signals_present": [
+            "qpos",
+            "action/target_qpos"
+          ],
+          "task": "g1_wbt_inspire_pickup_pillow",
+          "split": "test"
+        },
+        {
+          "id": "lafan1_dance2_subject1_clip00",
+          "path": "g1/trajectories/lafan1_dance2_subject1_clip00.h5",
+          "duration_s": 29.966666666666665,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "dance2_subject1",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_dance2_subject1_clip01",
+          "path": "g1/trajectories/lafan1_dance2_subject1_clip01.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "dance2_subject1",
+          "split": "test"
+        },
+        {
+          "id": "lafan1_dance2_subject1_clip02",
+          "path": "g1/trajectories/lafan1_dance2_subject1_clip02.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "dance2_subject1",
+          "split": "test"
+        },
+        {
+          "id": "lafan1_dance2_subject1_clip03",
+          "path": "g1/trajectories/lafan1_dance2_subject1_clip03.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "dance2_subject1",
+          "split": "test"
+        },
+        {
+          "id": "lafan1_dance2_subject1_clip04",
+          "path": "g1/trajectories/lafan1_dance2_subject1_clip04.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "dance2_subject1",
+          "split": "test"
+        },
+        {
+          "id": "lafan1_dance2_subject1_clip05",
+          "path": "g1/trajectories/lafan1_dance2_subject1_clip05.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "dance2_subject1",
+          "split": "test"
+        },
+        {
+          "id": "lafan1_dance2_subject1_clip06",
+          "path": "g1/trajectories/lafan1_dance2_subject1_clip06.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "dance2_subject1",
+          "split": "test"
+        },
+        {
+          "id": "lafan1_fallAndGetUp1_subject1_clip00",
+          "path": "g1/trajectories/lafan1_fallAndGetUp1_subject1_clip00.h5",
+          "duration_s": 29.966666666666665,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "fallAndGetUp1_subject1",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_fallAndGetUp1_subject1_clip01",
+          "path": "g1/trajectories/lafan1_fallAndGetUp1_subject1_clip01.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "fallAndGetUp1_subject1",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_fallAndGetUp1_subject1_clip02",
+          "path": "g1/trajectories/lafan1_fallAndGetUp1_subject1_clip02.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "fallAndGetUp1_subject1",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_fallAndGetUp1_subject1_clip03",
+          "path": "g1/trajectories/lafan1_fallAndGetUp1_subject1_clip03.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "fallAndGetUp1_subject1",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_fallAndGetUp1_subject1_clip04",
+          "path": "g1/trajectories/lafan1_fallAndGetUp1_subject1_clip04.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "fallAndGetUp1_subject1",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_jumps1_subject1_clip00",
+          "path": "g1/trajectories/lafan1_jumps1_subject1_clip00.h5",
+          "duration_s": 29.966666666666665,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "jumps1_subject1",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_jumps1_subject1_clip01",
+          "path": "g1/trajectories/lafan1_jumps1_subject1_clip01.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "jumps1_subject1",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_jumps1_subject1_clip02",
+          "path": "g1/trajectories/lafan1_jumps1_subject1_clip02.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "jumps1_subject1",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_jumps1_subject1_clip03",
+          "path": "g1/trajectories/lafan1_jumps1_subject1_clip03.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "jumps1_subject1",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_jumps1_subject1_clip04",
+          "path": "g1/trajectories/lafan1_jumps1_subject1_clip04.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "jumps1_subject1",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_jumps1_subject1_clip05",
+          "path": "g1/trajectories/lafan1_jumps1_subject1_clip05.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "jumps1_subject1",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_jumps1_subject1_clip06",
+          "path": "g1/trajectories/lafan1_jumps1_subject1_clip06.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "jumps1_subject1",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_jumps1_subject1_clip07",
+          "path": "g1/trajectories/lafan1_jumps1_subject1_clip07.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "jumps1_subject1",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_run1_subject2_clip00",
+          "path": "g1/trajectories/lafan1_run1_subject2_clip00.h5",
+          "duration_s": 29.966666666666665,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "run1_subject2",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_run1_subject2_clip01",
+          "path": "g1/trajectories/lafan1_run1_subject2_clip01.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "run1_subject2",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_run1_subject2_clip02",
+          "path": "g1/trajectories/lafan1_run1_subject2_clip02.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "run1_subject2",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_run1_subject2_clip03",
+          "path": "g1/trajectories/lafan1_run1_subject2_clip03.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "run1_subject2",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_run1_subject2_clip04",
+          "path": "g1/trajectories/lafan1_run1_subject2_clip04.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "run1_subject2",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_run1_subject2_clip05",
+          "path": "g1/trajectories/lafan1_run1_subject2_clip05.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "run1_subject2",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_run1_subject2_clip06",
+          "path": "g1/trajectories/lafan1_run1_subject2_clip06.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "run1_subject2",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_walk1_subject1_clip00",
+          "path": "g1/trajectories/lafan1_walk1_subject1_clip00.h5",
+          "duration_s": 29.966666666666665,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "walk1_subject1",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_walk1_subject1_clip01",
+          "path": "g1/trajectories/lafan1_walk1_subject1_clip01.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "walk1_subject1",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_walk1_subject1_clip02",
+          "path": "g1/trajectories/lafan1_walk1_subject1_clip02.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "walk1_subject1",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_walk1_subject1_clip03",
+          "path": "g1/trajectories/lafan1_walk1_subject1_clip03.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "walk1_subject1",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_walk1_subject1_clip04",
+          "path": "g1/trajectories/lafan1_walk1_subject1_clip04.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "walk1_subject1",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_walk1_subject1_clip05",
+          "path": "g1/trajectories/lafan1_walk1_subject1_clip05.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "walk1_subject1",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_walk1_subject1_clip06",
+          "path": "g1/trajectories/lafan1_walk1_subject1_clip06.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "walk1_subject1",
+          "split": "train"
+        },
+        {
+          "id": "lafan1_walk1_subject1_clip07",
+          "path": "g1/trajectories/lafan1_walk1_subject1_clip07.h5",
+          "duration_s": 29.96666666666667,
+          "frequency_hz": 30.0,
+          "n_timesteps": 900,
+          "source": "lafan1_retargeted_g1",
+          "source_type": "sim_rollout",
+          "source_license": "CC-BY-NC-ND-4.0",
+          "signals_present": [
+            "qpos",
+            "base_pose"
+          ],
+          "task": "walk1_subject1",
+          "split": "train"
+        }
+      ]
+    },
+    "g1_dex3": {
+      "metadata_path": "g1_dex3/metadata.json",
+      "urdf_path": "g1_dex3/urdf/g1_with_hands.urdf",
+      "n_dof_actuated": 28,
+      "floating_base": true,
+      "trajectory_count": 5,
+      "trajectories": [
+        {
+          "id": "dex3_g1_dex3_toastedbread_ep0000_clip00",
+          "path": "g1_dex3/trajectories/dex3_g1_dex3_toastedbread_ep0000_clip00.h5",
+          "duration_s": 20.633333333333333,
+          "frequency_hz": 30.0,
+          "n_timesteps": 620,
+          "source": "unitree_hf_g1_dex3_toastedbread",
+          "source_type": "teleop_real",
+          "source_license": "Apache-2.0",
+          "signals_present": [
+            "qpos",
+            "action/target_qpos"
+          ],
+          "task": "g1_dex3_toastedbread",
+          "split": "train"
+        },
+        {
+          "id": "dex3_g1_dex3_toastedbread_ep0001_clip00",
+          "path": "g1_dex3/trajectories/dex3_g1_dex3_toastedbread_ep0001_clip00.h5",
+          "duration_s": 39.7,
+          "frequency_hz": 30.0,
+          "n_timesteps": 1192,
+          "source": "unitree_hf_g1_dex3_toastedbread",
+          "source_type": "teleop_real",
+          "source_license": "Apache-2.0",
+          "signals_present": [
+            "qpos",
+            "action/target_qpos"
+          ],
+          "task": "g1_dex3_toastedbread",
+          "split": "train"
+        },
+        {
+          "id": "dex3_g1_dex3_toastedbread_ep0002_clip00",
+          "path": "g1_dex3/trajectories/dex3_g1_dex3_toastedbread_ep0002_clip00.h5",
+          "duration_s": 42.333333333333336,
+          "frequency_hz": 30.0,
+          "n_timesteps": 1271,
+          "source": "unitree_hf_g1_dex3_toastedbread",
+          "source_type": "teleop_real",
+          "source_license": "Apache-2.0",
+          "signals_present": [
+            "qpos",
+            "action/target_qpos"
+          ],
+          "task": "g1_dex3_toastedbread",
+          "split": "train"
+        },
+        {
+          "id": "dex3_g1_dex3_toastedbread_ep0003_clip00",
+          "path": "g1_dex3/trajectories/dex3_g1_dex3_toastedbread_ep0003_clip00.h5",
+          "duration_s": 46.233333333333334,
+          "frequency_hz": 30.0,
+          "n_timesteps": 1388,
+          "source": "unitree_hf_g1_dex3_toastedbread",
+          "source_type": "teleop_real",
+          "source_license": "Apache-2.0",
+          "signals_present": [
+            "qpos",
+            "action/target_qpos"
+          ],
+          "task": "g1_dex3_toastedbread",
+          "split": "train"
+        },
+        {
+          "id": "dex3_g1_dex3_toastedbread_ep0004_clip00",
+          "path": "g1_dex3/trajectories/dex3_g1_dex3_toastedbread_ep0004_clip00.h5",
+          "duration_s": 47.8,
+          "frequency_hz": 30.0,
+          "n_timesteps": 1435,
+          "source": "unitree_hf_g1_dex3_toastedbread",
+          "source_type": "teleop_real",
+          "source_license": "Apache-2.0",
+          "signals_present": [
+            "qpos",
+            "action/target_qpos"
+          ],
+          "task": "g1_dex3_toastedbread",
+          "split": "test"
+        }
+      ]
+    },
+    "go1": {
+      "metadata_path": "go1/metadata.json",
+      "urdf_path": "go1/urdf/go1.urdf",
+      "n_dof_actuated": 12,
+      "floating_base": true,
+      "trajectory_count": 14,
+      "trajectories": [
+        {
+          "id": "corridor_000",
+          "path": "go1/trajectories/corridor_000.h5",
+          "duration_s": 29.9912326335907,
+          "frequency_hz": 29127.11111111111,
+          "n_timesteps": 14926,
+          "source": "legkilo",
+          "source_type": "real_hardware",
+          "source_license": "MIT",
+          "signals_present": [
+            "qpos",
+            "qvel",
+            "tau",
+            "base_pose",
+            "contact/foot_force",
+            "contact/foot_force_est",
+            "contact/contact_flags"
+          ],
+          "task": "corridor sequence",
+          "split": "train"
+        },
+        {
+          "id": "corridor_001",
+          "path": "go1/trajectories/corridor_001.h5",
+          "duration_s": 29.960086345672607,
+          "frequency_hz": 28532.680272108842,
+          "n_timesteps": 14949,
+          "source": "legkilo",
+          "source_type": "real_hardware",
+          "source_license": "MIT",
+          "signals_present": [
+            "qpos",
+            "qvel",
+            "tau",
+            "base_pose",
+            "contact/foot_force",
+            "contact/foot_force_est",
+            "contact/contact_flags"
+          ],
+          "task": "corridor sequence",
+          "split": "train"
+        },
+        {
+          "id": "corridor_002",
+          "path": "go1/trajectories/corridor_002.h5",
+          "duration_s": 29.953574657440186,
+          "frequency_hz": 28728.109589041094,
+          "n_timesteps": 14942,
+          "source": "legkilo",
+          "source_type": "real_hardware",
+          "source_license": "MIT",
+          "signals_present": [
+            "qpos",
+            "qvel",
+            "tau",
+            "base_pose",
+            "contact/foot_force",
+            "contact/foot_force_est",
+            "contact/contact_flags"
+          ],
+          "task": "corridor sequence",
+          "split": "train"
+        },
+        {
+          "id": "corridor_003",
+          "path": "go1/trajectories/corridor_003.h5",
+          "duration_s": 29.961596488952637,
+          "frequency_hz": 28926.23448275862,
+          "n_timesteps": 14920,
+          "source": "legkilo",
+          "source_type": "real_hardware",
+          "source_license": "MIT",
+          "signals_present": [
+            "qpos",
+            "qvel",
+            "tau",
+            "base_pose",
+            "contact/foot_force",
+            "contact/foot_force_est",
+            "contact/contact_flags"
+          ],
+          "task": "corridor sequence",
+          "split": "train"
+        },
+        {
+          "id": "corridor_004",
+          "path": "go1/trajectories/corridor_004.h5",
+          "duration_s": 29.95484972000122,
+          "frequency_hz": 28926.23448275862,
+          "n_timesteps": 14916,
+          "source": "legkilo",
+          "source_type": "real_hardware",
+          "source_license": "MIT",
+          "signals_present": [
+            "qpos",
+            "qvel",
+            "tau",
+            "base_pose",
+            "contact/foot_force",
+            "contact/foot_force_est",
+            "contact/contact_flags"
+          ],
+          "task": "corridor sequence",
+          "split": "train"
+        },
+        {
+          "id": "corridor_005",
+          "path": "go1/trajectories/corridor_005.h5",
+          "duration_s": 29.963983297348022,
+          "frequency_hz": 28926.23448275862,
+          "n_timesteps": 14949,
+          "source": "legkilo",
+          "source_type": "real_hardware",
+          "source_license": "MIT",
+          "signals_present": [
+            "qpos",
+            "qvel",
+            "tau",
+            "base_pose",
+            "contact/foot_force",
+            "contact/foot_force_est",
+            "contact/contact_flags"
+          ],
+          "task": "corridor sequence",
+          "split": "train"
+        },
+        {
+          "id": "corridor_006",
+          "path": "go1/trajectories/corridor_006.h5",
+          "duration_s": 29.97559642791748,
+          "frequency_hz": 29537.352112676057,
+          "n_timesteps": 14950,
+          "source": "legkilo",
+          "source_type": "real_hardware",
+          "source_license": "MIT",
+          "signals_present": [
+            "qpos",
+            "qvel",
+            "tau",
+            "base_pose",
+            "contact/foot_force",
+            "contact/foot_force_est",
+            "contact/contact_flags"
+          ],
+          "task": "corridor sequence",
+          "split": "train"
+        },
+        {
+          "id": "corridor_007",
+          "path": "go1/trajectories/corridor_007.h5",
+          "duration_s": 29.952237367630005,
+          "frequency_hz": 29127.11111111111,
+          "n_timesteps": 14936,
+          "source": "legkilo",
+          "source_type": "real_hardware",
+          "source_license": "MIT",
+          "signals_present": [
+            "qpos",
+            "qvel",
+            "tau",
+            "base_pose",
+            "contact/foot_force",
+            "contact/foot_force_est",
+            "contact/contact_flags"
+          ],
+          "task": "corridor sequence",
+          "split": "train"
+        },
+        {
+          "id": "corridor_008",
+          "path": "go1/trajectories/corridor_008.h5",
+          "duration_s": 29.987196683883667,
+          "frequency_hz": 29127.11111111111,
+          "n_timesteps": 14948,
+          "source": "legkilo",
+          "source_type": "real_hardware",
+          "source_license": "MIT",
+          "signals_present": [
+            "qpos",
+            "qvel",
+            "tau",
+            "base_pose",
+            "contact/foot_force",
+            "contact/foot_force_est",
+            "contact/contact_flags"
+          ],
+          "task": "corridor sequence",
+          "split": "train"
+        },
+        {
+          "id": "corridor_009",
+          "path": "go1/trajectories/corridor_009.h5",
+          "duration_s": 29.96383500099182,
+          "frequency_hz": 29127.11111111111,
+          "n_timesteps": 14940,
+          "source": "legkilo",
+          "source_type": "real_hardware",
+          "source_license": "MIT",
+          "signals_present": [
+            "qpos",
+            "qvel",
+            "tau",
+            "base_pose",
+            "contact/foot_force",
+            "contact/foot_force_est",
+            "contact/contact_flags"
+          ],
+          "task": "corridor sequence",
+          "split": "train"
+        },
+        {
+          "id": "corridor_010",
+          "path": "go1/trajectories/corridor_010.h5",
+          "duration_s": 29.963528394699097,
+          "frequency_hz": 28728.109589041094,
+          "n_timesteps": 14955,
+          "source": "legkilo",
+          "source_type": "real_hardware",
+          "source_license": "MIT",
+          "signals_present": [
+            "qpos",
+            "qvel",
+            "tau",
+            "base_pose",
+            "contact/foot_force",
+            "contact/foot_force_est",
+            "contact/contact_flags"
+          ],
+          "task": "corridor sequence",
+          "split": "train"
+        },
+        {
+          "id": "corridor_011",
+          "path": "go1/trajectories/corridor_011.h5",
+          "duration_s": 29.93333148956299,
+          "frequency_hz": 28728.109589041094,
+          "n_timesteps": 14913,
+          "source": "legkilo",
+          "source_type": "real_hardware",
+          "source_license": "MIT",
+          "signals_present": [
+            "qpos",
+            "qvel",
+            "tau",
+            "base_pose",
+            "contact/foot_force",
+            "contact/foot_force_est",
+            "contact/contact_flags"
+          ],
+          "task": "corridor sequence",
+          "split": "train"
+        },
+        {
+          "id": "corridor_012",
+          "path": "go1/trajectories/corridor_012.h5",
+          "duration_s": 29.981032848358154,
+          "frequency_hz": 28728.109589041094,
+          "n_timesteps": 14943,
+          "source": "legkilo",
+          "source_type": "real_hardware",
+          "source_license": "MIT",
+          "signals_present": [
+            "qpos",
+            "qvel",
+            "tau",
+            "base_pose",
+            "contact/foot_force",
+            "contact/foot_force_est",
+            "contact/contact_flags"
+          ],
+          "task": "corridor sequence",
+          "split": "test"
+        },
+        {
+          "id": "corridor_013",
+          "path": "go1/trajectories/corridor_013.h5",
+          "duration_s": 29.93432116508484,
+          "frequency_hz": 29127.11111111111,
+          "n_timesteps": 14923,
+          "source": "legkilo",
+          "source_type": "real_hardware",
+          "source_license": "MIT",
+          "signals_present": [
+            "qpos",
+            "qvel",
+            "tau",
+            "base_pose",
+            "contact/foot_force",
+            "contact/foot_force_est",
+            "contact/contact_flags"
+          ],
+          "task": "corridor sequence",
+          "split": "test"
+        }
+      ]
+    },
+    "panda": {
+      "metadata_path": "panda/metadata.json",
+      "urdf_path": "panda/urdf/panda.urdf",
+      "n_dof_actuated": 7,
+      "floating_base": false,
+      "trajectory_count": 5,
+      "trajectories": [
+        {
+          "id": "droid_ep000000",
+          "path": "panda/trajectories/droid_ep000000.h5",
+          "duration_s": 15.933333333333334,
+          "frequency_hz": 15.0,
+          "n_timesteps": 240,
+          "source": "droid",
+          "source_type": "teleop_real",
+          "source_license": "MIT",
+          "signals_present": [
+            "qpos"
+          ],
+          "task": "droid_manipulation",
+          "split": "train"
+        },
+        {
+          "id": "droid_ep018446",
+          "path": "panda/trajectories/droid_ep018446.h5",
+          "duration_s": 46.6,
+          "frequency_hz": 15.0,
+          "n_timesteps": 700,
+          "source": "droid",
+          "source_type": "teleop_real",
+          "source_license": "MIT",
+          "signals_present": [
+            "qpos"
+          ],
+          "task": "droid_manipulation",
+          "split": "train"
+        },
+        {
+          "id": "droid_ep036893",
+          "path": "panda/trajectories/droid_ep036893.h5",
+          "duration_s": 30.599999999999998,
+          "frequency_hz": 15.0,
+          "n_timesteps": 460,
+          "source": "droid",
+          "source_type": "teleop_real",
+          "source_license": "MIT",
+          "signals_present": [
+            "qpos"
+          ],
+          "task": "droid_manipulation",
+          "split": "train"
+        },
+        {
+          "id": "droid_ep055339",
+          "path": "panda/trajectories/droid_ep055339.h5",
+          "duration_s": 45.266666666666666,
+          "frequency_hz": 15.0,
+          "n_timesteps": 680,
+          "source": "droid",
+          "source_type": "teleop_real",
+          "source_license": "MIT",
+          "signals_present": [
+            "qpos"
+          ],
+          "task": "droid_manipulation",
+          "split": "train"
+        },
+        {
+          "id": "droid_ep073786",
+          "path": "panda/trajectories/droid_ep073786.h5",
+          "duration_s": 7.666666666666667,
+          "frequency_hz": 15.0,
+          "n_timesteps": 116,
+          "source": "droid",
+          "source_type": "teleop_real",
+          "source_license": "MIT",
+          "signals_present": [
+            "qpos"
+          ],
+          "task": "droid_manipulation",
+          "split": "test"
+        }
+      ]
+    }
+  },
+  "sources": {
+    "droid": {
+      "citation": "Khazatsky, A., et al. (2024). DROID: A Large-Scale In-the-Wild Robot Manipulation Dataset. RSS 2024.",
+      "url": "https://droid-dataset.github.io/",
+      "license": "MIT"
+    },
+    "lafan1_retargeted_g1": {
+      "citation": "TODO: add citation for source 'lafan1_retargeted_g1' to build_manifest.py",
+      "url": "TODO",
+      "license": "TODO"
+    },
+    "legkilo": {
+      "citation": "Ou, G., Li, D., Li, H. (2024). Leg-KILO: Robust Kinematic-Inertial-Lidar Odometry for Dynamic Legged Robots. IEEE RA-L 9(10):8194-8201.",
+      "url": "https://github.com/ouguangjun/legkilo-dataset",
+      "license": "MIT"
+    },
+    "unitree_hf_g1_dex3_toastedbread": {
+      "citation": "TODO: add citation for source 'unitree_hf_g1_dex3_toastedbread' to build_manifest.py",
+      "url": "TODO",
+      "license": "TODO"
+    },
+    "unitree_hf_g1_wbt_inspire_pickup_pillow": {
+      "citation": "TODO: add citation for source 'unitree_hf_g1_wbt_inspire_pickup_pillow' to build_manifest.py",
+      "url": "TODO",
+      "license": "TODO"
+    }
+  }
+}

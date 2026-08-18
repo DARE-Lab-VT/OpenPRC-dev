@@ -1,0 +1,298 @@
+{
+  "trajectories": [
+    {
+      "id": "corridor_000",
+      "path": "go1/trajectories/corridor_000.h5",
+      "duration_s": 29.9912326335907,
+      "frequency_hz": 29127.11111111111,
+      "n_timesteps": 14926,
+      "source": "legkilo",
+      "source_type": "real_hardware",
+      "source_license": "MIT",
+      "signals_present": [
+        "qpos",
+        "qvel",
+        "tau",
+        "base_pose",
+        "contact/foot_force",
+        "contact/foot_force_est",
+        "contact/contact_flags"
+      ],
+      "task": "corridor sequence",
+      "split": "train"
+    },
+    {
+      "id": "corridor_001",
+      "path": "go1/trajectories/corridor_001.h5",
+      "duration_s": 29.960086345672607,
+      "frequency_hz": 28532.680272108842,
+      "n_timesteps": 14949,
+      "source": "legkilo",
+      "source_type": "real_hardware",
+      "source_license": "MIT",
+      "signals_present": [
+        "qpos",
+        "qvel",
+        "tau",
+        "base_pose",
+        "contact/foot_force",
+        "contact/foot_force_est",
+        "contact/contact_flags"
+      ],
+      "task": "corridor sequence",
+      "split": "train"
+    },
+    {
+      "id": "corridor_002",
+      "path": "go1/trajectories/corridor_002.h5",
+      "duration_s": 29.953574657440186,
+      "frequency_hz": 28728.109589041094,
+      "n_timesteps": 14942,
+      "source": "legkilo",
+      "source_type": "real_hardware",
+      "source_license": "MIT",
+      "signals_present": [
+        "qpos",
+        "qvel",
+        "tau",
+        "base_pose",
+        "contact/foot_force",
+        "contact/foot_force_est",
+        "contact/contact_flags"
+      ],
+      "task": "corridor sequence",
+      "split": "train"
+    },
+    {
+      "id": "corridor_003",
+      "path": "go1/trajectories/corridor_003.h5",
+      "duration_s": 29.961596488952637,
+      "frequency_hz": 28926.23448275862,
+      "n_timesteps": 14920,
+      "source": "legkilo",
+      "source_type": "real_hardware",
+      "source_license": "MIT",
+      "signals_present": [
+        "qpos",
+        "qvel",
+        "tau",
+        "base_pose",
+        "contact/foot_force",
+        "contact/foot_force_est",
+        "contact/contact_flags"
+      ],
+      "task": "corridor sequence",
+      "split": "train"
+    },
+    {
+      "id": "corridor_004",
+      "path": "go1/trajectories/corridor_004.h5",
+      "duration_s": 29.95484972000122,
+      "frequency_hz": 28926.23448275862,
+      "n_timesteps": 14916,
+      "source": "legkilo",
+      "source_type": "real_hardware",
+      "source_license": "MIT",
+      "signals_present": [
+        "qpos",
+        "qvel",
+        "tau",
+        "base_pose",
+        "contact/foot_force",
+        "contact/foot_force_est",
+        "contact/contact_flags"
+      ],
+      "task": "corridor sequence",
+      "split": "train"
+    },
+    {
+      "id": "corridor_005",
+      "path": "go1/trajectories/corridor_005.h5",
+      "duration_s": 29.963983297348022,
+      "frequency_hz": 28926.23448275862,
+      "n_timesteps": 14949,
+      "source": "legkilo",
+      "source_type": "real_hardware",
+      "source_license": "MIT",
+      "signals_present": [
+        "qpos",
+        "qvel",
+        "tau",
+        "base_pose",
+        "contact/foot_force",
+        "contact/foot_force_est",
+        "contact/contact_flags"
+      ],
+      "task": "corridor sequence",
+      "split": "train"
+    },
+    {
+      "id": "corridor_006",
+      "path": "go1/trajectories/corridor_006.h5",
+      "duration_s": 29.97559642791748,
+      "frequency_hz": 29537.352112676057,
+      "n_timesteps": 14950,
+      "source": "legkilo",
+      "source_type": "real_hardware",
+      "source_license": "MIT",
+      "signals_present": [
+        "qpos",
+        "qvel",
+        "tau",
+        "base_pose",
+        "contact/foot_force",
+        "contact/foot_force_est",
+        "contact/contact_flags"
+      ],
+      "task": "corridor sequence",
+      "split": "train"
+    },
+    {
+      "id": "corridor_007",
+      "path": "go1/trajectories/corridor_007.h5",
+      "duration_s": 29.952237367630005,
+      "frequency_hz": 29127.11111111111,
+      "n_timesteps": 14936,
+      "source": "legkilo",
+      "source_type": "real_hardware",
+      "source_license": "MIT",
+      "signals_present": [
+        "qpos",
+        "qvel",
+        "tau",
+        "base_pose",
+        "contact/foot_force",
+        "contact/foot_force_est",
+        "contact/contact_flags"
+      ],
+      "task": "corridor sequence",
+      "split": "train"
+    },
+    {
+      "id": "corridor_008",
+      "path": "go1/trajectories/corridor_008.h5",
+      "duration_s": 29.987196683883667,
+      "frequency_hz": 29127.11111111111,
+      "n_timesteps": 14948,
+      "source": "legkilo",
+      "source_type": "real_hardware",
+      "source_license": "MIT",
+      "signals_present": [
+        "qpos",
+        "qvel",
+        "tau",
+        "base_pose",
+        "contact/foot_force",
+        "contact/foot_force_est",
+        "contact/contact_flags"
+      ],
+      "task": "corridor sequence",
+      "split": "train"
+    },
+    {
+      "id": "corridor_009",
+      "path": "go1/trajectories/corridor_009.h5",
+      "duration_s": 29.96383500099182,
+      "frequency_hz": 29127.11111111111,
+      "n_timesteps": 14940,
+      "source": "legkilo",
+      "source_type": "real_hardware",
+      "source_license": "MIT",
+      "signals_present": [
+        "qpos",
+        "qvel",
+        "tau",
+        "base_pose",
+        "contact/foot_force",
+        "contact/foot_force_est",
+        "contact/contact_flags"
+      ],
+      "task": "corridor sequence",
+      "split": "train"
+    },
+    {
+      "id": "corridor_010",
+      "path": "go1/trajectories/corridor_010.h5",
+      "duration_s": 29.963528394699097,
+      "frequency_hz": 28728.109589041094,
+      "n_timesteps": 14955,
+      "source": "legkilo",
+      "source_type": "real_hardware",
+      "source_license": "MIT",
+      "signals_present": [
+        "qpos",
+        "qvel",
+        "tau",
+        "base_pose",
+        "contact/foot_force",
+        "contact/foot_force_est",
+        "contact/contact_flags"
+      ],
+      "task": "corridor sequence",
+      "split": "train"
+    },
+    {
+      "id": "corridor_011",
+      "path": "go1/trajectories/corridor_011.h5",
+      "duration_s": 29.93333148956299,
+      "frequency_hz": 28728.109589041094,
+      "n_timesteps": 14913,
+      "source": "legkilo",
+      "source_type": "real_hardware",
+      "source_license": "MIT",
+      "signals_present": [
+        "qpos",
+        "qvel",
+        "tau",
+        "base_pose",
+        "contact/foot_force",
+        "contact/foot_force_est",
+        "contact/contact_flags"
+      ],
+      "task": "corridor sequence",
+      "split": "train"
+    },
+    {
+      "id": "corridor_012",
+      "path": "go1/trajectories/corridor_012.h5",
+      "duration_s": 29.981032848358154,
+      "frequency_hz": 28728.109589041094,
+      "n_timesteps": 14943,
+      "source": "legkilo",
+      "source_type": "real_hardware",
+      "source_license": "MIT",
+      "signals_present": [
+        "qpos",
+        "qvel",
+        "tau",
+        "base_pose",
+        "contact/foot_force",
+        "contact/foot_force_est",
+        "contact/contact_flags"
+      ],
+      "task": "corridor sequence",
+      "split": "test"
+    },
+    {
+      "id": "corridor_013",
+      "path": "go1/trajectories/corridor_013.h5",
+      "duration_s": 29.93432116508484,
+      "frequency_hz": 29127.11111111111,
+      "n_timesteps": 14923,
+      "source": "legkilo",
+      "source_type": "real_hardware",
+      "source_license": "MIT",
+      "signals_present": [
+        "qpos",
+        "qvel",
+        "tau",
+        "base_pose",
+        "contact/foot_force",
+        "contact/foot_force_est",
+        "contact/contact_flags"
+      ],
+      "task": "corridor sequence",
+      "split": "test"
+    }
+  ]
+}

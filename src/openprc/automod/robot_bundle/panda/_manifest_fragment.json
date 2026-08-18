@@ -1,0 +1,79 @@
+{
+  "trajectories": [
+    {
+      "id": "droid_ep000000",
+      "path": "panda/trajectories/droid_ep000000.h5",
+      "duration_s": 15.933333333333334,
+      "frequency_hz": 15.0,
+      "n_timesteps": 240,
+      "source": "droid",
+      "source_type": "teleop_real",
+      "source_license": "MIT",
+      "signals_present": [
+        "qpos"
+      ],
+      "task": "droid_manipulation",
+      "split": "train"
+    },
+    {
+      "id": "droid_ep018446",
+      "path": "panda/trajectories/droid_ep018446.h5",
+      "duration_s": 46.6,
+      "frequency_hz": 15.0,
+      "n_timesteps": 700,
+      "source": "droid",
+      "source_type": "teleop_real",
+      "source_license": "MIT",
+      "signals_present": [
+        "qpos"
+      ],
+      "task": "droid_manipulation",
+      "split": "train"
+    },
+    {
+      "id": "droid_ep036893",
+      "path": "panda/trajectories/droid_ep036893.h5",
+      "duration_s": 30.599999999999998,
+      "frequency_hz": 15.0,
+      "n_timesteps": 460,
+      "source": "droid",
+      "source_type": "teleop_real",
+      "source_license": "MIT",
+      "signals_present": [
+        "qpos"
+      ],
+      "task": "droid_manipulation",
+      "split": "train"
+    },
+    {
+      "id": "droid_ep055339",
+      "path": "panda/trajectories/droid_ep055339.h5",
+      "duration_s": 45.266666666666666,
+      "frequency_hz": 15.0,
+      "n_timesteps": 680,
+      "source": "droid",
+      "source_type": "teleop_real",
+      "source_license": "MIT",
+      "signals_present": [
+        "qpos"
+      ],
+      "task": "droid_manipulation",
+      "split": "train"
+    },
+    {
+      "id": "droid_ep073786",
+      "path": "panda/trajectories/droid_ep073786.h5",
+      "duration_s": 7.666666666666667,
+      "frequency_hz": 15.0,
+      "n_timesteps": 116,
+      "source": "droid",
+      "source_type": "teleop_real",
+      "source_license": "MIT",
+      "signals_present": [
+        "qpos"
+      ],
+      "task": "droid_manipulation",
+      "split": "test"
+    }
+  ]
+}

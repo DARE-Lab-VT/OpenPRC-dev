@@ -1,0 +1,612 @@
+{
+  "trajectories": [
+    {
+      "id": "g1_wbt_inspire_pickup_pillow_ep0000_clip00",
+      "path": "g1/trajectories/g1_wbt_inspire_pickup_pillow_ep0000_clip00.h5",
+      "duration_s": 8.666666666666666,
+      "frequency_hz": 30.0,
+      "n_timesteps": 261,
+      "source": "unitree_hf_g1_wbt_inspire_pickup_pillow",
+      "source_type": "teleop_real",
+      "source_license": "Apache-2.0",
+      "signals_present": [
+        "qpos",
+        "action/target_qpos"
+      ],
+      "task": "g1_wbt_inspire_pickup_pillow",
+      "split": "train"
+    },
+    {
+      "id": "g1_wbt_inspire_pickup_pillow_ep0001_clip00",
+      "path": "g1/trajectories/g1_wbt_inspire_pickup_pillow_ep0001_clip00.h5",
+      "duration_s": 8.033333333333333,
+      "frequency_hz": 30.0,
+      "n_timesteps": 242,
+      "source": "unitree_hf_g1_wbt_inspire_pickup_pillow",
+      "source_type": "teleop_real",
+      "source_license": "Apache-2.0",
+      "signals_present": [
+        "qpos",
+        "action/target_qpos"
+      ],
+      "task": "g1_wbt_inspire_pickup_pillow",
+      "split": "train"
+    },
+    {
+      "id": "g1_wbt_inspire_pickup_pillow_ep0002_clip00",
+      "path": "g1/trajectories/g1_wbt_inspire_pickup_pillow_ep0002_clip00.h5",
+      "duration_s": 8.166666666666666,
+      "frequency_hz": 30.0,
+      "n_timesteps": 246,
+      "source": "unitree_hf_g1_wbt_inspire_pickup_pillow",
+      "source_type": "teleop_real",
+      "source_license": "Apache-2.0",
+      "signals_present": [
+        "qpos",
+        "action/target_qpos"
+      ],
+      "task": "g1_wbt_inspire_pickup_pillow",
+      "split": "test"
+    },
+    {
+      "id": "lafan1_dance2_subject1_clip00",
+      "path": "g1/trajectories/lafan1_dance2_subject1_clip00.h5",
+      "duration_s": 29.966666666666665,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "dance2_subject1",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_dance2_subject1_clip01",
+      "path": "g1/trajectories/lafan1_dance2_subject1_clip01.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "dance2_subject1",
+      "split": "test"
+    },
+    {
+      "id": "lafan1_dance2_subject1_clip02",
+      "path": "g1/trajectories/lafan1_dance2_subject1_clip02.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "dance2_subject1",
+      "split": "test"
+    },
+    {
+      "id": "lafan1_dance2_subject1_clip03",
+      "path": "g1/trajectories/lafan1_dance2_subject1_clip03.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "dance2_subject1",
+      "split": "test"
+    },
+    {
+      "id": "lafan1_dance2_subject1_clip04",
+      "path": "g1/trajectories/lafan1_dance2_subject1_clip04.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "dance2_subject1",
+      "split": "test"
+    },
+    {
+      "id": "lafan1_dance2_subject1_clip05",
+      "path": "g1/trajectories/lafan1_dance2_subject1_clip05.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "dance2_subject1",
+      "split": "test"
+    },
+    {
+      "id": "lafan1_dance2_subject1_clip06",
+      "path": "g1/trajectories/lafan1_dance2_subject1_clip06.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "dance2_subject1",
+      "split": "test"
+    },
+    {
+      "id": "lafan1_fallAndGetUp1_subject1_clip00",
+      "path": "g1/trajectories/lafan1_fallAndGetUp1_subject1_clip00.h5",
+      "duration_s": 29.966666666666665,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "fallAndGetUp1_subject1",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_fallAndGetUp1_subject1_clip01",
+      "path": "g1/trajectories/lafan1_fallAndGetUp1_subject1_clip01.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "fallAndGetUp1_subject1",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_fallAndGetUp1_subject1_clip02",
+      "path": "g1/trajectories/lafan1_fallAndGetUp1_subject1_clip02.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "fallAndGetUp1_subject1",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_fallAndGetUp1_subject1_clip03",
+      "path": "g1/trajectories/lafan1_fallAndGetUp1_subject1_clip03.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "fallAndGetUp1_subject1",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_fallAndGetUp1_subject1_clip04",
+      "path": "g1/trajectories/lafan1_fallAndGetUp1_subject1_clip04.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "fallAndGetUp1_subject1",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_jumps1_subject1_clip00",
+      "path": "g1/trajectories/lafan1_jumps1_subject1_clip00.h5",
+      "duration_s": 29.966666666666665,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "jumps1_subject1",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_jumps1_subject1_clip01",
+      "path": "g1/trajectories/lafan1_jumps1_subject1_clip01.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "jumps1_subject1",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_jumps1_subject1_clip02",
+      "path": "g1/trajectories/lafan1_jumps1_subject1_clip02.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "jumps1_subject1",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_jumps1_subject1_clip03",
+      "path": "g1/trajectories/lafan1_jumps1_subject1_clip03.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "jumps1_subject1",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_jumps1_subject1_clip04",
+      "path": "g1/trajectories/lafan1_jumps1_subject1_clip04.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "jumps1_subject1",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_jumps1_subject1_clip05",
+      "path": "g1/trajectories/lafan1_jumps1_subject1_clip05.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "jumps1_subject1",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_jumps1_subject1_clip06",
+      "path": "g1/trajectories/lafan1_jumps1_subject1_clip06.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "jumps1_subject1",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_jumps1_subject1_clip07",
+      "path": "g1/trajectories/lafan1_jumps1_subject1_clip07.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "jumps1_subject1",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_run1_subject2_clip00",
+      "path": "g1/trajectories/lafan1_run1_subject2_clip00.h5",
+      "duration_s": 29.966666666666665,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "run1_subject2",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_run1_subject2_clip01",
+      "path": "g1/trajectories/lafan1_run1_subject2_clip01.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "run1_subject2",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_run1_subject2_clip02",
+      "path": "g1/trajectories/lafan1_run1_subject2_clip02.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "run1_subject2",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_run1_subject2_clip03",
+      "path": "g1/trajectories/lafan1_run1_subject2_clip03.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "run1_subject2",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_run1_subject2_clip04",
+      "path": "g1/trajectories/lafan1_run1_subject2_clip04.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "run1_subject2",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_run1_subject2_clip05",
+      "path": "g1/trajectories/lafan1_run1_subject2_clip05.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "run1_subject2",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_run1_subject2_clip06",
+      "path": "g1/trajectories/lafan1_run1_subject2_clip06.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "run1_subject2",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_walk1_subject1_clip00",
+      "path": "g1/trajectories/lafan1_walk1_subject1_clip00.h5",
+      "duration_s": 29.966666666666665,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "walk1_subject1",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_walk1_subject1_clip01",
+      "path": "g1/trajectories/lafan1_walk1_subject1_clip01.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "walk1_subject1",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_walk1_subject1_clip02",
+      "path": "g1/trajectories/lafan1_walk1_subject1_clip02.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "walk1_subject1",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_walk1_subject1_clip03",
+      "path": "g1/trajectories/lafan1_walk1_subject1_clip03.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "walk1_subject1",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_walk1_subject1_clip04",
+      "path": "g1/trajectories/lafan1_walk1_subject1_clip04.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "walk1_subject1",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_walk1_subject1_clip05",
+      "path": "g1/trajectories/lafan1_walk1_subject1_clip05.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "walk1_subject1",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_walk1_subject1_clip06",
+      "path": "g1/trajectories/lafan1_walk1_subject1_clip06.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "walk1_subject1",
+      "split": "train"
+    },
+    {
+      "id": "lafan1_walk1_subject1_clip07",
+      "path": "g1/trajectories/lafan1_walk1_subject1_clip07.h5",
+      "duration_s": 29.96666666666667,
+      "frequency_hz": 30.0,
+      "n_timesteps": 900,
+      "source": "lafan1_retargeted_g1",
+      "source_type": "sim_rollout",
+      "source_license": "CC-BY-NC-ND-4.0",
+      "signals_present": [
+        "qpos",
+        "base_pose"
+      ],
+      "task": "walk1_subject1",
+      "split": "train"
+    }
+  ]
+}

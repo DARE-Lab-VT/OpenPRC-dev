@@ -1,0 +1,84 @@
+{
+  "trajectories": [
+    {
+      "id": "dex3_g1_dex3_toastedbread_ep0000_clip00",
+      "path": "g1_dex3/trajectories/dex3_g1_dex3_toastedbread_ep0000_clip00.h5",
+      "duration_s": 20.633333333333333,
+      "frequency_hz": 30.0,
+      "n_timesteps": 620,
+      "source": "unitree_hf_g1_dex3_toastedbread",
+      "source_type": "teleop_real",
+      "source_license": "Apache-2.0",
+      "signals_present": [
+        "qpos",
+        "action/target_qpos"
+      ],
+      "task": "g1_dex3_toastedbread",
+      "split": "train"
+    },
+    {
+      "id": "dex3_g1_dex3_toastedbread_ep0001_clip00",
+      "path": "g1_dex3/trajectories/dex3_g1_dex3_toastedbread_ep0001_clip00.h5",
+      "duration_s": 39.7,
+      "frequency_hz": 30.0,
+      "n_timesteps": 1192,
+      "source": "unitree_hf_g1_dex3_toastedbread",
+      "source_type": "teleop_real",
+      "source_license": "Apache-2.0",
+      "signals_present": [
+        "qpos",
+        "action/target_qpos"
+      ],
+      "task": "g1_dex3_toastedbread",
+      "split": "train"
+    },
+    {
+      "id": "dex3_g1_dex3_toastedbread_ep0002_clip00",
+      "path": "g1_dex3/trajectories/dex3_g1_dex3_toastedbread_ep0002_clip00.h5",
+      "duration_s": 42.333333333333336,
+      "frequency_hz": 30.0,
+      "n_timesteps": 1271,
+      "source": "unitree_hf_g1_dex3_toastedbread",
+      "source_type": "teleop_real",
+      "source_license": "Apache-2.0",
+      "signals_present": [
+        "qpos",
+        "action/target_qpos"
+      ],
+      "task": "g1_dex3_toastedbread",
+      "split": "train"
+    },
+    {
+      "id": "dex3_g1_dex3_toastedbread_ep0003_clip00",
+      "path": "g1_dex3/trajectories/dex3_g1_dex3_toastedbread_ep0003_clip00.h5",
+      "duration_s": 46.233333333333334,
+      "frequency_hz": 30.0,
+      "n_timesteps": 1388,
+      "source": "unitree_hf_g1_dex3_toastedbread",
+      "source_type": "teleop_real",
+      "source_license": "Apache-2.0",
+      "signals_present": [
+        "qpos",
+        "action/target_qpos"
+      ],
+      "task": "g1_dex3_toastedbread",
+      "split": "train"
+    },
+    {
+      "id": "dex3_g1_dex3_toastedbread_ep0004_clip00",
+      "path": "g1_dex3/trajectories/dex3_g1_dex3_toastedbread_ep0004_clip00.h5",
+      "duration_s": 47.8,
+      "frequency_hz": 30.0,
+      "n_timesteps": 1435,
+      "source": "unitree_hf_g1_dex3_toastedbread",
+      "source_type": "teleop_real",
+      "source_license": "Apache-2.0",
+      "signals_present": [
+        "qpos",
+        "action/target_qpos"
+      ],
+      "task": "g1_dex3_toastedbread",
+      "split": "test"
+    }
+  ]
+}
