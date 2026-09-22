@@ -36,6 +36,11 @@ Quick Start
 from .calibration import Calibration, CalibrationResult
 from .costs import get_cost, COSTS
 from .reference import ReferenceData
+from .recording import (
+    build_experiment_from_recording,
+    load_recording,
+    infer_grid_bars,
+)
 
 __all__ = [
     'Calibration',
@@ -43,4 +48,7 @@ __all__ = [
     'get_cost',
     'COSTS',
     'ReferenceData',
+    'build_experiment_from_recording',
+    'load_recording',
+    'infer_grid_bars',
 ]

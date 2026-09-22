@@ -900,10 +900,11 @@ __global__ void resolve_collisions(
             atomicAdd(&x[j*3 + 2], nz * corr * wj);
         }
 
-        // Velocity correction (impulse-based with restitution)
+        // Velocity correction (impulse-based with restitution).
+        // v_rel = (v_j - v_i)·n: negative means j is approaching i.
         double vi_n = v[i*3]*nx + v[i*3+1]*ny + v[i*3+2]*nz;
         double vj_n = v[j*3]*nx + v[j*3+1]*ny + v[j*3+2]*nz;
-        double v_rel = vi_n - vj_n;
+        double v_rel = vj_n - vi_n;
 
         if (v_rel < 0) {  // Approaching
             double impulse = -(1.0 + restitution) * v_rel / w_sum;

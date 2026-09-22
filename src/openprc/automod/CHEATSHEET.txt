@@ -1,0 +1,435 @@
+================================================================================
+ROBOT BUNDLE + PRC RESERVOIR PIPELINE — CLI CHEATSHEET
+================================================================================
+
+Comprehensive list of every command needed, in execution order, from a fresh
+clone to a fully simulated reservoir. Annotated with what each step produces
+and which artifacts the next step depends on.
+
+Conventions used below:
+    .                          = your robot_bundle/ directory (current dir)
+    /tmp/menagerie             = clone of google-deepmind/mujoco_menagerie
+    All commands assume you are CD'd into robot_bundle/
+
+================================================================================
+STAGE 0 — ENVIRONMENT SETUP (one-time)
+================================================================================
+
+# Clone Menagerie (needed for all robot URDFs)
+git clone https://github.com/google-deepmind/mujoco_menagerie.git /tmp/menagerie
+
+# Install all dependencies
+pip install -r requirements.txt
+
+# Optional: install fast-simplification for proper quadric mesh decimation
+pip install fast-simplification
+
+# Verify environment
+python3 _tools/selftest.py                              # → 6/6 schema tests
+python3 _tools/test_go1_transforms.py                   # → 14/14 Go1 transforms
+python3 _tools/test_g1_panda_transforms.py              # → 17/17 G1 + Panda
+python3 _tools/kinematics/test_fk_math.py               # → 13/13 FK math
+
+
+================================================================================
+STAGE 1 — SCHEMA + WRITER + VALIDATOR (already shipped)
+================================================================================
+
+# These are library code, not user-runnable CLIs.
+# Files: write_trajectory.py, validate_bundle.py, build_manifest.py
+# Used internally by all fetch + ingest scripts below.
+
+
+================================================================================
+STAGE 2 — GO1 (legkilo, real hardware quadruped)
+================================================================================
+
+# 1. Convert Menagerie's Go1 MJCF → URDF (one-time)
+python3 _tools/fetch/fetch_go1.py \
+    --bundle-dir . convert-urdf \
+    --menagerie-dir /tmp/menagerie
+
+# 2. Download legkilo bags MANUALLY from Google Drive:
+#    https://drive.google.com/drive/folders/1Egpj7FngTTPCeQDEzlbiK3iesPPZtqiM
+#    Save to ~/Downloads/. Each bag is ~3 GB.
+
+# 3. Ingest bags one by one
+python3 _tools/fetch/fetch_go1.py \
+    --bundle-dir . ingest-bag ~/Downloads/corridor.bag
+
+python3 _tools/fetch/fetch_go1.py \
+    --bundle-dir . ingest-bag ~/Downloads/slope.bag
+# Repeat for each bag you want
+
+# 4. Build manifest + validate
+python3 _tools/build_manifest.py .
+python3 _tools/validate_bundle.py . --robot go1 --verbose
+
+# 5. Animate one trajectory
+python3 _tools/viz/animate_trajectory.py \
+    --bundle-dir . --robot go1 --trajectory corridor_000
+
+
+================================================================================
+STAGE 3 — G1 HUMANOID (LAFAN1 retargeted mocap, walking/falling/dance)
+================================================================================
+
+# 1. Convert MJCF → URDF
+python3 _tools/fetch/fetch_g1.py \
+    --bundle-dir . --mode wbt convert-urdf \
+    --menagerie-dir /tmp/menagerie
+
+# 2. List available LAFAN1 motions
+python3 _tools/fetch/fetch_g1_lafan1.py --bundle-dir . list
+
+# 3. Ingest a representative spread (skip motions you don't want)
+python3 _tools/fetch/fetch_g1_lafan1.py --bundle-dir . ingest \
+    --motions \
+        walk1_subject1 \
+        run1_subject2 \
+        fallAndGetUp1_subject1 \
+        jumps1_subject1 \
+        dance2_subject1
+# Add --max-clips-per-motion N to cap clips per motion (default: all)
+
+# 4. Build manifest + validate
+python3 _tools/build_manifest.py .
+python3 _tools/validate_bundle.py . --robot g1 --verbose
+
+# 5. Animate
+python3 _tools/viz/animate_trajectory.py \
+    --bundle-dir . --robot g1 --trajectory lafan1_walk1_subject1_clip00
+
+
+================================================================================
+STAGE 4 — G1 DEX3 (real teleop hand manipulation, upper body + fingers)
+================================================================================
+
+# 1. Convert g1_with_hands MJCF → URDF
+python3 _tools/fetch/fetch_g1_dex3.py \
+    --bundle-dir . convert-urdf \
+    --menagerie-dir /tmp/menagerie
+
+# 2. List available Dex3 datasets (13 task variants)
+python3 _tools/fetch/fetch_g1_dex3.py --bundle-dir . list
+
+# 3. Ingest a manipulation task (small first to verify, then scale up)
+python3 _tools/fetch/fetch_g1_dex3.py \
+    --bundle-dir . ingest \
+    --hf-repo unitreerobotics/G1_Dex3_ToastedBread_Dataset \
+    --max-episodes 5
+
+# 4. Manifest + validate
+python3 _tools/build_manifest.py .
+python3 _tools/validate_bundle.py . --robot g1_dex3 --verbose
+
+# 5. Animate
+python3 _tools/viz/animate_trajectory.py \
+    --bundle-dir . --robot g1_dex3 \
+    --trajectory dex3_g1_dex3_toastedbread_ep0000_clip00
+
+
+================================================================================
+STAGE 5 — PANDA / DROID (deferred — pipeline works, data labels need refinement)
+================================================================================
+
+# Currently uses IPEC-COMMUNITY/droid_lerobot which provides EE-pose state,
+# not joint positions. Animation works but joints are mislabeled axes.
+# Defer until a joint-space Panda dataset is identified.
+
+# Skeleton commands (for reference, do not run for Phase 2 work):
+# python3 _tools/fetch/fetch_panda_droid.py \
+#     --bundle-dir . convert-urdf --menagerie-dir /tmp/menagerie
+# python3 _tools/fetch/fetch_panda_droid.py \
+#     --bundle-dir . ingest --target-episodes 5
+
+
+================================================================================
+PHASE 2 — RESERVOIR PREPROCESSING (mesh → spring-mass network)
+================================================================================
+
+# 1. Verify reservoir math tests
+python3 _tools/reservoir/test_mesh_to_reservoir.py    # → 29/29
+
+# 2. Try one mesh first to eyeball the result
+python3 _tools/reservoir/mesh_to_reservoir.py \
+    go1/urdf/meshes/converted_calf_333333ff.obj \
+    /tmp/calf.npz \
+    --preset small --link-name calf
+
+# 3. Visualize one reservoir (anchors=red cubes, interior=blue spheres,
+#    springs=gray, mesh=translucent overlay). UI panel has all toggles.
+python3 _tools/reservoir/visualize_reservoir.py \
+    /tmp/calf.npz \
+    --mesh go1/urdf/meshes/converted_calf_333333ff.obj
+
+# 4. Once happy with the look, batch-process every link of a robot
+python3 _tools/reservoir/batch_preprocess.py \
+    --bundle-dir . --robot go1 --preset small
+
+# Output: <bundle>/go1/reservoir/<link>.npz (one per link visual) +
+#         <bundle>/go1/reservoir/_index.json
+
+# Available presets: small / medium / large
+# All ReservoirParams are CLI-overridable; common ones:
+#   --decimate-ratio 0.05         # fraction of surface verts → anchors
+#   --max-anchors 200             # hard cap on anchors per link
+#   --node-density 5e6            # interior nodes per m³
+#   --max-nodes 3000              # hard cap on interior nodes per link
+#   --interior-topology bcc       # "bcc" (default, lattice) or "poisson" (random)
+#   --jitter-fraction 0.1         # spatial randomness
+#   --stiffness-jitter-fraction 0.2
+#   --base-stiffness 10.0
+#   --seed 42                     # reproducibility
+
+# Force regeneration (skip caching):
+#   python3 _tools/reservoir/batch_preprocess.py \
+#       --bundle-dir . --robot go1 --preset small --force
+
+
+================================================================================
+PHASE 2 — RESERVOIR RUNTIME SIMULATION (DEMLAT)
+================================================================================
+
+# 1. Verify runtime math tests
+python3 _tools/reservoir/test_reservoir_to_demlat.py   # → 18/18
+
+# 2. Compose & run one trajectory through DEMLAT
+#    Defaults: physics_dt=5ms, save_dt=20ms, gravity=-9.81, damping_scale=1.0
+python3 _tools/reservoir/reservoir_to_demlat.py \
+    --bundle-dir . --robot go1 --trajectory corridor_000
+
+# 3. CLI overrides (for tuning if instabilities or perf issues arise):
+#   --physics-dt 0.002        # smaller step, more stable, slower
+#   --save-dt 0.02            # default 50 Hz output frames
+#   --duration 5.0            # simulate first 5 sec only (debug runs)
+#   --no-gravity              # turn off gravity entirely
+#   --gravity -9.81           # explicit gravity (default)
+#   --damping-scale 2.0       # multiply stored damping by 2 (calmer reservoir)
+
+# Output:
+#   <bundle>/go1/reservoir_sims/<traj_id>/
+#     input/   config.json, geometry.h5, signals.h5
+#     output/  simulation.h5  ← positions, velocities, strains, energies
+
+
+================================================================================
+PHASE 2 — RESERVOIR VISUALIZATION (next step, not built yet)
+================================================================================
+
+# Coming up: an overlay viewer that loads both the trajectory animation and
+# the DEMLAT simulation output, rendering robot mesh + reservoir together
+# with strain coloring on the springs.
+#
+# Until that's built, you can use DEMLAT's native viewer to inspect the raw
+# simulation, but it won't show the robot mesh on top:
+#
+#   python3 -m demlat.utils.viz_player \
+#       go1/reservoir_sims/corridor_000
+
+python3 _tools/reservoir/overlay_viewer.py \
+    --bundle-dir . --robot go1 --trajectory corridor_000
+
+
+================================================================================
+PHASE 3 — PRC READOUT TRAINING + PLOTTING
+================================================================================
+
+# 1. Verify the math layer
+python3 _tools/training/test_readout_math.py        # → 22/22
+
+# ── STEP A: single-clip sanity check ────────────────────────────────────────
+#
+# Before running the full pipeline, use this probe to confirm the reservoir
+# features can predict 6D body velocity on a single clip (70% train / 30% test).
+# Expected result: overall test R² ≈ 0.88–0.92 with strain features.
+#
+python3 _tools/training/probe_go1_single_clip.py \
+    --clip corridor_000 \
+    --features strain
+#
+# Output: lambda sweep table with train R² AND test R² per lambda,
+#         per-component breakdown (vx,vy,vz,wx,wy,wz), sanity check on qvel,
+#         and a timeseries plot at go1/training/probe_corridor_000_strain.png
+#
+# Try node_vel features for comparison:
+python3 _tools/training/probe_go1_single_clip.py \
+    --clip corridor_000 \
+    --features node_vel
+
+# ── STEP B: full training run ────────────────────────────────────────────────
+#
+# Target: body_vel = 6D body-frame velocity [vx, vy, vz, wx, wy, wz].
+#   - Linear velocity is BODY frame (forward/lateral/up relative to robot).
+#     World-frame lin_vel has 5-10x less variance for a walking/turning robot
+#     and is NOT the correct target for legged locomotion prediction.
+#   - Angular velocity is already body frame (from quaternion differentiation).
+#
+# split-mode in-clip: first 70% of each clip → train, last 30% → test.
+#   Avoids between-clip distribution shift; the cv-mode defaults to temporal
+#   (contiguous folds within the train set), which matches this test split.
+#   Use --split-mode multi-clip --cv-mode grouped once you have many sim clips.
+#
+# target-fps 50: trajectories are ingested at ~497 Hz; subsampling to 50 Hz
+#   BEFORE computing derivatives is critical — at 497 Hz the SG window is only
+#   22 ms and amplifies Kalman noise into apparent 10 m/s velocities.
+#
+python3 _tools/training/train_readout.py \
+    --bundle-dir . --robot go1 \
+    --features strain \
+    --targets body_vel \
+    --split-mode in-clip \
+    --target-fps 50 \
+    --skip-seconds 2.0 \
+    --lambdas 1,10,100,1000,1e4,1e5 \
+    --n-folds 5 \
+    --horizons 1,5,10,50,100
+#
+# Outputs land at  go1/training/<run_id>/
+#   readout_body_vel.npz        trained weights (W, b, lambda, feature spec)
+#   metrics.csv                 per-component R² and MSE, all horizons
+#   summary.json                high-level numbers for paper table
+#   predictions/body_vel.npz    Y_true, Y_pred arrays for plotting
+
+# ── Other useful target combinations ────────────────────────────────────────
+
+# Joint velocities + body velocity together
+python3 _tools/training/train_readout.py \
+    --bundle-dir . --robot go1 \
+    --features strain \
+    --targets body_vel,qvel \
+    --split-mode in-clip --target-fps 50
+
+# Acceleration ablation (use node_acc or strain_accel as features)
+python3 _tools/training/train_readout.py \
+    --bundle-dir . --robot go1 \
+    --features node_vel \
+    --targets body_vel \
+    --split-mode in-clip --target-fps 50
+
+# Cross-clip generalization test (needs ≥ 3 simulated clips)
+python3 _tools/training/train_readout.py \
+    --bundle-dir . --robot go1 \
+    --features strain \
+    --targets body_vel \
+    --split-mode multi-clip \
+    --cv-mode grouped \
+    --target-fps 50
+
+# ── STEP C: plot results ─────────────────────────────────────────────────────
+
+python3 _tools/training/plot_readout_results.py \
+    --run-dir go1/training/<run_id>
+
+# Paper-ready PDFs alongside PNGs:
+python3 _tools/training/plot_readout_results.py \
+    --run-dir go1/training/<run_id> --pdf
+
+# To find the latest run_id automatically:
+ls -t go1/training/ | head -1
+
+# Plots produced (per target):
+#   <target>_timeseries.png   true vs predicted on first 5 dims, 600 frames
+#   <target>_scatter.png      per-output pred-vs-true scatter, R² annotated
+#   <target>_residuals.png    residual histogram + per-dim RMSE bars
+# Plus one overall:
+#   rollout_decay.png         MSE vs rollout horizon, all targets
+#
+# For body_vel the 6 output dims are: [0]=vx [1]=vy [2]=vz [3]=wx [4]=wy [5]=wz
+
+# ── Expected results with current data (2 sim clips) ────────────────────────
+#   features=strain, targets=body_vel, split=in-clip 70/30, λ=100
+#   overall test R² ≈ 0.92
+#   vx=0.80  vy=0.77  vz=0.79  wx=0.72  wy=0.70  wz=0.87
+#   → To improve: run more clips through reservoir_to_demlat.py (corridor_002 onward)
+
+
+================================================================================
+QUICK FRESH-START SEQUENCE (Go1 only, cleanest path to reservoir sim)
+================================================================================
+
+# After cloning and pip install:
+git clone https://github.com/google-deepmind/mujoco_menagerie.git /tmp/menagerie
+
+# 1. Robot model
+python3 _tools/fetch/fetch_go1.py --bundle-dir . convert-urdf \
+    --menagerie-dir /tmp/menagerie
+
+# 2. Trajectory data (manual download required, see Stage 2)
+python3 _tools/fetch/fetch_go1.py --bundle-dir . ingest-bag ~/Downloads/corridor.bag
+
+# 3. Manifest + sanity
+python3 _tools/build_manifest.py .
+python3 _tools/validate_bundle.py . --robot go1
+
+# 4. Reservoir preprocessing
+python3 _tools/reservoir/batch_preprocess.py \
+    --bundle-dir . --robot go1 --preset small
+
+# 5. Run reservoir simulation
+python3 _tools/reservoir/reservoir_to_demlat.py \
+    --bundle-dir . --robot go1 --trajectory corridor_000
+
+# Done! Output is at go1/reservoir_sims/corridor_000/output/simulation.h5
+
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+# Bag path errors → check exact filename
+ls ~/Downloads/*.bag
+
+# Validator complains about missing manifest.json
+python3 _tools/build_manifest.py .
+
+# LeRobot dataset 401 / repository-not-found errors → check repo names:
+python3 -c "
+from huggingface_hub import HfApi
+api = HfApi()
+print([d.id for d in api.list_datasets(author='unitreerobotics')][:10])
+"
+
+# Animation pose looks wrong → diagnostic dump of trajectory:
+python3 -c "
+import h5py, numpy as np
+with h5py.File('go1/trajectories/corridor_000.h5','r') as f:
+    print('joint_names:', list(f.attrs['joint_names']))
+    print('first frame qpos:', f['qpos'][0])
+    print('qpos range:', f['qpos'][:].min(0), '→', f['qpos'][:].max(0))
+"
+
+# Reservoir batch preprocessing is hanging → likely a bridging O(N²) issue
+# Check if a specific link has too many anchors (should be capped at max_anchors)
+
+# DEMLAT simulation explodes (NaN positions) → reduce physics dt
+python3 _tools/reservoir/reservoir_to_demlat.py \
+    --bundle-dir . --robot go1 --trajectory corridor_000 \
+    --physics-dt 0.001 --damping-scale 2.0
+
+
+================================================================================
+FILE OUTPUT LOCATIONS (where everything ends up)
+================================================================================
+
+<bundle>/
+├── manifest.json                              # built by build_manifest.py
+├── <robot>/
+│   ├── metadata.json                          # robot-level (created by convert-urdf)
+│   ├── _manifest_fragment.json                # per-robot trajectory list
+│   ├── urdf/
+│   │   ├── <robot>.urdf                       # converted from Menagerie MJCF
+│   │   └── meshes/                            # one mesh file per link visual
+│   ├── trajectories/
+│   │   └── <traj_id>.h5                       # bundle-format trajectory
+│   ├── reservoir/                             # Phase 2 preprocessing output
+│   │   ├── _index.json                        # summary of generated reservoirs
+│   │   └── <link_name>.npz                    # per-link spring-mass spec
+│   └── reservoir_sims/                        # Phase 2 simulation outputs
+│       └── <traj_id>/
+│           ├── input/
+│           │   ├── config.json
+│           │   ├── geometry.h5
+│           │   └── signals.h5
+│           └── output/
+│               └── simulation.h5              # nodes/positions/strains/...

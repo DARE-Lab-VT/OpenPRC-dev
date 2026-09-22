@@ -15,20 +15,6 @@ from typing import List, Optional, Union
 from openprc.schemas.logging import get_logger
 
 
-class NumpyJSONEncoder(json.JSONEncoder):
-    """
-    A JSON encoder that can handle numpy data types.
-    """
-    def default(self, obj):
-        if isinstance(obj, np.integer):
-            return int(obj)
-        elif isinstance(obj, np.floating):
-            return float(obj)
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-        return super(NumpyJSONEncoder, self).default(obj)
-
-
 class SimulationSetup:
     """
     A setup class to programmatically create and modify DEMLat experiments.
@@ -99,13 +85,14 @@ class SimulationSetup:
 
     def set_physics(self, gravity: Union[float, List[float]] = -9.81, damping: float = 0.1,
                     enable_collision: bool = False, collision_radius: float = 0.01,
-                    collision_restitution: float = 0.5):
+                    collision_restitution: float = 0.5, collision_iterations: int = 3):
         """Set global physics constants."""
         self.config['global_physics']['gravity'] = gravity
         self.config['global_physics']['global_damping'] = float(damping)
         self.config['global_physics']['enable_collision'] = enable_collision
         self.config['global_physics']['collision_radius'] = float(collision_radius)
         self.config['global_physics']['collision_restitution'] = float(collision_restitution)
+        self.config['global_physics']['collision_iterations'] = int(collision_iterations)
         self.config['material']['damping_coefficient'] = float(damping)
         return self
 
@@ -253,11 +240,14 @@ class SimulationSetup:
         })
 
         # Automatically mark node as driven based on type
-        # 2 = Position Actuator (Driver)
+        # 2 = Full position actuator (excluded from dynamics — all DOFs driven)
         # 4 = Force Actuator (Thruster)
+        # Partial DOF position nodes (some axes free) are NOT marked ATTR_POS_DRIVEN;
+        # they remain dynamic and receive per-axis corrections post-integration.
         if 0 <= node_idx < len(self.nodes['attributes']):
             if type == 'position':
-                self.nodes['attributes'][node_idx] |= 2
+                if all(d == 1 for d in dof):
+                    self.nodes['attributes'][node_idx] |= 2
             elif type == 'force':
                 self.nodes['attributes'][node_idx] |= 4
 
@@ -413,7 +403,7 @@ class SimulationSetup:
 
         # 1. Save Config
         with open(self.input_dir / "config.json", 'w') as f:
-            json.dump(self.config, f, indent=4, cls=NumpyJSONEncoder)
+            json.dump(self.config, f, indent=4)
 
         # 2. Save Geometry
         with h5py.File(self.input_dir / "geometry.h5", 'w') as f:

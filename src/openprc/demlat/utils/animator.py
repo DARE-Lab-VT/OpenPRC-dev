@@ -40,8 +40,11 @@ from typing import Optional, Dict, Tuple, List
 import json
 import sys
 
+import imgui
+
 from piviz import PiVizStudio, PiVizFX, pgfx, Palette
 from piviz.ui import Slider, Label, Button, Checkbox
+from piviz.ui.widgets import WidgetBase
 from piviz import Colors, Colormap
 
 
@@ -71,6 +74,9 @@ class ExperimentData:
         self.time_series = {}
         self.config = {}
         self.metadata = {}
+
+        # Partial DOF actuators: {node_idx: [dx, dy, dz]} — populated from config
+        self.partial_pos_nodes = {}
 
         # Computed properties
         self.n_nodes = 0
@@ -278,6 +284,20 @@ class ExperimentData:
             print(f"  [Loaded] Configuration")
         except Exception as e:
             print(f"  [Warning] Could not load config: {e}")
+            return
+
+        # Extract partial-DOF position actuators (bit 1 is NOT set for these nodes).
+        for act in self.config.get('actuators', []):
+            if act.get('type') != 'position':
+                continue
+            dof = act.get('dof', [1, 1, 1])
+            if all(d == 1 for d in dof):
+                continue
+            node_idx = act.get('node_idx')
+            if node_idx is not None:
+                self.partial_pos_nodes[node_idx] = dof
+        if self.partial_pos_nodes:
+            print(f"  [Loaded] {len(self.partial_pos_nodes)} partial-DOF position actuator(s)")
 
     def _validate_data(self):
         """Validate loaded data for consistency."""
@@ -329,7 +349,10 @@ class VisualizationScales:
         positions = self.data.nodes['positions']
         self.extent = np.max(positions, axis=0) - np.min(positions, axis=0)
         self.center = np.mean(positions, axis=0)
-        self.L_char = np.median(self.extent) if np.any(self.extent > 0) else 1.0
+        # Use median of nonzero extents so collinear/planar node layouts
+        # (where some axes have zero spread) still yield a sensible scale.
+        valid = self.extent[self.extent > 1e-6]
+        self.L_char = float(np.median(valid)) if len(valid) > 0 else 1.0
 
         if self.data.n_bars > 0:
             rest_lengths = self.data.elements['bars']['rest_length']
@@ -356,13 +379,15 @@ class VisualizationScales:
 
         if 'bar_strain' in self.data.time_series:
             strains = self.data.time_series['bar_strain']
-            self.strain_limit = np.percentile(np.abs(strains), 95)
-            print(f"Strain Limit (95th percentile): ±{self.strain_limit:.4f}")
+            if strains.size > 0:
+                self.strain_limit = np.percentile(np.abs(strains), 95)
+                print(f"Strain Limit (95th percentile): ±{self.strain_limit:.4f}")
 
         if 'bar_stress' in self.data.time_series:
             stresses = self.data.time_series['bar_stress']
-            self.stress_limit = np.percentile(np.abs(stresses), 95)
-            print(f"Stress Limit (95th percentile): ±{self.stress_limit:.2e}")
+            if stresses.size > 0:
+                self.stress_limit = np.percentile(np.abs(stresses), 95)
+                print(f"Stress Limit (95th percentile): ±{self.stress_limit:.2e}")
 
     def _compute_velocity_scale(self):
         """Auto-tune velocity arrow scaling."""
@@ -402,6 +427,60 @@ def _jet_colormap_batch_rgba(t, alpha=1.0):
     rgba[:, :3] = rgb
     rgba[:, 3] = alpha
     return rgba
+
+
+# =============================================================================
+# ICON-AWARE PLAYBACK CONTROLS WIDGET
+# =============================================================================
+
+class _PlaybackControls(WidgetBase):
+    """
+    Five playback buttons (|◀  ‹  ▶/⏸  ›  ▶|) rendered on a single row.
+    Pushes the FA icon font from PiVizStudio when available so the buttons
+    use the same icon set as the rest of the piviz UI.
+    """
+
+    # Font Awesome 6 Free Solid codepoints used for playback
+    _ICON_SKIP_BACK  = ""   # fa-backward-step   |◀
+    _ICON_STEP_BACK  = ""   # fa-chevron-left     ‹
+    _ICON_PLAY       = ""   # fa-play             ▶
+    _ICON_PAUSE      = ""   # fa-pause            ⏸
+    _ICON_STEP_FWD   = ""   # fa-chevron-right    ›
+    _ICON_SKIP_FWD   = ""   # fa-forward-step    ▶|
+
+    def __init__(self, studio_ref, goto_start, step_back, toggle_pause, step_fwd, goto_end):
+        super().__init__()
+        self._studio     = studio_ref
+        self._goto_start = goto_start
+        self._step_back  = step_back
+        self._toggle     = toggle_pause
+        self._step_fwd   = step_fwd
+        self._goto_end   = goto_end
+        self.paused      = False
+
+    def _icon_button(self, icon: str, fallback: str, uid: str, callback) -> None:
+        font = getattr(self._studio, '_icon_font', None)
+        label = (icon if font else fallback) + uid
+        if font:
+            imgui.push_font(font)
+        if imgui.button(label):
+            callback()
+        if font:
+            imgui.pop_font()
+
+    def render(self):
+        pause_icon     = self._ICON_PLAY  if self.paused else self._ICON_PAUSE
+        pause_fallback = ">"              if self.paused else "||"
+
+        self._icon_button(self._ICON_SKIP_BACK, "<<", "##pb0", self._goto_start)
+        imgui.same_line()
+        self._icon_button(self._ICON_STEP_BACK, "<",  "##pb1", self._step_back)
+        imgui.same_line()
+        self._icon_button(pause_icon, pause_fallback,  "##pb2", self._toggle)
+        imgui.same_line()
+        self._icon_button(self._ICON_STEP_FWD, ">",   "##pb3", self._step_fwd)
+        imgui.same_line()
+        self._icon_button(self._ICON_SKIP_FWD, ">>",  "##pb4", self._goto_end)
 
 
 # =============================================================================
@@ -484,11 +563,34 @@ class DEMLATVisualizer(PiVizFX):
         self.fixed_nodes_idx = np.where((attrs & 1) != 0)[0]
         self.position_actuators_idx = np.where((attrs & 2) != 0)[0]
         self.force_actuators_idx = np.where((attrs & 4) != 0)[0]
-        self.floating_nodes_idx = np.where(attrs == 0)[0]
+
+        # Partial-DOF position actuators: dynamic nodes with selective axis actuation.
+        # Their attribute bit is NOT set, so we identify them from the loaded config.
+        partial_map = self.data.partial_pos_nodes
+        if partial_map:
+            sorted_idx = sorted(partial_map.keys())
+            self.partial_pos_actuators_idx = np.array(sorted_idx, dtype=int)
+            self.partial_pos_dof_masks = np.array(
+                [partial_map[i] for i in sorted_idx], dtype=bool
+            )  # (n_partial, 3)
+        else:
+            self.partial_pos_actuators_idx = np.array([], dtype=int)
+            self.partial_pos_dof_masks = np.zeros((0, 3), dtype=bool)
+
+        # Floating: no kinematic bits set (fixed / pos-driven / force-driven).
+        # The collidable bit (0x08) is a physics-only flag and does not affect
+        # visual category — a collidable-but-free node still renders as a sphere.
+        _KINEMATIC_MASK = 0x07  # bits 0-2: FIXED | POS_DRIVEN | FORCE_DRIVEN
+        partial_set = set(self.partial_pos_actuators_idx.tolist())
+        all_floating = np.where((attrs & _KINEMATIC_MASK) == 0)[0]
+        self.floating_nodes_idx = np.array(
+            [i for i in all_floating if i not in partial_set], dtype=int
+        )
 
         print(f"\n[Node Categories]")
         print(f"  Fixed: {len(self.fixed_nodes_idx)}")
-        print(f"  Position Actuators: {len(self.position_actuators_idx)}")
+        print(f"  Position Actuators (full DOF): {len(self.position_actuators_idx)}")
+        print(f"  Position Actuators (partial DOF): {len(self.partial_pos_actuators_idx)}")
         print(f"  Force Actuators: {len(self.force_actuators_idx)}")
         print(f"  Floating: {len(self.floating_nodes_idx)}")
 
@@ -584,6 +686,8 @@ class DEMLATVisualizer(PiVizFX):
     def _goto_end(self):
         self.timestep_idx = self.data.n_frames - 1
         self.float_timestep = float(self.timestep_idx)
+        self.paused = True
+        self._update_pause_button()
         self._sync_timeline_slider()
 
     def _step_forward(self):
@@ -607,10 +711,8 @@ class DEMLATVisualizer(PiVizFX):
         self._update_pause_button()
 
     def _update_pause_button(self):
-        if hasattr(self, 'ui_manager') and self.ui_manager:
-            btn = self.ui_manager.get_widget("btn_pause")
-            if btn:
-                btn.text = ">" if self.paused else "||"
+        if hasattr(self, '_playback_controls'):
+            self._playback_controls.paused = self.paused
 
     def _sync_timeline_slider(self):
         if hasattr(self, 'ui_manager') and self.ui_manager:
@@ -655,11 +757,15 @@ class DEMLATVisualizer(PiVizFX):
         if self.data.mode == 'simulation':
             self.ui_manager.add_widget("sld_timeline",
                                        Slider("Frame", 0, self.data.n_frames - 1, 0, self._on_timeline_change))
-            self.ui_manager.add_widget("btn_start", Button("<<", self._goto_start))
-            self.ui_manager.add_widget("btn_prev", Button("<-", self._step_backward))
-            self.ui_manager.add_widget("btn_pause", Button("||", self._toggle_pause))
-            self.ui_manager.add_widget("btn_next", Button("->", self._step_forward))
-            self.ui_manager.add_widget("btn_end", Button(">>", self._goto_end))
+            self._playback_controls = _PlaybackControls(
+                self.studio,
+                self._goto_start,
+                self._step_backward,
+                self._toggle_pause,
+                self._step_forward,
+                self._goto_end,
+            )
+            self.ui_manager.add_widget("pb_controls", self._playback_controls)
             self.ui_manager.add_widget("sld_speed",
                                        Slider("Speed", 10, 500, int(self.speed * 100),
                                               lambda v: setattr(self, 'speed', v / 100.0)))
@@ -890,6 +996,37 @@ class DEMLATVisualizer(PiVizFX):
                 size=(s_force, s_force, s_force),
                 color=Palette.Standard10[1]
             )
+
+        # Partial-DOF position actuators — amber sphere + axis constraint indicators.
+        # Each locked axis is shown as a colored line through the node:
+        #   X → red,  Y → green,  Z → blue
+        n_partial = len(self.partial_pos_actuators_idx)
+        if n_partial > 0:
+            partial_pos = self.all_positions[self.partial_pos_actuators_idx]  # (n, 3)
+            radii = np.full(n_partial, self.scales.node_radius * 1.6, dtype='f4')
+            amber = np.full((n_partial, 3), (1.0, 0.65, 0.0), dtype='f4')
+            pgfx.draw_spheres_batch(
+                centers=partial_pos,
+                radii=radii,
+                colors=amber,
+                detail=self.config['sphere_detail']
+            )
+
+            # Axis constraint lines — one batch per axis
+            line_half = self.scales.node_radius * 4.0
+            _axis_dirs = np.eye(3, dtype='f4')
+            _axis_cols = np.array([(1.0, 0.2, 0.2), (0.2, 1.0, 0.2), (0.3, 0.5, 1.0)], dtype='f4')
+            for ax in range(3):
+                driven = self.partial_pos_dof_masks[:, ax]
+                if not np.any(driven):
+                    continue
+                dp = partial_pos[driven]
+                d = _axis_dirs[ax]
+                starts = dp - d * line_half
+                ends = dp + d * line_half
+                n_lines = len(dp)
+                cols = np.tile(_axis_cols[ax], (n_lines, 1))
+                pgfx.draw_lines_batch(starts, ends, cols, width=3.0)
 
     def _render_velocity_arrows(self, vels):
         """Render velocity arrows — vectorized for floating nodes."""

@@ -596,7 +596,7 @@ class JaxSolver:
         n = self.n_nodes
         f_ext = jnp.zeros(n * 3, dtype=jnp.float32)
 
-        # Position actuation
+        # 1a. Full position actuation — node is ATTR_POS_DRIVEN, excluded from dynamics
         if len(self.pos_actuator_indices) > 0 and actuation_map:
             state_copy = self.state
             current_x = self.state[:n * 3].reshape(n, 3)
@@ -614,7 +614,30 @@ class JaxSolver:
 
             self.state = state_copy
 
-        # Force actuation
+        # 1b. Partial DOF position actuation — node stays dynamic; inject velocity on
+        #     driven axes pre-integration and correct position post-integration.
+        partial_pos = {}  # {idx: (target_jnp, dof_list, inj_v_jnp)}
+        if actuation_map:
+            current_x = self.state[:n * 3].reshape(n, 3)
+            for node_id, data in actuation_map.items():
+                if data.get('type') != 'position':
+                    continue
+                dof = data.get('dof', [1, 1, 1])
+                if all(d == 1 for d in dof):
+                    continue  # full DOF — handled above
+                idx = int(node_id)
+                if int(self.attrs[idx]) & 2:
+                    continue  # safety guard
+                target = jnp.array(data['value'], dtype=jnp.float32)
+                inj_v = jnp.zeros(3, dtype=jnp.float32)
+                if dt > 1e-9:
+                    inj_v = (target - current_x[idx]) / dt
+                for ax in range(3):
+                    if dof[ax]:
+                        self.state = self.state.at[n * 3 + idx * 3 + ax].set(float(inj_v[ax]))
+                partial_pos[idx] = (target, dof, inj_v)
+
+        # 2. Force actuation
         if len(self.force_actuator_indices) > 0 and actuation_map:
             f_ext_array = np.array(f_ext).reshape(n, 3)
             for node_idx in self.force_actuator_indices:
@@ -631,6 +654,13 @@ class JaxSolver:
             for idx in self.fixed_indices:
                 idx = int(idx)
                 self.state = self.state.at[n * 3 + idx * 3: n * 3 + (idx + 1) * 3].set(0.0)
+
+        # Post-step: enforce partial DOF position constraints
+        for idx, (target, dof, inj_v) in partial_pos.items():
+            for ax in range(3):
+                if dof[ax]:
+                    self.state = self.state.at[idx * 3 + ax].set(float(target[ax]))
+                    self.state = self.state.at[n * 3 + idx * 3 + ax].set(float(inj_v[ax]))
 
     # --------------------------------------------------------
     # Differentiable API (new — used by openprc.optimize)

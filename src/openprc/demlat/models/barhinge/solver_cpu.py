@@ -7,9 +7,10 @@ EPSILON = 1e-12
 MIN_AREA = 1e-12
 MAX_FORCE = 1e6
 
-ATTR_FIXED = 1
-ATTR_POS_DRIVEN = 2
-ATTR_FORCE_DRIVEN = 4  # ADD THIS LINE
+ATTR_FIXED      = 1   # node is immobile
+ATTR_POS_DRIVEN = 2   # node position is fully driven (excluded from dynamics)
+ATTR_FORCE_DRIVEN = 4 # node receives external force actuation
+ATTR_COLLIDABLE = 8   # node participates in node-level collision detection
 
 
 @njit(fastmath=True)
@@ -353,6 +354,71 @@ def project_rigid_hinges_cpu(n_rigid, indices, phi0s, mass, attrs, x, omega):
         if active_l: x[l] += wl * lambda_val * q_l
 
 
+@njit(fastmath=True)
+def resolve_collisions_cpu(n_nodes, x, v, mass, attrs, radius, restitution, n_iters):
+    """
+    Node-level sphere collision: detect overlapping collidable pairs (O(n²))
+    and resolve with PBD position correction + impulse velocity correction.
+    Runs n_iters passes per call (same convention as PBD rigid constraints).
+    Only nodes with ATTR_COLLIDABLE (bit 3) participate.
+    Fixed nodes (ATTR_FIXED) are immovable but can push others.
+    """
+    r2 = (2.0 * radius) * (2.0 * radius)
+
+    for _ in range(n_iters):
+        for i in range(n_nodes):
+            if not (attrs[i] & ATTR_COLLIDABLE):
+                continue
+            for j in range(i + 1, n_nodes):
+                if not (attrs[j] & ATTR_COLLIDABLE):
+                    continue
+
+                dx = x[j, 0] - x[i, 0]
+                dy = x[j, 1] - x[i, 1]
+                dz = x[j, 2] - x[i, 2]
+                dist2 = dx*dx + dy*dy + dz*dz
+
+                if dist2 >= r2 or dist2 < 1e-16:
+                    continue
+
+                dist = np.sqrt(dist2)
+                inv_dist = 1.0 / dist
+                nx = dx * inv_dist
+                ny = dy * inv_dist
+                nz = dz * inv_dist
+                overlap = 2.0 * radius - dist
+
+                # Fixed nodes have zero inverse-mass (immovable)
+                wi = 0.0 if (attrs[i] & ATTR_FIXED) else 1.0 / mass[i]
+                wj = 0.0 if (attrs[j] & ATTR_FIXED) else 1.0 / mass[j]
+                w_sum = wi + wj
+                if w_sum < 1e-8:
+                    continue
+
+                # PBD position correction — push nodes apart
+                corr = overlap / w_sum
+                x[i, 0] -= nx * corr * wi
+                x[i, 1] -= ny * corr * wi
+                x[i, 2] -= nz * corr * wi
+                x[j, 0] += nx * corr * wj
+                x[j, 1] += ny * corr * wj
+                x[j, 2] += nz * corr * wj
+
+                # Impulse velocity correction (only for approaching nodes).
+                # v_rel_n = (v_j - v_i)·n: negative means j approaching i.
+                v_rel_n = ((v[j, 0] - v[i, 0]) * nx +
+                           (v[j, 1] - v[i, 1]) * ny +
+                           (v[j, 2] - v[i, 2]) * nz)
+                if v_rel_n < 0.0:
+                    impulse = -(1.0 + restitution) * v_rel_n / w_sum
+                    v[i, 0] -= nx * impulse * wi
+                    v[i, 1] -= ny * impulse * wi
+                    v[i, 2] -= nz * impulse * wi
+                    v[j, 0] += nx * impulse * wj
+                    v[j, 1] += ny * impulse * wj
+                    v[j, 2] += nz * impulse * wj
+
+
 class CpuSolver:
     """
     CPU-based fallback solver for the Bar-Hinge model.
@@ -444,6 +510,24 @@ class CpuSolver:
         if self.n_force_actuators > 0:
             self.force_actuator_values = np.zeros((self.n_force_actuators, 3), dtype=np.float64)
 
+        # 7. Collision
+        self.collision_enabled = self.options.get('enable_collision', False)
+        self.collision_radius = float(self.options.get('collision_radius', 0.01))
+        self.collision_restitution = float(self.options.get('collision_restitution', 0.5))
+        self.collision_iterations = int(self.options.get('collision_iterations', 3))
+        if self.collision_enabled:
+            n_collidable = int(np.sum((attributes.astype(np.uint8) & ATTR_COLLIDABLE) > 0))
+            if n_collidable < 2:
+                self.collision_enabled = False
+                self.logger.warning("Collision disabled: fewer than 2 collidable nodes")
+            else:
+                self.logger.info(
+                    f"Collision: {n_collidable} nodes, "
+                    f"radius={self.collision_radius}, "
+                    f"restitution={self.collision_restitution}, "
+                    f"iters={self.collision_iterations}"
+                )
+
     def upload_state(self, x, v):
         self.x[:] = x.astype(np.float64)
         self.v[:] = v.astype(np.float64)
@@ -452,7 +536,7 @@ class CpuSolver:
         return self.x.astype(np.float32), self.v.astype(np.float32)
 
     def step(self, t, dt, actuation_map):
-        # 1. Position Actuation
+        # 1a. Full position actuation — node is ATTR_POS_DRIVEN, excluded from dynamics
         if self.n_pos_actuators > 0 and actuation_map:
             for idx in self.pos_actuator_indices:
                 if idx in actuation_map and actuation_map[idx]['type'] == 'position':
@@ -460,6 +544,27 @@ class CpuSolver:
                     if dt > 1e-9:
                         self.v[idx] = (new_pos - self.x[idx]) / dt
                     self.x[idx] = new_pos
+
+        # 1b. Partial DOF position actuation — node stays dynamic; inject velocity on
+        #     driven axes pre-RK4 and correct position post-integration.
+        partial_pos = {}  # {idx: (target, dof_bool_array, injected_velocity)}
+        if actuation_map:
+            for node_id, data in actuation_map.items():
+                if data.get('type') != 'position':
+                    continue
+                dof = data.get('dof', [1, 1, 1])
+                if all(d == 1 for d in dof):
+                    continue  # full DOF — handled above
+                idx = int(node_id)
+                if self.attrs[idx] & ATTR_POS_DRIVEN:
+                    continue  # safety guard
+                target = np.asarray(data['value'], dtype=np.float64)
+                dof_mask = np.array(dof, dtype=bool)
+                inj_v = np.zeros(3, dtype=np.float64)
+                if dt > 1e-9:
+                    inj_v[dof_mask] = (target[dof_mask] - self.x[idx, dof_mask]) / dt
+                    self.v[idx, dof_mask] = inj_v[dof_mask]
+                partial_pos[idx] = (target, dof_mask, inj_v)
 
         # 2. Prepare Force Actuation
         if self.n_force_actuators > 0 and actuation_map:
@@ -529,3 +634,16 @@ class CpuSolver:
             if self.n_rigid_bars > 0:
                 correct_rigid_velocity_cpu(self.n_rigid_bars, self.rbar_indices,
                                            self.mass, self.attrs, self.x, self.v)
+
+        # 6. Collision detection and resolution
+        if self.collision_enabled:
+            resolve_collisions_cpu(
+                self.n_nodes, self.x, self.v, self.mass, self.attrs,
+                self.collision_radius, self.collision_restitution,
+                self.collision_iterations
+            )
+
+        # Post-step: enforce partial DOF position constraints
+        for idx, (target, dof_mask, inj_v) in partial_pos.items():
+            self.x[idx, dof_mask] = target[dof_mask]
+            self.v[idx, dof_mask] = inj_v[dof_mask]

@@ -13,7 +13,9 @@ from typing import Dict, Any, List, Optional
 
 from openprc.schemas.logging import get_logger
 from .post_processor import PostProcessor
-from openprc.schemas.demlat_sim_validator import DemlatSimValidator
+# NOTE: DemlatSimValidator is imported lazily inside run() to avoid a circular
+# import: openprc.schemas.__init__ -> demlat_sim_validator -> demlat (package
+# init) -> engine -> demlat_sim_validator (still mid-initialisation).
 
 
 class SimulationError(Exception): pass
@@ -22,9 +24,10 @@ class SimulationError(Exception): pass
 class Engine:
     SCHEMA_VERSION = "2.1.0"
 
-    def __init__(self, model_class, backend='auto', buffer_size=50):
+    def __init__(self, model_class=None, backend='auto', buffer_size=50):
+        from openprc.demlat.models.barhinge import BarHingeModel
         self.logger = get_logger("demlat.engine")
-        self.model_class = model_class
+        self.model_class = model_class if model_class is not None else BarHingeModel
         self.backend = backend
         self.buffer_size = buffer_size
         self._interrupted = False
@@ -40,6 +43,7 @@ class Engine:
 
         # --- 1. Pre-Run Validation ---
         try:
+            from openprc.schemas.demlat_sim_validator import DemlatSimValidator
             validator = DemlatSimValidator(simulation.root, logger=self.logger)
             validator.validate_all()
         except Exception as e:
@@ -77,51 +81,12 @@ class Engine:
             buffer = {'time': [], 'positions': [], 'velocities': []}
 
             with h5py.File(save_path, 'w') as f:
-                # Initialize Storage
                 self._init_minimal_storage(f, model.n_nodes)
-                # --- Compute and Save Actuation Signals (as an add-on) ---
-                if actuators and signals:
-                    sc = self._create_state_computer(simulation)
-                    if sc:
-                        n_save_steps = int(duration / dt_save)
-                        t_save = np.linspace(0, duration, n_save_steps + 1)
-                        
-                        signals_map = {}
-                        for act_def in actuators:
-                            node_idx = act_def.get('node_idx')
-                            if node_idx is None or node_idx in signals_map:
-                                continue
-
-                            sig_name = act_def.get('signal_name')
-                            raw_signal = signals.get(sig_name)
-                            signal_dt = signals.get('dt_base')
-                            act_type = act_def.get('type', 'force')
-
-                            if raw_signal is not None and signal_dt is not None:
-                                computed_signal = sc.compute_actuation_signal(
-                                    t_save, raw_signal, signal_dt, act_type, node_idx
-                                )
-                                signals_map[node_idx] = computed_signal
-                        
-                        if signals_map:
-                            actuated_node_indices = sorted(signals_map.keys())
-                            self.logger.info(f"Saving computed actuation signals for nodes: {actuated_node_indices}")
-                            try:
-                                ts_act_group = f.create_group('time_series/actuation_signals')
-                                for node_idx in actuated_node_indices:
-                                    signal_data = signals_map[node_idx]
-                                    ts_act_group.create_dataset(str(node_idx), data=signal_data.astype(np.float32), chunks=True)
-                            except Exception as e:
-                                self.logger.error(f"Failed to save actuation signals to HDF5: {e}", exc_info=True)
-
-                # --- Write Metadata ---
 
                 f.attrs['schema_version'] = self.SCHEMA_VERSION
                 f.attrs['frame_rate'] = 1.0 / dt_save
                 f.attrs['completed'] = 0
                 f.attrs['total_frames'] = 0
-
-                # [FIX] Source Geometry Path
                 f.attrs['source_geometry'] = "../input/geometry.h5"
 
                 viz_path = Path(simulation.root) / "input" / "visualization.h5"
