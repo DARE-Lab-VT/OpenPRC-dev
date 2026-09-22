@@ -211,3 +211,8 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 *imgui.ini
+
+*.png
+*.jpg
+*.npz
+robot_bundle/
