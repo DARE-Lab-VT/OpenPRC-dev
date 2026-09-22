@@ -75,7 +75,7 @@ class TrainingResult:
 
 class Trainer:
     """
-    Standardizes data GLOBALLY before splitting into fixed train/test lengths.
+    Fits standardization on training rows only and applies it to both splits.
     Structure: [1, X_standardized]
     """
     def __init__(self, features, readout, experiment_dir, loader, washout=5.0, train_duration=20.0, test_duration=5.0):
@@ -105,25 +105,29 @@ class Trainer:
                 f"but simulation only has {len(X_full)} frames ({len(X_full)*dt:.2f}s)."
             )
 
-        # 4. Standardize X and y
-        scaler_X = StandardScaler()
-        X_std = scaler_X.fit_transform(X_full)
-
-        # 5. Construct Design Matrix L = [1, X_std]
-        ones = np.ones((X_std.shape[0], 1))
-        L_full = np.hstack((ones, X_std))
-
-        # 6. Slicing
+        # 4. Split Before Fitting the State Scaler
         start_train = washout_len_frames
-        end_train   = washout_len_frames + train_len_frames
-        start_test  = end_train
-        end_test    = end_train + test_len_frames
+        end_train = start_train + train_len_frames
+        start_test = end_train
+        end_test = start_test + test_len_frames
+        if start_train < 0 or train_len_frames < 1 or test_len_frames < 1:
+            raise ValueError("Need nonnegative washout and nonempty training/test splits.")
+        if len(y_full) < end_test:
+            raise ValueError("Targets do not cover the training and test windows.")
 
-        L_train = L_full[start_train:end_train]
+        X_train = X_full[start_train:end_train]
+        X_test = X_full[start_test:end_test]
         y_train = y_full[start_train:end_train]
+        y_test = y_full[start_test:end_test]
 
-        L_test  = L_full[start_test:end_test]
-        y_test  = y_full[start_test:end_test]
+        # 5. Learn Mean and Scale Exclusively From Training Rows
+        scaler_X = StandardScaler().fit(X_train)
+        X_train_std = scaler_X.transform(X_train)
+        X_test_std = scaler_X.transform(X_test)
+
+        # 6. Add the Bias Column After Standardization
+        L_train = np.column_stack((np.ones(len(X_train_std)), X_train_std))
+        L_test = np.column_stack((np.ones(len(X_test_std)), X_test_std))
 
         print(f"Training with {train_len_frames} frames ({self.train_duration:.2f}s) | "
               f"Testing with {test_len_frames} frames ({self.test_duration:.2f}s)")

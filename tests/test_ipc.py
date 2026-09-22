@@ -187,7 +187,8 @@ class IPCChecks(unittest.TestCase):
                 washout=first/hz,train_duration=(stop-first)/hz,
                 test_duration=(len(u)-stop)/hz)
             result=MemoryBenchmark().run(trainer,u,tau_s=3,n_s=2,k_delay=1,sample_dt=1/hz,prepared_states=raw)
-            expected=ipc(StandardScaler().fit_transform(raw),u,3,2,first,stop,len(u)-stop,1)[1]
+            scaled=StandardScaler().fit(raw[first:stop]).transform(raw)
+            expected=ipc(scaled,u,3,2,first,stop,len(u)-stop,1)[1]
             np.testing.assert_allclose(result.metrics['capacities'],expected,atol=1e-12)
             self.assertAlmostEqual(loader.dt,1/119.88)
             self.assertEqual(result.metadata['sample_dt'],1/hz)

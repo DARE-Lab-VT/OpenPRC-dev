@@ -10,7 +10,7 @@ A seed alone does not identify a sequence across generators or languages.
 `openprc.analysis.utils.training_utils` accept prepared states with one row per
 original IID symbol. Align timestamps and perform optional temporal multiplexing
 before calling them. These functions do not standardize states internally.
-`MemoryBenchmark` retains its existing full-record z-score convention; its input
+`MemoryBenchmark` fits its z-score scaler on training rows only; its input
 must already have one IID value per feature row. It cannot infer IID timing from
 an arbitrary actuation waveform. For transformed rows on another clock, pass
 `sample_dt` in seconds per row to MemoryBenchmark. Its default remains loader.dt.
@@ -56,8 +56,14 @@ The default benchmark path without prepared_states is unchanged.
 zero capacities. These are not exponent-weighted memory cells, and neither is
 required to be monotonic. Finite-sample estimates, clipping and regularization
 mean summed estimates need not obey the ideal population rank bound exactly.
-Full-record standardization is retained for compatibility, not presented as a
-strict training-only preprocessing protocol or an intrinsic-capacity proof.
+Both Trainer and MemoryBenchmark split before fitting the scaler. Training means
+and standard deviations are applied unchanged to the test states. Washout rows,
+rows excluded for input history, test rows and unused trailing rows do not enter
+the scaler fit. Trainer saves those training-only statistics in the existing
+preprocessing/X_mean and preprocessing/X_scale datasets. Targets are unchanged.
+This intentionally changes the previous full-record standardization protocol;
+older heatmaps may differ, particularly with regularization or ill-conditioned
+states. It does not by itself establish intrinsic-capacity convergence.
 
 ## Example
 

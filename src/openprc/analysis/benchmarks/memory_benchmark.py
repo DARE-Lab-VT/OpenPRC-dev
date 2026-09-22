@@ -56,8 +56,6 @@ class MemoryBenchmark(BaseBenchmark):
             )
         X_full = (trainer.features.transform(trainer.loader) if prepared_states is None
                   else np.asarray(prepared_states))
-        scaler_X = StandardScaler()
-        X_std = scaler_X.fit_transform(X_full)
 
         # 2. Get params for memory_task from trainer and benchmark_args
         dt = benchmark_args.get('sample_dt', trainer.loader.dt)
@@ -92,14 +90,24 @@ class MemoryBenchmark(BaseBenchmark):
         train_stop = washout_frames + train_frames
         
         required_len = washout_frames + train_frames + test_frames
-        if len(X_std) < required_len:
+        if len(X_full) < required_len:
             raise ValueError(
                 f"Simulation too short! Need {required_len} frames "
                 f"({washout_duration + train_duration + test_duration:.2f}s), "
-                f"but simulation only has {len(X_std)} frames ({len(X_std) * dt:.2f}s)."
+                f"but simulation only has {len(X_full)} frames ({len(X_full) * dt:.2f}s)."
             )
 
-        # 3. Run memory task
+        # 3. Fit Scaling on Exactly the Rows Used by the IPC Regressions
+        # Exclude initial washout and any additional unavailable input history.
+        train_start = max(washout_frames, benchmark_args['tau_s'] * benchmark_args['k_delay'])
+        if train_start >= train_stop or test_frames < 2:
+            raise ValueError('Need nonempty training and at least two test rows after history/washout.')
+        scaler_X = StandardScaler().fit(X_full[train_start:train_stop])
+        # Keep original row indices for the delayed targets. Only fit(), above,
+        # estimates statistics; transform() cannot learn from held-out rows.
+        X_std = scaler_X.transform(X_full)
+
+        # 4. Run memory task
         results = memory_task(
             X=X_std,
             u_input=u_input,
@@ -135,7 +143,8 @@ class MemoryBenchmark(BaseBenchmark):
             'test_duration': test_duration,
             'feature_type': trainer.features.__class__.__name__,
             'input_bounds': benchmark_args.get('input_bounds', (-1., 1.)),
-            'target_basis': 'orthonormal_legendre'
+            'target_basis': 'orthonormal_legendre',
+            'standardization': 'training_rows_only'
         }
 
         # 5. Train and save readouts if requested
