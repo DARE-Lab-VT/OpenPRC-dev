@@ -1,171 +1,223 @@
-import sys
-import os
+"""Plot clean-IID capacity heatmaps for a saved experiment or simulation.
+
+Edit USER SETTINGS below, then run:
+    python3 -m openprc.examples.run_plot_heatmap
+
+Optional command-line arguments override these settings; see --help.
+"""
+import argparse
 from pathlib import Path
+
+import h5py
 import numpy as np
 import matplotlib.pyplot as plt
-from tqdm import tqdm
-from itertools import product
-from scipy.stats import chi2
-from sklearn.preprocessing import StandardScaler
-
-# --- Path Setup ---
-current_dir = Path(__file__).parent
-src_dir = current_dir.parent
-sys.path.insert(0, str(src_dir))
 
 # --- Core Library Imports ---
-from openprc.analysis.benchmarks.memory_benchmark import MemoryBenchmark
+from openprc.analysis.utils.training_utils import (
+    aggregate_ipc_heatmaps,
+)
+
 from openprc.reservoir.io.state_loader import StateLoader
-from openprc.reservoir.features.node_features import NodePositions, NodeDisplacements
-from openprc.reservoir.features.bar_features import BarExtensions, BarLengths
+from openprc.reservoir.features.node_features import NodePositions
 from openprc.reservoir.training.trainer import Trainer
 from openprc.reservoir.readout.ridge import Ridge
-from openprc.analysis.visualization.time_series import TimeSeriesComparison
+from openprc.analysis.benchmarks.memory_benchmark import MemoryBenchmark
+
+# =============================================================================
+# USER SETTINGS — edit this section for your recording
+# =============================================================================
+
+# --- Experiment Paths ---
+EXPERIMENT_ROOT = Path(__file__).resolve().parents[1] / "experiments" / "spring_mass_fully_connected"
+TOPOLOGY = "sample_0"
+EXPERIMENT_DIR = EXPERIMENT_ROOT / TOPOLOGY
+STATE_FILE = EXPERIMENT_DIR / "output" / "experiment.h5"  # Or experiment.h5
+
+# --- Original IID Symbols ---
+# None generates symbols from the settings below; a .npy/H5 file overrides generation.
+# Do not use the interpolated command or measured actuator displacement.
+IID_FILE = None
+IID_DATASET = "iid"              # Used only when IID_FILE is an H5 file
+IID_GENERATOR = "numpy_randomstate"  # Must match acquisition; not interchangeable with PCG64
+IID_SEED = 42
+IID_HZ = 30.0
+IID_DURATION = 120.0             # Seconds; generation produces duration * rate symbols
+IID_START_SECONDS = 0.0          # First symbol onset on the saved state clock
+INPUT_BOUNDS = (-1.0, 1.0)      # Known uniform population bounds, not sample extrema
+
+# --- Reservoir Features ---
+NODE_IDS = None                  # None selects all nodes; otherwise use e.g. [1, 2, 4]
+DIMS = (0, 1)                    # xy coordinates; exclude any tracking-status channel
+SNAPSHOT_PHASES = (0.0, 0.25, 0.5, 0.75)    # Four snapshots within each IID-symbol interval
+
+# --- Training and Capacity ---
+WASHOUT_SECONDS = 5.0
+TRAIN_FRACTION = 0.5             # Fraction after washout; testing follows immediately
+MAX_DEGREE = 4
+MAX_DELAY = 30                   # In IID symbols, not camera frames
+RIDGE = 1e-6
+
+# --- Plot Output ---
+SAVE_SVG = True
+SAVE_PNG = True
+DPI = 300
+SHOW_PLOTS = True
 
 
-def calculate_dambre_epsilon(effective_rank: int, test_duration: int, p_value: float = 1e-4) -> float:
+def load_or_generate_iid(iid_file, dataset, generator, seed, hz, duration, bounds):
+    """Read original symbols or reproduce them with an explicitly chosen generator."""
+    if iid_file is not None:
+        iid_path = Path(iid_file)
+        if iid_path.suffix == ".npy":
+            values = np.load(iid_path, allow_pickle=False)
+        else:
+            with h5py.File(iid_path) as f:
+                values = f[dataset][:]
+        print(f"-> Loading IID symbols: {iid_path}")
+    else:
+        if not np.isfinite([hz, duration]).all() or hz <= 0 or duration <= 0:
+            raise ValueError("IID_HZ and IID_DURATION must be positive and finite.")
+        symbol_count = hz * duration
+        nearest = round(symbol_count)
+        count = nearest if np.isclose(symbol_count, nearest, rtol=0, atol=1e-8) else int(np.ceil(symbol_count))
+        if count < 2:
+            raise ValueError("IID duration must include at least two symbol onsets.")
+        limits = np.asarray(bounds, dtype=float)
+        if limits.shape != (2,) or not np.isfinite(limits).all() or limits[0] >= limits[1]:
+            raise ValueError("INPUT_BOUNDS must contain two finite increasing values.")
+        if generator == "numpy_randomstate":
+            rng = np.random.RandomState(seed)
+        elif generator == "numpy_pcg64":
+            rng = np.random.Generator(np.random.PCG64(seed))
+        else:
+            raise ValueError(f"Unknown IID generator: {generator}")
+        values = rng.uniform(limits[0], limits[1], count)
+        print(f"-> Generating {count} IID symbols: {generator}, seed {seed}, {hz:g} Hz, {duration:g} s.")
+        print("Generator, seed, distribution and symbol onset must match acquisition; the seed alone is insufficient.")
+
+    values = np.asarray(values)
+    if values.ndim == 2 and values.shape[1] == 1:
+        values = values[:, 0]
+    if values.ndim != 1 or len(values) < 2 or not np.isfinite(values).all():
+        raise ValueError("IID symbols must be a finite scalar sequence with at least two values.")
+    return values
+
+
+def multiplex_states(time, states, count, iid_hz, start, phases):
+    """Interpolate states at fixed symbol phases without extrapolation.
+
+    Noninteger camera/IID rate ratios are supported. Interpolation does not add
+    independent observations; choose the phases for the measurement bandwidth.
     """
-    Calculates the exact theoretical threshold (epsilon) for IPC 
-    based on Dambre et al.'s chi-squared method.
-    
-    Parameters:
-    - effective_rank (N): The number of independent state variables (e.g., 9).
-    - test_duration (T): The number of samples in your test set.
-    - p_value (p): The acceptable probability of a false positive (default 10^-4).
-    
-    Returns:
-    - epsilon: The strict cutoff value to use in the Heaviside step function.
-    """
-    # 1. Find the threshold 't' using the Inverse Survival Function (ISF) 
-    # of the chi-squared distribution with N degrees of freedom.
-    # This finds 't' such that P(chi^2(N) >= t) = p
-    t = chi2.isf(p_value, df=effective_rank)
-    
-    # 2. Calculate the final epsilon: 2t / T
-    # The factor of 2 is the intentional doubling to account for 
-    # non-independent variables in real dynamical systems.
-    epsilon = (2.0 * t) / test_duration
-    
-    return epsilon
+    timestamp_dtype = np.asarray(time).dtype
+    time = np.asarray(time, dtype=float)
+    states = np.asarray(states, dtype=float)
+    phases = np.asarray(phases, dtype=float)
 
+    if (
+        time.ndim != 1 or len(time) < 2
+        or states.ndim != 2 or len(time) != len(states)
+        or not np.isfinite(time).all() or not np.isfinite(states).all()
+        or np.any(np.diff(time) <= 0)
+    ):
+        raise ValueError("Need finite states and strictly increasing matching timestamps.")
 
-def compute_effective_rank(loader, features) -> float:
-    """
-    Entropy-based effective rank (standard in reservoir computing).
+    if (
+        len(phases) == 0 or not np.isfinite(phases).all()
+        or np.any(phases < 0) or np.any(phases >= 1)
+        or np.any(np.diff(phases) <= 0)
+    ):
+        raise ValueError("Phases must be strictly increasing in [0, 1).")
 
-    Uses the Shannon entropy of normalised singular values:
-        s_norm         = s / sum(s)
-        effective_rank = exp( -sum(s_norm * log(s_norm)) )
+    if not np.isfinite([iid_hz, start]).all() or iid_hz <= 0 or count < 1:
+        raise ValueError("Positive IID rate/count and finite start required.")
 
-    Computed on the full state matrix with no washout stripping,
-    matching state_matrix_analysis_logic() exactly.
+    # Allow only the rounding error of stored timestamps, not missing frames.
+    timestamp_eps = np.finfo(timestamp_dtype).eps if np.issubdtype(timestamp_dtype, np.floating) else 0.0
+    time_tolerance = max(1e-9, 2 * timestamp_eps * max(1.0, np.max(np.abs(time))))
+    snapshot_times = start + (np.arange(count)[:, None] + phases[None, :]) / iid_hz
+    if snapshot_times.min() < time[0] - time_tolerance or snapshot_times.max() > time[-1] + time_tolerance:
+        raise ValueError(
+            "States do not cover requested symbol phases. Correct IID start/count/phases; "
+            "no extrapolation is performed."
+        )
+    if np.max(np.diff(time)) > 1 / iid_hz + time_tolerance:
+        raise ValueError("A state sampling gap exceeds one IID interval; inspect missing frames.")
 
-    Parameters
-    ----------
-    loader   : StateLoader
-    features : feature extractor (e.g. NodeDisplacements)
-
-    Returns
-    -------
-    effective_rank : float
-    """
-    state_matrix = features.transform(loader)
-
-    if state_matrix.shape[0] < 2:
-        return 1.0
-
-    state_matrix = StandardScaler().fit_transform(state_matrix)
-    _, s, _      = np.linalg.svd(state_matrix, full_matrices=False)
-    s_norm       = s / np.sum(s)
-    return float(np.exp(-np.sum(s_norm * np.log(s_norm + 1e-12))))
-
-
-def compute_test_frames(loader, test_duration_s: float = 10.0) -> int:
-    """
-    Derive T (number of test frames) from fps stored in the H5 file.
-
-    Parameters
-    ----------
-    loader         : StateLoader
-    test_duration_s: same value passed as test_duration to Trainer
-
-    Returns
-    -------
-    T : int
-    """
-    import h5py
-    with h5py.File(loader.sim_path, 'r') as f:
-        fps = float(f.attrs.get('fps', 29.97))
-    return max(1, int(test_duration_s * fps))
+    snapshot_times = np.clip(snapshot_times, time[0], time[-1])
+    snapshots = np.column_stack([
+        np.interp(snapshot_times.ravel(), time, states[:, j])
+        for j in range(states.shape[1])
+    ])
+    return snapshots.reshape(count, -1)
 
 
 def plot_heatmap(
-    heatmap, n_list, tau_d_list, k_delay, amp, n,
-    vmin=None, vmax=None,
+    heatmap, n_list=None, tau_d_list=None, k_delay=1,
+    vmin=0.0, vmax=None,
     save_dir=None,
     save_name=None,
     save_svg=True,
     save_png=False,
     dpi=300,
-    show=True
+    show=True,
+    cumulative=False,
 ):
+    """Plot exact capacity sums or cumulative target means with two-decimal labels."""
     fig, ax = plt.subplots(figsize=(10, 8))
-    heatmap = heatmap.T
+    display_values = heatmap.T
 
-    if heatmap is not None and n_list is not None and tau_d_list is not None:
-        title = (rf"$R^2$ (upper)", rf"num_mass={n}" + "\n" +
-                 rf"k={k_delay}, A={amp}")
+    if vmax is None:
+        vmax = max(1.0, float(np.max(heatmap)))
 
-        if vmin is None:
-            vmin = 0.0
-        if vmax is None:
-            vmax = 1.0
+    im = ax.imshow(
+        display_values, aspect="auto", origin="lower",
+        cmap="RdYlBu_r", vmin=vmin, vmax=vmax,
+    )
 
-        im = ax.imshow(
-            heatmap, aspect='auto', origin='lower',
-            cmap='RdYlBu_r', vmin=vmin, vmax=vmax
-        )
+    n_rows, n_cols = display_values.shape
+    for y in range(n_rows):
+        for x in range(n_cols):
+            ax.text(
+                x, y, f"{display_values[y, x]:.2f}",
+                ha="center", va="center", color="black", fontsize=7,
+            )
 
-        n_rows, n_cols = heatmap.shape
-        for y in range(n_rows):
-            for x in range(n_cols):
-                r2_val = heatmap[y, x]
+    cbar = fig.colorbar(im, ax=ax)
+    if cumulative:
+        cbar.set_label("Mean capacity over included targets")
+        ax.set_xlabel("Maximum total degree")
+        ax.set_title("Clean-IID cumulative mean")
+    else:
+        cbar.set_label("Summed capacity")
+        ax.set_xlabel("Exact total degree")
+        ax.set_title("Clean-IID exact degree / maximum delay")
+    ax.set_ylabel("Maximum delay (IID symbols)")
 
-                # Upper: R^2
-                if not np.isnan(r2_val):
-                    ax.text(x, y, f'{r2_val:.2f}',
-                            ha='center', va='center', color='black', fontsize=8)
+    if n_list is None:
+        n_list = np.arange(1, len(heatmap) + 1)
+    if tau_d_list is None:
+        tau_d_list = np.arange(heatmap.shape[1])
 
-        cbar = fig.colorbar(im, ax=ax)
-        cbar.set_label('$R^2$ Mean')
-        ax.set_xlabel(r'$n$ (monomial degree)')
-        ax.set_ylabel(r'$\tau$ (time delay)')
-        ax.set_title(title, fontsize=8)
-
-        ax.set_xticks(np.arange(len(n_list)))
-        ax.set_yticks(np.arange(len(tau_d_list)))
-        ax.set_xticklabels(n_list, fontsize=6)
-        ax.set_yticklabels((np.array(tau_d_list) * k_delay), fontsize=6)
-
+    ax.set_xticks(np.arange(len(n_list)), n_list)
+    ax.set_yticks(np.arange(len(tau_d_list)), np.asarray(tau_d_list) * k_delay)
     fig.tight_layout()
 
-    # ---- Save here (before show) ----
+    # Save before displaying the figure.
     if save_dir is not None:
-        os.makedirs(save_dir, exist_ok=True)
-
+        save_dir = Path(save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
         if save_name is None:
-            # Default filename
-            save_name = f"heatmap_R2_n{n}_A{amp}_k{k_delay}"
+            save_name = "heatmap_clean_iid_cumulative" if cumulative else "heatmap_clean_iid"
 
         if save_svg:
-            svg_path = os.path.join(save_dir, f"{save_name}.svg")
-            fig.savefig(svg_path, format="svg", bbox_inches="tight")
-            print(f"[Saved] Heatmap SVG -> {svg_path}", flush=True)
-
+            svg_path = save_dir / f"{save_name}.svg"
+            fig.savefig(svg_path, dpi=dpi)
+            print(f"[Saved] Heatmap SVG -> {svg_path}")
         if save_png:
-            png_path = os.path.join(save_dir, f"{save_name}.png")
-            fig.savefig(png_path, dpi=dpi, bbox_inches="tight")
-            print(f"[Saved] Heatmap PNG -> {png_path}", flush=True)
+            png_path = save_dir / f"{save_name}.png"
+            fig.savefig(png_path, dpi=dpi)
+            print(f"[Saved] Heatmap PNG -> {png_path}")
 
     if show:
         plt.show()
@@ -174,101 +226,148 @@ def plot_heatmap(
 
     return fig, ax
 
+
+def parse_arguments():
+    """Optional overrides; normal interactive use only needs USER SETTINGS above."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("state_file", nargs="?", type=Path, default=STATE_FILE)
+    parser.add_argument("--iid-file", type=Path, default=IID_FILE)
+    parser.add_argument("--iid-dataset", default=IID_DATASET)
+    parser.add_argument("--iid-generator", choices=("numpy_randomstate", "numpy_pcg64"), default=IID_GENERATOR)
+    parser.add_argument("--iid-seed", type=int, default=IID_SEED)
+    parser.add_argument("--iid-duration", type=float, default=IID_DURATION)
+    parser.add_argument("--iid-hz", type=float, default=IID_HZ)
+    parser.add_argument("--iid-start", type=float, default=IID_START_SECONDS)
+    parser.add_argument("--input-bounds", nargs=2, type=float, default=INPUT_BOUNDS)
+    parser.add_argument("--phases", nargs="+", type=float, default=SNAPSHOT_PHASES)
+    parser.add_argument("--nodes", nargs="+", type=int, default=NODE_IDS)
+    parser.add_argument("--dims", nargs="+", type=int, default=DIMS)
+    parser.add_argument("--washout", type=float, default=WASHOUT_SECONDS)
+    parser.add_argument("--train-fraction", type=float, default=TRAIN_FRACTION)
+    parser.add_argument("--max-degree", type=int, default=MAX_DEGREE)
+    parser.add_argument("--max-delay", type=int, default=MAX_DELAY)
+    parser.add_argument("--ridge", type=float, default=RIDGE)
+    parser.add_argument("--no-show", action="store_true", default=not SHOW_PLOTS)
+    return parser.parse_args()
+
+
 def main():
-    """
-    A pipeline to run the memory benchmark on a given experiment.
-    This script will first run the benchmark to calculate all memory capacities,
-    then prompt the user to select which readout to train and save permanently.
-    """
-    
-    # 1. Define the Experiment Path
-    TOPOLOGY = "generation_5"
-    AMPLITUDE = "amp=0.005"
-    
-    data_root = src_dir.parent / "openprc" / "experiments" / "spring_mass_4x4_test"
-    experiment_dir = data_root / TOPOLOGY / "output"
-    h5_path = experiment_dir / "simulation.h5"
-    save_path = experiment_dir / "plots"
+    """Load recording → prepare states → calculate IPC → plot both heatmaps."""
+
+    # 1. Define the Experiment Paths
+    settings = parse_arguments()
+    h5_path = Path(settings.state_file)
+    save_path = h5_path.parent / "plots"
 
     if not h5_path.exists():
-        print(f"[Error] Experiment file not found: {h5_path}")
-        return
+        raise FileNotFoundError(f"Experiment file not found: {h5_path}. Set STATE_FILE above.")
+    # 2. Load or Generate IID Symbols and Load Recorded Node Positions
+    print(f"-> Loading Experiment: {h5_path}")
+    u_input = load_or_generate_iid(
+        iid_file=settings.iid_file,
+        dataset=settings.iid_dataset,
+        generator=settings.iid_generator,
+        seed=settings.iid_seed,
+        hz=settings.iid_hz,
+        duration=settings.iid_duration,
+        bounds=settings.input_bounds,
+    )
 
-    print(f"-> Loading Experiment: {AMPLITUDE}")
-    
-    # 2. Shared Setup
     loader = StateLoader(h5_path)
-    features = NodeDisplacements(reference_node=0, dims=[0, 1])
+    print(f"Loaded {loader.total_frames} frames and {len(u_input)} original IID symbols.")
 
-    print(f"Loaded {loader.total_frames} frames from {h5_path.name}")
+    # 3. Extract Positions, Then Explicitly Convert Them to Displacements
+    features = NodePositions(
+        node_ids="all" if settings.nodes is None else settings.nodes,
+        dims=DIMS,
+    )
+    positions = features.transform(loader)
+    # Select dimensions in memory: H5 cannot fancy-index both nodes and dims.
+    feature_info = features.get_feature_info(loader)
+    selected = [i for i, info in enumerate(feature_info) if info["dim"] in settings.dims]
+    if not selected:
+        raise ValueError("No position features match the requested dimensions.")
+    positions = positions[:, selected]
+    displacements = positions - positions[0:1]
 
-    # Per-sample effective rank — computed before get_actuation_signal
-    # to match the call order in run_state_matrix_analysis.py
-    N = compute_effective_rank(loader, features)
-    u_input = loader.get_actuation_signal(actuator_idx=0, dof=0)
-    T = compute_test_frames(loader, test_duration_s=10.0)
-    eps = calculate_dambre_epsilon(effective_rank=N, test_duration=T)
-    print(f"  Effective rank (N): {N:.4f}   Test frames (T): {T}   Epsilon: {eps:.6f}")
-    
-    # 3. Define Benchmark and its arguments
-    n_list = list(range(1, 5))
-    tau_d_list = list(range(30))
-    k_delay = 1
+    # Align to the IID clock; one snapshot per already-aligned frame leaves
+    # the row structure unchanged. Multiple phases stack snapshots into columns.
+    states = multiplex_states(
+        loader.time, displacements, len(u_input), settings.iid_hz,
+        settings.iid_start, settings.phases,
+    )
 
-    heatmap = np.empty((len(n_list), len(tau_d_list)), dtype=float)
+    # 4. Define Washout and Contiguous Training / Testing Windows
+    if (
+        not np.isfinite(settings.washout) or settings.washout < 0
+        or not 0 < settings.train_fraction < 1
+    ):
+        raise ValueError("Use nonnegative washout and train fraction strictly between 0 and 1.")
 
-    idx_pairs = list(product(range(len(n_list)), range(len(tau_d_list))))
-    for (i, j) in tqdm(idx_pairs, total=len(idx_pairs), leave=True):
-        n_s = n_list[i]
-        tau_s = tau_d_list[j]
-        benchmark = MemoryBenchmark(group_name="memory_benchmark")
-        benchmark_args = {
-            "tau_s": tau_s,
-            "n_s": n_s,
-            "k_delay": k_delay,
-            "eps": eps,
-            "ridge": 1e-6
-        }
+    if not np.isfinite(settings.iid_hz) or settings.iid_hz <= 0:
+        raise ValueError("IID_HZ must be positive and finite.")
 
-        trainer = Trainer(
-            loader=loader,
-            features=features,
-            readout=Ridge(benchmark_args.get("ridge")),
-            experiment_dir=experiment_dir,
-            washout=5.0,
-            train_duration=10.0,
-            test_duration=10.0,
+    train_start = max(round(settings.washout * settings.iid_hz), settings.max_delay)
+    train_stop = train_start + int((len(u_input) - train_start) * settings.train_fraction)
+    test_duration = len(u_input) - train_stop
+
+    # 5. Configure Trainer and Run the Existing MemoryBenchmark Once
+    # Duration arguments are seconds. The feature rows represent IID symbols,
+    # so tell the benchmark their interval instead of using the camera interval.
+    sample_dt = 1.0 / settings.iid_hz
+    trainer = Trainer(
+        loader=loader,
+        features=features,
+        readout=Ridge(settings.ridge),
+        experiment_dir=h5_path.parent.parent,
+        washout=train_start * sample_dt,
+        train_duration=(train_stop - train_start) * sample_dt,
+        test_duration=test_duration * sample_dt,
+    )
+    benchmark = MemoryBenchmark(group_name="memory_benchmark")
+    score = benchmark.run(
+        trainer,
+        u_input,
+        tau_s=settings.max_delay,
+        n_s=settings.max_degree,
+        k_delay=1,
+        ridge=settings.ridge,
+        input_bounds=settings.input_bounds,
+        sample_dt=sample_dt,
+        prepared_states=states,
+    )
+    score.save()
+
+    # Standardization and per-target regression are handled by MemoryBenchmark.
+    capacities = score.metrics["capacities"]
+    exponents = score.metrics["exponents"]
+    exact_heatmap, cumulative_heatmap = aggregate_ipc_heatmaps(capacities, exponents)
+
+    print(
+        f"{len(u_input)} IID rows; train [{train_start}, {train_stop}), "
+        f"test [{train_stop}, {len(u_input)});"
+    )
+    print(
+        f"Positive targets: {np.count_nonzero(capacities > 0)}/{len(capacities)}; "
+        f"linear={score.metrics['linear_memory_capacity']:.6g}; "
+        f"nonlinear={score.metrics['nonlinear_memory_capacity']:.6g}"
+    )
+
+    # 6. Save and Display Exact and Cumulative Heatmaps
+    n_list = list(range(1, settings.max_degree + 1))
+    tau_d_list = list(range(settings.max_delay + 1))
+
+    for heatmap, cumulative in [(exact_heatmap, False), (cumulative_heatmap, True)]:
+        plot_heatmap(
+            heatmap, n_list, tau_d_list,
+            save_dir=save_path,
+            save_svg=SAVE_SVG,
+            save_png=SAVE_PNG,
+            dpi=DPI,
+            show=not settings.no_show,
+            cumulative=cumulative,
         )
-        
-        # 4. First Run: Calculate all capacities
-        # print(f"\n--- Running Initial Benchmark to Calculate All Capacities ---")
-        score = benchmark.run(trainer, u_input, **benchmark_args)
-        score.save()
-        # print("--- Initial run complete. ---")
 
-        # 5. Print key metrics and prepare for interactive selection
-        if not score.metrics:
-            print("Benchmark did not produce any metrics. Exiting.")
-            return
-
-        # print("\n[Benchmark Results]")
-        # print(f"  >> Total Capacity: {score.metrics.get('total_capacity', 0):.4f}")
-        # print(f"  >> Linear Memory Capacity: {score.metrics.get('linear_memory_capacity', 0):.4f}")
-        # print(f"  >> Nonlinear Memory Capacity: {score.metrics.get('nonlinear_memory_capacity', 0):.4f}")
-
-        capacities = score.metrics.get('capacities')
-        basis_names_bytes = score.metrics.get('basis_names', [])
-        basis_names = [name.decode('utf-8') for name in basis_names_bytes]
-
-        if capacities is None or not basis_names:
-            print("No capacities or basis names found in metrics. Exiting.")
-            return
-
-        # 6. Interactive Readout Selection
-        heatmap[i, j] = np.nanmean(capacities)
-
-    plot_heatmap(heatmap, n_list, tau_d_list, k_delay=k_delay, amp=1, n=16, save_dir=save_path, save_svg=True)
-    
 
 if __name__ == "__main__":
     main()

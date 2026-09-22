@@ -1,5 +1,5 @@
 import numpy as np
-from openprc.analysis.utils.training_utils import compute_ipc_components, compute_ipc_components_gpu
+from openprc.analysis.utils.training_utils import compute_ipc_components
 
 
 def NARMA_task(u_input, order=2, a=0.3, b=0.05, c=1.5, d=0.1):
@@ -44,9 +44,12 @@ def NARMA_task(u_input, order=2, a=0.3, b=0.05, c=1.5, d=0.1):
 
 
 def memory_task(X, u_input, washout: int, train_stop: int, test_duration: int,
-                tau_s: int, n_s: int, k_delay: int = 1, eps: float = 1e-6, ridge: float = 1e-6):
+                tau_s: int, n_s: int, k_delay: int = 1, *, ridge: float = 1e-6,
+                input_bounds=(-1., 1.)):
     """
-    Computes Dambre's Information Processing Capacity (IPC) components.
+    Computes held-out Legendre IPC estimates from original uniform IID symbols.
+    X and u_input must have one aligned row per symbol; population input_bounds
+    must describe the acquisition distribution. Negative scores are clipped to zero; no positive-capacity cutoff is applied.
     
     References:
         Dambre et al., "Information Processing Capacity of Dynamical Systems", Scientific Reports (2012).
@@ -54,7 +57,7 @@ def memory_task(X, u_input, washout: int, train_stop: int, test_duration: int,
     Parameters
     ----------
     k_delay : int, default=1
-        Delay step size. For standard Memory Capacity (Jaeger 2001/Dambre 2012), this must be 1.
+        Delay step in IID symbols; 1 includes every consecutive lag.
     """
     
     basis_names, capacities, exps = compute_ipc_components(
@@ -66,17 +69,16 @@ def memory_task(X, u_input, washout: int, train_stop: int, test_duration: int,
         train_stop=train_stop,
         test_duration=test_duration,
         k_delay=k_delay,
-        epsilon=eps,
         ridge=ridge,
-        return_names=True
+        return_names=True,
+        input_bounds=input_bounds
     )
     
     # Summing capacities based on polynomial degree (d)
     degrees = np.sum(exps, axis=1)
     
     # --- Linear Memory Capacity (d=1) ---
-    # Dambre (2012) identifies this as the capacity to reconstruct 
-    # linear functions of past inputs (u(t-k)).
+    # Includes the current input (lag 0) as well as delayed linear targets.
     linear_indices = np.where(degrees == 1)[0]
     linear_mc = np.nansum(capacities[linear_indices])
     
@@ -86,13 +88,12 @@ def memory_task(X, u_input, washout: int, train_stop: int, test_duration: int,
     nonlinear_mc = np.nansum(capacities[nonlinear_indices])
     
     # --- Total Information Processing Capacity (IPC) ---
-    # Theoretical limit: Sum(C) <= N (number of linearly independent reservoir states)
     total_ipc = linear_mc + nonlinear_mc
     
     results = {
-        'linear_memory_capacity': linear_mc,     # Matches Jaeger's MC if k_delay=1
+        'linear_memory_capacity': linear_mc,
         'nonlinear_memory_capacity': nonlinear_mc,
-        'total_capacity': total_ipc,             # Dambre's Total Capacity
+        'total_capacity': total_ipc,
         'capacities': capacities,                # Individual C values for each basis function
         'basis_names': basis_names,
         'degrees': degrees,
