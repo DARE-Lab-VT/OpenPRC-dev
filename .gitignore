@@ -206,9 +206,4 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
-/src/imgui.ini
-/exports/
-.idea/
-imgui.ini
-/examples/exports/
-/correlation_plots/
+*imgui.ini

@@ -1,228 +1,173 @@
+"""Readout utilities. IPC expects original uniform IID symbols, one per state row."""
 import numpy as np
-import torch
-
 from numpy.lib.stride_tricks import sliding_window_view
 
 
-def compute_ipc_components(X, u_iid_input, tau_s, n_s, washout, train_stop, test_duration, k_delay,
-                          interp_factor: int = 1, 
-                          epsilon: float = 1E-4,
-                          ridge: float = 1e-6,
-                          return_names: bool = True,): 
-                          
-    u = np.asarray(u_iid_input, dtype=np.float32).flatten()
-    X = np.asarray(X, dtype=np.float32)
+def scale_iid_input(u, input_bounds=(-1., 1.)):
+    """Map known *population* bounds to [-1,1], never observed extrema.
 
-    if interp_factor > 1:
-        X = X[::interp_factor]
-        u = u[::interp_factor]
-    
-    min_len = min(len(X), len(u))
-    X = X[:min_len]
-    u = u[:min_len]
-
-    t_test_end = train_stop + test_duration
-    lag_indices = [j * k_delay for j in range(tau_s + 1)]
-    Lvars = len(lag_indices)
-    
-    # --- FIX 1: Auto-detect bounds to strictly enforce [-1, 1] Legendre scaling ---
-    u_min, u_max = np.min(u), np.max(u)
-    if abs(u_max - u_min) < 1e-12:
-        raise ValueError("Input signal u is constant. Cannot scale to [-1,1].")
-    u_leg = (2.0 * (u - u_min) / (u_max - u_min) - 1.0).astype(np.float32)
-
-    # 1. Generate Basis Exponents
-    exps = []
-    def rec(rem, i, vec):
-        if i == Lvars - 1:
-            vec[i] = rem
-            exps.append(vec.copy())
-        else:
-            for v in range(rem + 1):
-                vec[i] = v
-                rec(rem - v, i + 1, vec)
-
-    for d in range(1, n_s + 1):
-        rec(d, 0, np.zeros(Lvars, dtype=np.int16))
-    exps = np.asarray(exps)
-
-    capacities = np.zeros(len(exps), dtype=np.float32)
-    
-    # Normalized Legendre
-    def legendre_P_normalized(n, x):
-        if n == 0: return np.ones_like(x)
-        pm2, pm1 = np.ones_like(x), x
-        for k in range(1, n):
-            curr = ((2*k + 1) * x * pm1 - k * pm2) / (k + 1)
-            pm2, pm1 = pm1, curr
-        return np.sqrt(2*n + 1) * pm1
-
-    for idx, exp_vec in enumerate(exps):
-        active_lags = [lag_indices[j] for j, d in enumerate(exp_vec) if d > 0]
-        max_lag_i = max(active_lags) if active_lags else 0
-        
-        t_start = max(washout, max_lag_i)
-        if t_start >= train_stop: continue 
-
-        X_tr = X[t_start:train_stop]
-        X_te = X[train_stop:t_test_end]
-        
-        y_tr = np.ones(len(X_tr))
-        y_te = np.ones(len(X_te))
-        for j, deg in enumerate(exp_vec):
-            if deg > 0:
-                lag = lag_indices[j]
-                y_tr *= legendre_P_normalized(deg, u_leg[t_start-lag : train_stop-lag])
-                y_te *= legendre_P_normalized(deg, u_leg[train_stop-lag : t_test_end-lag])
-
-        # --- Stable Ridge Regression with native Bias Term ---
-        X_tr_b = np.concatenate([np.ones((len(X_tr), 1), dtype=np.float32), X_tr], axis=1)
-        X_te_b = np.concatenate([np.ones((len(X_te), 1), dtype=np.float32), X_te], axis=1)
-        
-        p1 = X_tr_b.shape[1]
-        DtD = X_tr_b.T @ X_tr_b
-        trace = np.trace(DtD)
-        lam = ridge * (trace / p1) 
-        
-        I = np.eye(p1, dtype=np.float32)
-        I[0, 0] = 0.0  # Mathematically crucial: do not regularize the bias term
-        
-        try:
-            w = np.linalg.solve(DtD + lam * I, X_tr_b.T @ y_tr)
-        except np.linalg.LinAlgError:
-            w = np.linalg.pinv(DtD + lam * I) @ (X_tr_b.T @ y_tr)
-            
-        y_pred = X_te_b @ w
-        # ----------------------------------------------------
-        
-        # Capacity Evaluation
-        sst = np.sum((y_te - y_te.mean())**2) + 1e-12
-        sse = np.sum((y_te - y_pred)**2)
-        
-        raw_capacity = 1.0 - (sse / sst)
-        capacities[idx] = raw_capacity if raw_capacity > epsilon else 0.0
-
-    basis_names = []
-    if return_names:
-        for e in exps:
-            parts = [f"P{d}(u(t-{l}))" for d, l in zip(e, lag_indices) if d > 0]
-            basis_names.append(" * ".join(parts))
-
-    return basis_names, capacities, exps
-
-
-def compute_ipc_components_gpu(X, u_input, tau_s, n_s, washout, train_stop, test_duration, k_delay, 
-                         chunk_size: int = 512, ridge: float = 1e-6, epsilon: float = 1e-4, 
-                         device: str | None = None, return_names: bool = True):
+    Values must be the actual IID sequence used in acquisition, not an
+    interpolated command or measured actuator trajectory. Bounds alone cannot
+    establish independence or uniformity.
     """
-    High-fidelity GPU IPC computation using Normalized Legendre Polynomials.
-    Matches CPU logic: Stable Ridge (unpenalized bias) + Orthogonal [-1, 1] scaling.
-    """
-    if device is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-    device = torch.device(device)
+    u = np.asarray(u, dtype=np.float64)
+    if u.ndim == 2 and u.shape[1] == 1:
+        u = u[:, 0]
+    if u.ndim != 1 or len(u) < 2 or not np.isfinite(u).all():
+        raise ValueError('Expected a finite scalar IID sequence.')
+    bounds = np.asarray(input_bounds, dtype=float)
+    if bounds.shape != (2,) or not np.isfinite(bounds).all() or bounds[1] <= bounds[0]:
+        raise ValueError('input_bounds must be finite increasing population bounds.')
+    lo, hi = bounds
+    if np.any(u < lo) or np.any(u > hi):
+        raise ValueError('IID values fall outside input_bounds.')
+    if np.ptp(u) == 0:
+        raise ValueError('IID input is constant.')
+    return 2*(u-lo)/(hi-lo)-1
 
-    u = np.asarray(u_input, dtype=np.float32).flatten()
+
+def legendre_target(u_scaled, exponents, k_delay=1):
+    """One orthonormal product target; unavailable history is NaN, never wrapped."""
+    u = np.asarray(u_scaled, dtype=np.float64)
+    y = np.ones(len(u), dtype=np.float64)
+    for j, degree in enumerate(exponents):
+        if degree:
+            lag = j*k_delay
+            values = np.polynomial.legendre.legval(u[:len(u)-lag], [0.]*int(degree)+[1.])
+            y[lag:] *= np.sqrt(2*degree+1)*values
+            y[:lag] = np.nan
+    return y
+
+
+def _ipc_setup(X, u, tau_s, n_s, washout, train_stop, test_duration,
+               k_delay, ridge, input_bounds):
+    for value, label, minimum in ((tau_s,'tau_s',0),(n_s,'n_s',1),
+            (washout,'washout',0),(train_stop,'train_stop',1),
+            (test_duration,'test_duration',2),(k_delay,'k_delay',1)):
+        if isinstance(value, bool) or not isinstance(value, (int,np.integer)) or value < minimum:
+            raise ValueError(f'{label} must be an integer >= {minimum}.')
+    if not np.isfinite(ridge) or ridge < 0:
+        raise ValueError('ridge must be finite and nonnegative.')
+    u = scale_iid_input(u, input_bounds)
     X = np.asarray(X, dtype=np.float32)
-    
-    # 1. Strict Domain Scaling [-1, 1] (Crucial for Legendre Orthogonality)
-    u_min, u_max = np.min(u), np.max(u)
-    u_leg = (2.0 * (u - u_min) / (u_max - u_min) - 1.0).astype(np.float32)
-
-    max_lag = tau_s * k_delay
-    t_start = max(washout, max_lag)
-    t_test_end = train_stop + test_duration
-
-    # 2. Construct Lag Matrix (CPU -> GPU)
-    U_full = sliding_window_view(u_leg, max_lag + 1)[:, ::-1]
-    lag_indices = [j * k_delay for j in range(tau_s + 1)]
-    U_sub = U_full[:, lag_indices]
-    Lvars = U_sub.shape[1]
-    
-    U_train = torch.from_numpy(U_sub[t_start - max_lag : train_stop - max_lag]).to(device, dtype=torch.float32)
-    U_test  = torch.from_numpy(U_sub[train_stop - max_lag : t_test_end - max_lag]).to(device, dtype=torch.float32)
-    X_train = torch.from_numpy(X[t_start:train_stop]).to(device, dtype=torch.float32)
-    X_test  = torch.from_numpy(X[train_stop:t_test_end]).to(device, dtype=torch.float32)
-
-    # 3. Stable Ridge Solver (Unpenalized Bias)
-    D_train = torch.cat([torch.ones((U_train.shape[0], 1), device=device), X_train], dim=1)
-    D_test  = torch.cat([torch.ones((U_test.shape[0], 1), device=device), X_test], dim=1)
-    
-    DtD = D_train.T @ D_train
-    lam = ridge * (torch.trace(DtD) / D_train.shape[1]).clamp(min=1e-12)
-    I = torch.eye(D_train.shape[1], device=device)
-    I[0, 0] = 0.0 
-    
-    try:
-        P = torch.linalg.solve(DtD + lam * I, D_train.T)
-    except RuntimeError:
-        P = torch.linalg.pinv(DtD + lam * I) @ D_train.T
-
-    # 4. Normalized Legendre Generator for GPU
-    def get_legendre_gpu(n, x_tensor):
-        if n == 0: return torch.ones_like(x_tensor)
-        pm2, pm1 = torch.ones_like(x_tensor), x_tensor
-        for k in range(1, n):
-            curr = ((2*k + 1) * x_tensor * pm1 - k * pm2) / (k + 1)
-            pm2, pm1 = pm1, curr
-        return np.sqrt(2*n + 1) * pm1
-
-    # 5. Exponent Enumeration (Stars & Bars)
+    if X.ndim != 2 or X.shape[1] == 0 or len(X) != len(u) or not np.isfinite(X).all():
+        raise ValueError('X must be finite 2D states with exactly one row per IID symbol.')
+    first = max(washout, tau_s*k_delay)
+    end = train_stop+test_duration
+    if first >= train_stop or end > len(X):
+        raise ValueError('Insufficient rows for common history/washout, train and test windows.')
     exps = []
-    vec = np.zeros(Lvars, dtype=np.int16)
-    def rec(rem, i):
-        if i == Lvars - 1:
-            vec[i] = rem
-            exps.append(vec.copy())
-        else:
-            for v in range(rem + 1):
-                vec[i] = v
-                rec(rem - v, i + 1)
-    for d in range(1, n_s + 1): # Start at 1 to skip constant degree
-        rec(d, 0)
-    
-    exps = np.asarray(exps, dtype=np.int16)
-    K = len(exps)
-    capacities = torch.zeros(K, device=device)
+    def rec(rem, vec):
+        if len(vec) == tau_s:
+            exps.append(vec+[rem]); return
+        for degree in range(rem+1): rec(rem-degree, vec+[degree])
+    for degree in range(1,n_s+1): rec(degree, [])
+    exps = np.asarray(exps,dtype=np.int64)
+    a = np.column_stack((np.ones(train_stop-first,dtype=np.float32),X[first:train_stop]))
+    b = np.column_stack((np.ones(test_duration,dtype=np.float32),X[train_stop:end]))
+    return u, exps, a, b, first, end
 
-    # 6. Chunked Execution
-    for start in range(0, K, chunk_size):
-        end = min(start + chunk_size, K)
-        chunk_exps = exps[start:end]
-        
-        # Build Polynomial targets on GPU
-        Y_train = torch.ones((U_train.shape[0], end-start), device=device)
-        Y_test  = torch.ones((U_test.shape[0], end-start), device=device)
-        
-        for idx, exp_vec in enumerate(chunk_exps):
-            for j, deg in enumerate(exp_vec):
-                if deg > 0:
-                    Y_train[:, idx] *= get_legendre_gpu(deg, U_train[:, j])
-                    Y_test[:, idx]  *= get_legendre_gpu(deg, U_test[:, j])
 
-        # Batch Prediction & R2 Evaluation
-        SST = torch.sum((Y_test - Y_test.mean(dim=0))**2, dim=0) + 1e-12
-        W = P @ Y_train
-        SSE = torch.sum((Y_test - D_test @ W)**2, dim=0)
-        
-        raw_cap = 1.0 - (SSE / SST)
-        capacities[start:end] = torch.where(raw_cap > epsilon, raw_cap, 0.0)
+def _names(exps, k_delay, return_names):
+    return [' * '.join(f'P{d}(u(t-{j*k_delay}))' for j,d in enumerate(e) if d)
+            for e in exps] if return_names else []
 
-    # 7. Generate Basis Names (Post-Processing on CPU)
-    basis_names = []
-    if return_names:
-        for e in exps:
-            parts = [f"P{d}(u(t-{lag_indices[j]}))" for j, d in enumerate(e) if d > 0]
-            basis_names.append(" * ".join(parts))
 
-    return basis_names, capacities.cpu().numpy(), exps
+def compute_ipc_components(X, u_iid_input, tau_s, n_s, washout, train_stop,
+                           test_duration, k_delay, *, ridge=1e-6, return_names=True,
+                           input_bounds=(-1.,1.),
+                           return_raw=False):
+    """Held-out IPC estimates using separate ridge fits for Legendre products.
+
+    X is already prepared/standardized and aligned to the original IID symbols.
+    All targets share [max(washout,tau_s*k_delay), train_stop) for training;
+    testing follows immediately, with no gap. Indices count symbol rows.
+    Trace-scaled ridge leaves the bias unpenalized. Negative R² is clipped
+    to zero; no positive-capacity or rank-derived cutoff is applied.
+    return_raw=True exposes unthresholded held-out R². Alignment and
+    multiplexing must be performed before this function.
+    Finite-data clipped sums are estimates, not guaranteed intrinsic capacities.
+    """
+    u,exps,a,b,first,end = _ipc_setup(X,u_iid_input,tau_s,n_s,washout,train_stop,
+                                    test_duration,k_delay,ridge,input_bounds)
+    gram = a.T@a
+    penalty = np.eye(gram.shape[0],dtype=np.float32); penalty[0,0] = 0
+    system = gram + ridge*np.trace(gram)/len(gram)*penalty
+    scores = np.empty(len(exps),dtype=np.float64)
+    for j,exp in enumerate(exps):
+        target = legendre_target(u,exp,k_delay)
+        ytr,yte = target[first:train_stop],target[train_stop:end]
+        rhs = a.T@ytr
+        try: weights = np.linalg.solve(system,rhs)
+        except np.linalg.LinAlgError: weights = np.linalg.pinv(system)@rhs
+        score = 1-np.sum((yte-b@weights)**2)/(np.sum((yte-yte.mean())**2)+1e-12)
+        scores[j] = score if return_raw else max(score, 0.)
+    return _names(exps,k_delay,return_names),scores,exps
+
+
+def compute_ipc_components_gpu(X, u_input, tau_s, n_s, washout, train_stop,
+                               test_duration, k_delay, *, chunk_size=512, ridge=1e-6,
+                               device=None, return_names=True,
+                               input_bounds=(-1.,1.), return_raw=False):
+    """Same targets, windows and per-target solves as CPU, using Torch.
+
+    chunk_size is retained for call compatibility; targets are streamed one at a
+    time. Floating-point backend differences remain possible. Torch is optional
+    for CPU-only users of this module.
+    """
+    import torch
+    if not isinstance(chunk_size,int) or chunk_size < 1:
+        raise ValueError('chunk_size must be a positive integer.')
+    device = torch.device(device or ('cuda' if torch.cuda.is_available() else 'cpu'))
+    u,exps,a,b,first,end = _ipc_setup(X,u_input,tau_s,n_s,washout,train_stop,
+                                    test_duration,k_delay,ridge,input_bounds)
+    # Match the float32 state Gram and float64 target arithmetic of the CPU path.
+    a = torch.as_tensor(a,device=device); b = torch.as_tensor(b,device=device).double()
+    gram = a.T@a
+    penalty = torch.eye(gram.shape[0],device=device); penalty[0,0] = 0
+    system = (gram+ridge*torch.trace(gram)/len(gram)*penalty).double()
+    a = a.double()
+    scores = np.empty(len(exps))
+    for j,exp in enumerate(exps):
+        target = legendre_target(u,exp,k_delay)
+        ytr = torch.as_tensor(target[first:train_stop],device=device)
+        yte = torch.as_tensor(target[train_stop:end],device=device)
+        rhs = a.T@ytr
+        try: weights = torch.linalg.solve(system,rhs)
+        except RuntimeError: weights = torch.linalg.pinv(system)@rhs
+        score = float((1-torch.sum((yte-b@weights)**2)/(torch.sum((yte-yte.mean())**2)+1e-12)).item())
+        scores[j] = score if return_raw else max(score, 0.)
+    return _names(exps,k_delay,return_names),scores,exps
+
+
+def aggregate_ipc_heatmaps(capacities, exponents):
+    """Exact degree/max-lag-index sums and cumulative target means.
+
+    Columns index delays 0..tau_s (multiply by k_delay for symbol delays).
+    Cumulative means include zero-scoring targets in their denominator.
+    Neither map is the exponent-weighted-memory grid used in some papers.
+    """
+    exps = np.asarray(exponents)
+    scores = np.asarray(capacities)
+    if exps.ndim != 2 or len(exps) != len(scores) or len(exps) == 0:
+        raise ValueError('Need matching nonempty capacity and exponent arrays.')
+    if not np.isfinite(scores).all() or np.any(exps<0) or np.any(exps.sum(axis=1)<1):
+        raise ValueError('Expected finite scores and nonconstant product exponents.')
+    exact = np.zeros((int(exps.sum(axis=1).max()),exps.shape[1]))
+    counts = np.zeros_like(exact,dtype=int)
+    for score,exp in zip(scores,exps):
+        degree = int(exp.sum()); lag = np.flatnonzero(exp)[-1]
+        exact[degree-1,lag] += max(float(score),0.)
+        counts[degree-1,lag] += 1
+    totals = exact.cumsum(0).cumsum(1); counts = counts.cumsum(0).cumsum(1)
+    return exact,np.divide(totals,counts,out=np.zeros_like(totals),where=counts>0)
 
 
 def compute_R2(X, u_input, tau_s, n_s, washout, train_stop, test_duration, k_delay, 
                          ridge: float = 1e-6, return_names: bool = True):
     """
-    Computes the Information Processing Capacity (Capacity = 1 - NMSE) for the 
-    cumulative multinomial basis of the input, processed one target at a time.
+    Computes held-out reconstruction R² for monomial targets.
+    This legacy calculation is separate from orthogonal Legendre IPC.
     """
 
     u = np.asarray(u_input, dtype=np.float32)
@@ -293,7 +238,7 @@ def compute_R2(X, u_input, tau_s, n_s, washout, train_stop, test_duration, k_del
     
     # --- 5. Compute Capacity One Target at a Time ---
     capacities = np.full((K,), np.nan, dtype=np.float32)
-    eps = 1e-12
+    variance_floor = 1e-12  # Numerical guard for constant targets, not an IPC cutoff.
 
     for idx in range(K):
         exp_vec = exps[idx]
@@ -320,7 +265,7 @@ def compute_R2(X, u_input, tau_s, n_s, washout, train_stop, test_duration, k_del
         SSE = np.sum((Y_test_i - Y_pred_i) ** 2)
 
         # E. Calculate Capacity
-        if SST > eps:
+        if SST > variance_floor:
             cap = 1.0 - (SSE / SST)
             capacities[idx] = np.clip(cap, 0.0, 1.0)
 
